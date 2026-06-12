@@ -86,7 +86,7 @@ function maybeAiTurn() {
   aiThinking = true;
   render();
   setTimeout(() => {
-    const move = chooseMove(current(), config);
+    const move = chooseMove(current(), config, { maxMs: 700 });
     aiThinking = false;
     if (move) states.push(applyMove(current(), move));
     render();
