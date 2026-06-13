@@ -21,8 +21,10 @@ body {
   color: var(--text);
   font-family: 'Apple SD Gothic Neo', 'Noto Sans KR', sans-serif;
   min-height: 100vh;
+  min-height: 100dvh;
   display: flex;
   justify-content: center;
+  -webkit-tap-highlight-color: transparent;
 }
 
 #app {
@@ -132,6 +134,13 @@ button.action {
   padding: 9px 0;
   font-size: 14px;
   cursor: pointer;
+  min-height: 44px;
+  touch-action: manipulation;
+}
+
+button.action:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
 }
 
 button.action:hover {
@@ -142,6 +151,18 @@ button.action:hover {
   font-size: 12.5px;
   line-height: 1.65;
   color: var(--text-dim);
+}
+
+.rules-note summary {
+  cursor: pointer;
+  font-weight: 700;
+  color: var(--text);
+  margin-bottom: 8px;
+  list-style: none;
+}
+
+.rules-note summary::-webkit-details-marker {
+  display: none;
 }
 
 .rules-note b {
@@ -162,6 +183,83 @@ button.action:hover {
   font-size: 13px;
   margin-bottom: 8px;
   gap: 8px;
+}
+
+.config label.hidden,
+.hidden {
+  display: none !important;
+}
+
+.online-panel {
+  margin-top: 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.online-actions,
+.online-join {
+  display: flex;
+  gap: 8px;
+}
+
+.online-join input {
+  flex: 1;
+  min-width: 0;
+  background: #3a352e;
+  color: var(--text);
+  border: 1px solid #4d463c;
+  border-radius: 8px;
+  padding: 10px 12px;
+  font-size: 16px;
+  text-transform: uppercase;
+  letter-spacing: 2px;
+}
+
+.online-status {
+  font-size: 12px;
+  color: var(--text-dim);
+  line-height: 1.5;
+  min-height: 1.5em;
+}
+
+.online-status.error {
+  color: var(--danger);
+}
+
+.room-code-display {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  padding: 10px 12px;
+  background: #2f2a24;
+  border: 1px solid #5a5248;
+  border-radius: 8px;
+}
+
+.room-code-label {
+  font-size: 12px;
+  color: var(--text-dim);
+}
+
+.room-code-display strong {
+  font-size: 22px;
+  letter-spacing: 4px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+.action.subtle {
+  background: #4a4339;
+  font-size: 13px;
+  padding: 8px 12px;
+}
+
+.online-hint {
+  margin: 0;
+  font-size: 12px;
+  color: var(--text-dim);
+  line-height: 1.4;
 }
 
 .config select,
@@ -296,4 +394,47 @@ button.action:hover {
   height: 18%;
   border-radius: 50%;
   border: 2px dashed rgba(30, 60, 30, 0.55);
+}
+
+@media (max-width: 640px) {
+  #app {
+    flex-direction: column;
+    align-items: stretch;
+    padding: 12px 16px 24px;
+    gap: 16px;
+    width: 100%;
+    max-width: 480px;
+  }
+
+  h1 {
+    font-size: 22px;
+    letter-spacing: 4px;
+    text-align: center;
+  }
+
+  h1 small {
+    display: block;
+    margin-left: 0;
+    margin-top: 4px;
+    letter-spacing: 1px;
+  }
+
+  .board-wrap {
+    width: 100%;
+    align-items: center;
+  }
+
+  .side {
+    width: 100%;
+  }
+
+  #board {
+    width: 100%;
+    max-width: 100%;
+  }
+
+  .config select {
+    width: auto;
+    min-width: 120px;
+  }
 }

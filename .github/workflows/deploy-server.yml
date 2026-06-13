@@ -1,0 +1,17 @@
+name: Deploy API to Render
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'server/**'
+      - 'render.yaml'
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger Render deploy
+        if: secrets.RENDER_DEPLOY_HOOK != ''
+        run: curl -fsSL -X POST "${{ secrets.RENDER_DEPLOY_HOOK }}"

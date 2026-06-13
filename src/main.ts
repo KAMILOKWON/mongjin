@@ -1,28 +1,9 @@
 import './style.css';
-import type { Coord, GameState, Move, Player } from './core/types';
-import { DEFAULT_CONFIG, type RuleConfig } from './core/config';
-import { goalCellsFor, initialState, legalMoves } from './core/rules';
-import { applyMove } from './core/apply';
-import { getResult, type WinReason } from './core/result';
-import { chooseMove } from './ai/ai';
+import type { HumanColorChoice, OpponentMode } from './game/settings';
+import { GameController, PLAYER_KO, stoneHtml } from './ui/gameController';
+import { initAppsInToss } from './ait';
 
-// 규칙은 플레이테스트를 거쳐 v0.3으로 확정 (DEFAULT_CONFIG)
-const config: RuleConfig = { ...DEFAULT_CONFIG };
-let states: GameState[] = [initialState(config)];
-let selected: Coord | null = null;
-let vsComputer = true; // 백을 컴퓨터가 둔다
-let aiThinking = false;
-
-const current = (): GameState => states[states.length - 1];
-
-const PLAYER_KO: Record<Player, string> = { BLACK: '흑', WHITE: '백' };
-const REASON_KO: Record<WinReason, string> = {
-  goal: '왕이 목적지에 도달',
-  capture: '상대 왕을 잡음',
-  surround: '상대 왕을 포위',
-  repetition: '상대가 동형 국면 3회 반복',
-  'no-moves': '상대가 둘 수 없음',
-};
+const game = new GameController();
 
 const app = document.querySelector<HTMLDivElement>('#app')!;
 app.innerHTML = `
@@ -37,15 +18,39 @@ app.innerHTML = `
       <button class="action" id="reset">새 게임</button>
     </div>
     <div class="panel config">
-      <label style="display:flex;justify-content:space-between;align-items:center;font-size:13px;">상대
+      <label>대전 방식
         <select id="mode">
-          <option value="ai" selected>컴퓨터 (백)</option>
-          <option value="human">사람 (2인 핫시트)</option>
+          <option value="ai" selected>컴퓨터</option>
+          <option value="local">같이 두기 (핫시트)</option>
+          <option value="online">온라인</option>
         </select>
       </label>
+      <label id="color-row">내 색
+        <select id="human-color">
+          <option value="BLACK" selected>흑 (선공)</option>
+          <option value="WHITE">백 (후공)</option>
+          <option value="random">랜덤</option>
+        </select>
+      </label>
+      <div id="online-panel" class="online-panel hidden">
+        <div class="online-actions">
+          <button class="action" id="create-room" type="button">입장코드 생성</button>
+        </div>
+        <div id="room-code-display" class="room-code-display hidden">
+          <span class="room-code-label">입장코드</span>
+          <strong id="room-code-value"></strong>
+          <button class="action subtle" id="copy-code" type="button">복사</button>
+        </div>
+        <div class="online-join">
+          <input id="room-code" type="text" maxlength="6" placeholder="입장코드 6자리" autocomplete="off" />
+          <button class="action" id="join-room" type="button">참가</button>
+        </div>
+        <p class="online-hint">같은 입장코드를 입력한 두 사람이 대전합니다</p>
+        <div id="online-status" class="online-status"></div>
+      </div>
     </div>
-    <div class="panel rules-note">
-      <b>규칙 요약</b><br/>
+    <details class="panel rules-note">
+      <summary>규칙 요약</summary>
       · 매 턴 <b>호위 두기</b> 또는 <b>말 옮기기</b> 중 하나<br/>
       · 두기: 자기 말과 상하좌우로 붙은 빈 칸<br/>
       · 왕(王)은 8방향 1칸, 빈 칸으로만 이동 (잡기는 불가)<br/>
@@ -54,186 +59,82 @@ app.innerHTML = `
       · 호위는 양쪽 <b>목적지 칸에 들어갈 수 없음</b> (봉쇄 방지)<br/>
       · <b>승리</b>: 내 왕을 상대 진영의 빛나는 목적지 칸에 도달<br/>
       · 왕이 상하좌우로 포위되면 패배
-    </div>
+    </details>
   </div>
 `;
 
 const boardEl = document.querySelector<HTMLDivElement>('#board')!;
 const statusEl = document.querySelector<HTMLDivElement>('#status')!;
+const modeEl = document.querySelector<HTMLSelectElement>('#mode')!;
+const colorRowEl = document.querySelector<HTMLLabelElement>('#color-row')!;
+const humanColorEl = document.querySelector<HTMLSelectElement>('#human-color')!;
+const onlinePanelEl = document.querySelector<HTMLDivElement>('#online-panel')!;
+const onlineStatusEl = document.querySelector<HTMLDivElement>('#online-status')!;
+const roomCodeEl = document.querySelector<HTMLInputElement>('#room-code')!;
+const roomCodeDisplayEl = document.querySelector<HTMLDivElement>('#room-code-display')!;
+const roomCodeValueEl = document.querySelector<HTMLElement>('#room-code-value')!;
+const undoBtn = document.querySelector<HTMLButtonElement>('#undo')!;
 
-document.querySelector('#undo')!.addEventListener('click', () => {
-  if (aiThinking) return;
-  // vs 컴퓨터 모드에서는 (컴퓨터 수 + 내 수) 한 쌍을 되돌려 항상 흑 차례로 맞춘다
-  if (states.length > 1) states.pop();
-  if (vsComputer && states.length > 1 && current().turn === 'WHITE') states.pop();
-  selected = null;
-  render();
-});
-
-document.querySelector('#reset')!.addEventListener('click', () => {
-  if (aiThinking) return;
-  newGame();
-});
-
-document.querySelector<HTMLSelectElement>('#mode')!.addEventListener('change', (e) => {
-  vsComputer = (e.target as HTMLSelectElement).value === 'ai';
-  maybeAiTurn(); // 모드를 켰을 때 백 차례면 즉시 컴퓨터가 둔다 (게임은 리셋하지 않음)
-});
-
-function maybeAiTurn() {
-  const state = current();
-  if (!vsComputer || aiThinking || state.turn !== 'WHITE' || getResult(state, config)) return;
-  aiThinking = true;
-  render();
-  setTimeout(() => {
-    const move = chooseMove(current(), config, { maxMs: 700 });
-    aiThinking = false;
-    if (move) states.push(applyMove(current(), move));
-    render();
-  }, 120); // "생각 중" 표시가 그려질 틈을 준다
-}
-
-function newGame() {
-  states = [initialState(config)];
-  selected = null;
-  render();
-}
-
-function stoneHtml(player: Player, n: number): string {
-  return Array.from({ length: n }, () => `<span class="stone ${player.toLowerCase()}"></span>`).join('');
-}
-
-function renderStatus(state: GameState) {
-  const result = getResult(state, config);
-  const handRow = (p: Player) => `
+function renderStatus() {
+  const snap = game.getSnapshot();
+  const { state, result, settings } = snap;
+  const handRow = (p: 'BLACK' | 'WHITE') => `
     <div class="hand-row">
-      <span>${PLAYER_KO[p]} 호위 ${state.guardsInHand[p]} / ${config.guardCount}</span>
+      <span>${PLAYER_KO[p]} 호위 ${state.guardsInHand[p]} / 8</span>
       <span class="hand-stones">${stoneHtml(p, state.guardsInHand[p])}</span>
     </div>`;
 
-  if (result) {
+  if (result && snap.resultLabel) {
     statusEl.innerHTML = `
-      <div class="result-banner">${PLAYER_KO[result.winner]} 승리! — ${REASON_KO[result.reason]}</div>
+      <div class="result-banner">${snap.resultLabel}</div>
       ${handRow('BLACK')}${handRow('WHITE')}
     `;
   } else {
-    const thinking = aiThinking ? ' — 컴퓨터 생각 중…' : '';
     statusEl.innerHTML = `
-      <div class="turn-banner"><span class="stone ${state.turn.toLowerCase()}"></span>${PLAYER_KO[state.turn]} 차례${thinking}</div>
+      <div class="turn-banner"><span class="stone ${state.turn.toLowerCase()}"></span>${snap.turnLabel}</div>
       ${handRow('BLACK')}${handRow('WHITE')}
     `;
   }
-}
 
-function lastMoveCells(state: GameState): Coord[] {
-  const m = state.history[state.history.length - 1];
-  if (!m) return [];
-  return m.kind === 'PLACE' ? [m.to] : [m.from, m.to];
-}
+  colorRowEl.classList.toggle('hidden', settings.mode !== 'ai');
+  onlinePanelEl.classList.toggle('hidden', settings.mode !== 'online');
+  onlineStatusEl.textContent = snap.onlineStatus;
+  onlineStatusEl.classList.toggle('error', snap.onlineError);
 
-function render() {
-  const state = current();
-  const n = state.board.length;
-  const result = getResult(state, config);
-  const moves = result ? [] : legalMoves(state, config);
-
-  const moveTargets = new Map<string, Move>();
-  const placeTargets = new Map<string, Move>();
-  for (const m of moves) {
-    if (m.kind === 'MOVE' && selected && m.from.r === selected.r && m.from.c === selected.c) {
-      moveTargets.set(`${m.to.r},${m.to.c}`, m);
-    }
-    if (m.kind === 'PLACE') placeTargets.set(`${m.to.r},${m.to.c}`, m);
+  const showCode = settings.mode === 'online' && !!snap.onlineRoomId;
+  roomCodeDisplayEl.classList.toggle('hidden', !showCode);
+  if (showCode && snap.onlineRoomId) {
+    roomCodeValueEl.textContent = snap.onlineRoomId;
+    roomCodeEl.value = snap.onlineRoomId;
   }
 
-  const goalBlack = new Set(goalCellsFor('BLACK', config).map((g) => `${g.r},${g.c}`));
-  const goalWhite = new Set(goalCellsFor('WHITE', config).map((g) => `${g.r},${g.c}`));
-  const last = new Set(lastMoveCells(state).map((c) => `${c.r},${c.c}`));
-
-  const cellSize = Math.min(52, Math.floor(560 / n));
-  boardEl.style.gridTemplateColumns = `repeat(${n}, 1fr)`;
-  boardEl.style.setProperty('--cell-size', `${cellSize}px`);
-  boardEl.innerHTML = '';
-
-  const FILES = 'abcdefghijk';
-  for (let r = 0; r < n; r++) {
-    for (let c = 0; c < n; c++) {
-      const key = `${r},${c}`;
-      const cell = document.createElement('button');
-      cell.className = 'cell';
-      cell.title = `${FILES[c]}${n - r}`;
-      if (r === n - 1) {
-        const f = document.createElement('span');
-        f.className = 'coord coord-file';
-        f.textContent = FILES[c];
-        cell.appendChild(f);
-      }
-      if (c === 0) {
-        const rk = document.createElement('span');
-        rk.className = 'coord coord-rank';
-        rk.textContent = String(n - r);
-        cell.appendChild(rk);
-      }
-      if (goalBlack.has(key)) cell.classList.add('goal-black');
-      if (goalWhite.has(key)) cell.classList.add('goal-white');
-      if (last.has(key)) cell.classList.add('last-move');
-      if (selected && selected.r === r && selected.c === c) cell.classList.add('selected');
-
-      const piece = state.board[r][c];
-      if (piece) {
-        const el = document.createElement('span');
-        el.className = `piece ${piece.player.toLowerCase()}`;
-        el.textContent = piece.type === 'KING' ? '王' : '';
-        cell.appendChild(el);
-        if (moveTargets.has(key)) cell.classList.add('capture');
-      } else if (moveTargets.has(key)) {
-        const dot = document.createElement('span');
-        dot.className = 'dot';
-        cell.appendChild(dot);
-      } else if (!selected && placeTargets.has(key)) {
-        const dot = document.createElement('span');
-        dot.className = 'place-dot';
-        cell.appendChild(dot);
-      }
-
-      cell.addEventListener('click', () => onCellClick(r, c, moveTargets, placeTargets));
-      boardEl.appendChild(cell);
-    }
-  }
-
-  renderStatus(state);
+  undoBtn.disabled = !snap.canUndo || snap.aiThinking;
 }
 
-function onCellClick(
-  r: number,
-  c: number,
-  moveTargets: Map<string, Move>,
-  placeTargets: Map<string, Move>,
-) {
-  const state = current();
-  if (getResult(state, config)) return;
-  if (aiThinking || (vsComputer && state.turn === 'WHITE')) return;
-  const key = `${r},${c}`;
-  const piece = state.board[r][c];
+game.attachBoard(boardEl);
+game.subscribe(renderStatus);
 
-  if (selected) {
-    const target = moveTargets.get(key);
-    if (target) {
-      states.push(applyMove(state, target));
-      selected = null;
-    } else if (piece && piece.player === state.turn && !(selected.r === r && selected.c === c)) {
-      selected = { r, c }; // 다른 내 말로 선택 변경
-    } else {
-      selected = null;
-    }
-  } else if (piece && piece.player === state.turn) {
-    selected = { r, c };
-  } else {
-    const place = placeTargets.get(key);
-    if (place) states.push(applyMove(state, place));
+modeEl.addEventListener('change', () => game.setMode(modeEl.value as OpponentMode));
+humanColorEl.addEventListener('change', () => game.setHumanColor(humanColorEl.value as HumanColorChoice));
+undoBtn.addEventListener('click', () => game.undo());
+document.querySelector('#reset')!.addEventListener('click', () => game.reset());
+document.querySelector('#create-room')!.addEventListener('click', () => game.createRoom());
+document.querySelector('#join-room')!.addEventListener('click', () => {
+  game.joinRoom(roomCodeEl.value);
+});
+document.querySelector('#copy-code')!.addEventListener('click', async () => {
+  const code = roomCodeValueEl.textContent?.trim();
+  if (!code) return;
+  try {
+    await navigator.clipboard.writeText(code);
+    onlineStatusEl.textContent = `입장코드 ${code} 복사됨 — 친구에게 공유하세요`;
+    onlineStatusEl.classList.remove('error');
+  } catch {
+    onlineStatusEl.textContent = '복사에 실패했습니다. 코드를 직접 선택해 복사해 주세요';
+    onlineStatusEl.classList.add('error');
   }
-  render();
-  maybeAiTurn();
-}
+});
 
-render();
+game.init();
+window.addEventListener('resize', () => game.attachBoard(boardEl));
+initAppsInToss();

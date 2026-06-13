@@ -11,7 +11,11 @@
     "skipLibCheck": true,
     "isolatedModules": true,
     "noEmit": true,
-    "types": ["vitest/globals"]
+    "types": ["vitest/globals", "vite/client"],
+    "paths": {
+      "@apps-in-toss/web-framework": ["./src/stubs/apps-in-toss.ts"]
+    }
   },
-  "include": ["src"]
+  "include": ["src"],
+  "exclude": ["src/ait/**"]
 }

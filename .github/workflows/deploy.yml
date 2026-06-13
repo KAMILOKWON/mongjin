@@ -26,6 +26,8 @@ jobs:
       - run: npm ci
       - run: npm test
       - run: npm run build
+        env:
+          VITE_WS_URL: ${{ vars.VITE_WS_URL || 'wss://mongjin-api.onrender.com' }}
       - uses: actions/upload-pages-artifact@v3
         with:
           path: dist
