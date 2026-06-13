@@ -3,7 +3,7 @@ import { DEFAULT_CONFIG, type RuleConfig } from '../core/config';
 import { goalCellsFor, initialState, legalMoves } from '../core/rules';
 import { applyMove } from '../core/apply';
 import { getResult, type WinReason, type GameResult } from '../core/result';
-import { chooseMove } from '../ai/ai';
+import { chooseMove, DEFAULT_AI_OPTIONS } from '../ai/ai';
 import {
   type GameSettings,
   type HumanColorChoice,
@@ -264,7 +264,7 @@ export class GameController {
     this.aiThinking = true;
     this.notify();
     setTimeout(() => {
-      const move = chooseMove(this.current(), this.config, { maxMs: 700 });
+      const move = chooseMove(this.current(), this.config, DEFAULT_AI_OPTIONS);
       this.aiThinking = false;
       if (move) this.states.push(applyMove(this.current(), move));
       this.notify();

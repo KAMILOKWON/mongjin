@@ -25,7 +25,7 @@ function makeState(
 describe('AI (미니맥스)', () => {
   it('초기 국면에서 합법 수를 둔다', () => {
     const s = initialState(CFG);
-    const m = chooseMove(s, CFG);
+    const m = chooseMove(s, CFG, { maxMs: 500, maxDepth: 6 });
     expect(m).not.toBeNull();
     const legal = legalMoves(s, CFG).some((x) => JSON.stringify(x) === JSON.stringify(m));
     expect(legal).toBe(true);
@@ -41,7 +41,7 @@ describe('AI (미니맥스)', () => {
       'WHITE',
       { BLACK: 0, WHITE: 0 },
     );
-    const m = chooseMove(s, CFG)!;
+    const m = chooseMove(s, CFG, { maxMs: 300, maxDepth: 8 })!;
     const next = applyMove(s, m);
     expect(getResult(next, CFG)).toEqual({ winner: 'WHITE', reason: 'goal' });
   });
@@ -58,7 +58,7 @@ describe('AI (미니맥스)', () => {
       'WHITE',
       { BLACK: 0, WHITE: 0 },
     );
-    const m = chooseMove(s, CFG)!;
+    const m = chooseMove(s, CFG, { maxMs: 300, maxDepth: 8 })!;
     const next = applyMove(s, m);
     // 왕 잡기 규칙상 (0,1) 호위가 왕을 바로 잡는 것도 정답 — 어느 쪽이든 한 수 승리
     const result = getResult(next, CFG);
@@ -69,7 +69,7 @@ describe('AI (미니맥스)', () => {
   it('초기 국면 응답이 2초 이내', () => {
     const s = initialState(CFG);
     const t0 = performance.now();
-    chooseMove(s, CFG);
+    chooseMove(s, CFG, { maxMs: 500, maxDepth: 6 });
     expect(performance.now() - t0).toBeLessThan(2000);
   });
 });

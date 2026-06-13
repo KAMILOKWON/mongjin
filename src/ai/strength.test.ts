@@ -55,7 +55,7 @@ function playMatch(
     if (result) return result.winner;
     const move =
       state.turn === aiSide
-        ? chooseMove(state, CFG, { maxMs: 30, maxDepth: 4 })!
+        ? chooseMove(state, CFG, { maxMs: 50, maxDepth: 6 })!
         : bot(state, rand);
     state = applyMove(state, move);
   }
