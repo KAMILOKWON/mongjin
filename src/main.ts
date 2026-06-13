@@ -73,6 +73,7 @@ const onlineStatusEl = document.querySelector<HTMLDivElement>('#online-status')!
 const roomCodeEl = document.querySelector<HTMLInputElement>('#room-code')!;
 const roomCodeDisplayEl = document.querySelector<HTMLDivElement>('#room-code-display')!;
 const roomCodeValueEl = document.querySelector<HTMLElement>('#room-code-value')!;
+const boardWrapEl = document.querySelector<HTMLDivElement>('.board-wrap')!;
 const undoBtn = document.querySelector<HTMLButtonElement>('#undo')!;
 
 function renderStatus() {
@@ -109,6 +110,8 @@ function renderStatus() {
   }
 
   undoBtn.disabled = !snap.canUndo || snap.aiThinking;
+
+  requestAnimationFrame(() => game.refreshBoardLayout());
 }
 
 game.attachBoard(boardEl);
@@ -136,5 +139,8 @@ document.querySelector('#copy-code')!.addEventListener('click', async () => {
 });
 
 game.init();
-window.addEventListener('resize', () => game.attachBoard(boardEl));
+window.addEventListener('resize', () => game.refreshBoardLayout());
+if (typeof ResizeObserver !== 'undefined') {
+  new ResizeObserver(() => game.refreshBoardLayout()).observe(boardWrapEl);
+}
 initAppsInToss();

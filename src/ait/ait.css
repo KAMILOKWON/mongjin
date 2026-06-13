@@ -1,0 +1,74 @@
+/* 앱인토스 TDS WebView 레이아웃 */
+body {
+  margin: 0;
+  background: var(--adaptiveBackground, #f2f4f6);
+  -webkit-tap-highlight-color: transparent;
+}
+
+#root {
+  min-height: 100dvh;
+}
+
+.ait-error {
+  padding: 24px;
+}
+
+.ait-shell {
+  min-height: 100dvh;
+  background: var(--adaptiveBackground, #f2f4f6);
+  padding-bottom: env(safe-area-inset-bottom, 16px);
+}
+
+.ait-board-wrap {
+  display: flex;
+  justify-content: center;
+  padding: 8px 16px 0;
+  width: 100%;
+  max-width: 100%;
+}
+
+.ait-board {
+  display: grid;
+  box-sizing: border-box;
+  background: #b58a5a;
+  border: 6px solid #6f5232;
+  border-radius: 12px;
+  padding: 6px;
+  gap: 2px;
+  max-width: 100%;
+  margin: 0 auto;
+}
+
+.ait-panel {
+  padding: 8px 16px;
+}
+
+.ait-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  padding: 0 16px 8px;
+}
+
+.ait-shell .hand-stones {
+  display: flex;
+  gap: 3px;
+  flex-wrap: wrap;
+}
+
+.ait-shell .stone {
+  width: 13px;
+  height: 13px;
+  border-radius: 50%;
+  flex: none;
+}
+
+.ait-shell .stone.black {
+  background: radial-gradient(circle at 32% 30%, #5a5a5a, #111 70%);
+  border: 1px solid #000;
+}
+
+.ait-shell .stone.white {
+  background: radial-gradient(circle at 32% 30%, #fff, #cfc8ba 75%);
+  border: 1px solid #999;
+}

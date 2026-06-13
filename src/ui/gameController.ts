@@ -277,9 +277,38 @@ export class GameController {
     for (const fn of this.listeners) fn();
   }
 
-  private boardMaxWidth(): number {
-    const sidePad = window.innerWidth <= 640 ? 32 : 48;
-    return Math.min(560, window.innerWidth - sidePad);
+  private static readonly BOARD_BORDER = 12;
+  private static readonly BOARD_PADDING = 12;
+  private static readonly BOARD_GAP = 2;
+
+  /** 보드 테두리·패딩·칸 간격을 제외한 실제 사용 가능 너비 */
+  private availableBoardWidth(): number {
+    const wrap = this.boardEl?.parentElement;
+    if (wrap && wrap.clientWidth > 0) return wrap.clientWidth;
+
+    const vw = window.innerWidth;
+    const isMobile = vw <= 640;
+    const appPad = isMobile ? 32 : 48;
+    const maxApp = isMobile ? 480 : vw;
+    return Math.max(0, Math.min(maxApp, vw) - appPad);
+  }
+
+  private cellSizeFor(n: number): number {
+    const chrome =
+      GameController.BOARD_BORDER +
+      GameController.BOARD_PADDING +
+      GameController.BOARD_GAP * (n - 1);
+    const inner = this.availableBoardWidth() - chrome;
+    return Math.max(24, Math.min(52, Math.floor(inner / n)));
+  }
+
+  private boardPixelWidth(n: number, cellSize: number): number {
+    return (
+      cellSize * n +
+      GameController.BOARD_GAP * (n - 1) +
+      GameController.BOARD_PADDING +
+      GameController.BOARD_BORDER
+    );
   }
 
   private lastMoveCells(state: GameState): Coord[] {
@@ -356,8 +385,11 @@ export class GameController {
     const goalWhite = new Set(goalCellsFor('WHITE', this.config).map((g) => `${g.r},${g.c}`));
     const last = new Set(this.lastMoveCells(state).map((c) => `${c.r},${c.c}`));
 
-    const cellSize = Math.min(52, Math.floor(this.boardMaxWidth() / n));
-    this.boardEl.style.gridTemplateColumns = `repeat(${n}, 1fr)`;
+    const cellSize = this.cellSizeFor(n);
+    const boardWidth = this.boardPixelWidth(n, cellSize);
+    this.boardEl.style.gridTemplateColumns = `repeat(${n}, ${cellSize}px)`;
+    this.boardEl.style.width = `${boardWidth}px`;
+    this.boardEl.style.maxWidth = '100%';
     this.boardEl.style.setProperty('--cell-size', `${cellSize}px`);
     this.boardEl.innerHTML = '';
 
