@@ -1,5 +1,6 @@
 import type { GameState, Move, Player } from '../core/types';
 import type { RuleConfig } from '../core/config';
+import type { BotHints } from '../bot/brain';
 import {
   ALL8,
   ORTHO,
@@ -24,6 +25,10 @@ export const DEFAULT_AI_OPTIONS: AiOptions = {
 export interface AiOptions {
   maxMs?: number;
   maxDepth?: number;
+  /** 전략서·오프닝 북 힌트 (웹 봇 두뇌) */
+  hints?: BotHints;
+  /** 봇 진영 — 힌트 적용 시 필요 */
+  botSide?: Player;
 }
 
 interface SearchCtx {
@@ -179,7 +184,7 @@ function interceptGap(state: GameState, defender: Player, invader: Player): numb
   return Math.max(Math.abs(dK.r - tr), Math.abs(dK.c - iK.c));
 }
 
-function evaluate(state: GameState, config: RuleConfig): number {
+function evaluate(state: GameState, config: RuleConfig, hints?: BotHints, botSide?: Player): number {
   const me = state.turn;
   const opp = opponent(me);
   const myD = bfsKingDist(state, me, config);
@@ -200,10 +205,20 @@ function evaluate(state: GameState, config: RuleConfig): number {
     score += -300 + 25 * Math.min(oppD, 12) - 3 * myD;
     if (config.kingCapture) score -= 8 * interceptGap(state, me, opp);
   }
+
+  if (hints && botSide && me === botSide) {
+    score += hints.evalBonus(state);
+  }
   return score;
 }
 
-function orderMoves(state: GameState, moves: Move[], config: RuleConfig): Move[] {
+function orderMoves(
+  state: GameState,
+  moves: Move[],
+  config: RuleConfig,
+  hints?: BotHints,
+  botSide?: Player,
+): Move[] {
   const me = state.turn;
   const opp = opponent(me);
   const n = state.board.length;
@@ -228,6 +243,9 @@ function orderMoves(state: GameState, moves: Move[], config: RuleConfig): Move[]
       s += 3 + near(m.to.r, m.to.c);
       s += placementDelay(state, m, config) * 35;
     }
+    if (hints && botSide && state.turn === botSide) {
+      s += hints.moveBonus(state, m);
+    }
     return { m, s };
   });
   scored.sort((a, b) => b.s - a.s);
@@ -248,19 +266,21 @@ function negamax(
   depth: number,
   alpha: number,
   beta: number,
+  hints?: BotHints,
+  botSide?: Player,
 ): number {
-  if (tick(ctx)) return evaluate(state, ctx.config);
+  if (tick(ctx)) return evaluate(state, ctx.config, hints, botSide);
 
   const winner = getTerminalWinner(state, ctx.config);
   if (winner) return winner === state.turn ? WIN + depth : -(WIN + depth);
-  if (depth <= 0) return evaluate(state, ctx.config);
+  if (depth <= 0) return evaluate(state, ctx.config, hints, botSide);
 
-  const moves = orderMoves(state, legalMoves(state, ctx.config), ctx.config);
+  const moves = orderMoves(state, legalMoves(state, ctx.config), ctx.config, hints, botSide);
   if (!moves.length) return -(WIN + depth);
 
   let best = -Infinity;
   for (const m of moves) {
-    const v = -negamax(child(state, m), ctx, depth - 1, -beta, -alpha);
+    const v = -negamax(child(state, m), ctx, depth - 1, -beta, -alpha, hints, botSide);
     if (ctx.aborted) break;
     if (v > best) best = v;
     if (v > alpha) alpha = v;
@@ -283,7 +303,9 @@ export function chooseMove(
 ): Move | null {
   const maxMs = opts.maxMs ?? DEFAULT_AI_OPTIONS.maxMs!;
   const maxDepth = opts.maxDepth ?? DEFAULT_AI_OPTIONS.maxDepth!;
-  let moves = orderMoves(state, legalMoves(state, config), config);
+  const hints = opts.hints;
+  const botSide = opts.botSide;
+  let moves = orderMoves(state, legalMoves(state, config), config, hints, botSide);
   if (!moves.length) return null;
 
   const immediate = instantWinMove(state, moves, config);
@@ -304,7 +326,7 @@ export function chooseMove(
     const beta = Infinity;
     const iterBest: Move[] = [];
     for (const m of moves) {
-      const v = -negamax(child(state, m), ctx, depth - 1, -beta, -alpha);
+      const v = -negamax(child(state, m), ctx, depth - 1, -beta, -alpha, hints, botSide);
       if (ctx.aborted) break;
       if (v > best) {
         best = v;

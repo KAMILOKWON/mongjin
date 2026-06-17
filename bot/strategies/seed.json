@@ -1,0 +1,32 @@
+[
+  {
+    "id": "center-wall-opening",
+    "title": "e열·d열 호위 전개",
+    "phase": "opening",
+    "summary": "왕 옆 e2 착수 후 d열로 측면 벽을 세워 상대 왕 돌진 경로를 좁힌다.",
+    "mgnPattern": "1. @e2 @e8 2. @d2 @d8",
+    "tags": ["opening", "center-control", "defense"],
+    "lessons": [
+      "첫 수는 왕 인접 e2(또는 e8)가 유일한 합법 착수인 경우가 많다",
+      "d열 호위로 중앙 측면을 막으면 왕 단독 돌진을 지연할 수 있다"
+    ],
+    "sourceGames": ["example-opening-center"],
+    "confidence": 0.6,
+    "updatedAt": "2026-06-17T00:00:00.000Z"
+  },
+  {
+    "id": "punish-naked-king-advance",
+    "title": "알몸 왕 전진 처벌",
+    "phase": "middlegame",
+    "summary": "호위 동반 없이 왕이 전진하면 즉시 포위·잡기로 역습한다.",
+    "mgnPattern": "Ge7xe3!",
+    "tags": ["counter", "king-capture", "punish"],
+    "lessons": [
+      "kingCapture 규칙 하에서 호위 없는 왕 전진은 치명적",
+      "상대 왕 전진 시 인접 호위로 즉시 위협을 가한다"
+    ],
+    "sourceGames": ["example-opening-center"],
+    "confidence": 0.75,
+    "updatedAt": "2026-06-17T00:00:00.000Z"
+  }
+]

@@ -4,6 +4,7 @@ import { goalCellsFor, initialState, legalMoves } from '../core/rules';
 import { applyMove } from '../core/apply';
 import { getResult, type WinReason, type GameResult } from '../core/result';
 import { chooseMove, DEFAULT_AI_OPTIONS } from '../ai/ai';
+import { getBotBrain } from '../bot/brain';
 import {
   type GameSettings,
   type HumanColorChoice,
@@ -12,6 +13,7 @@ import {
   resolveHumanSide,
 } from '../game/settings';
 import { OnlineClient } from '../net/online';
+import { exportGameMgn } from '../../bot/learning/gameRecord';
 
 const PLAYER_KO: Record<Player, string> = { BLACK: '흑', WHITE: '백' };
 const REASON_KO: Record<WinReason, string> = {
@@ -37,6 +39,8 @@ export interface GameSnapshot {
   isMyTurn: boolean;
   turnLabel: string;
   resultLabel: string | null;
+  /** 대국 종료 시 MGN 기보 텍스트 (학습·저장용) */
+  lastMgn: string | null;
 }
 
 type Listener = () => void;
@@ -56,6 +60,7 @@ export class GameController {
   private listeners = new Set<Listener>();
   private boardEl: HTMLElement | null = null;
   private snapshot: GameSnapshot;
+  private learningRecorded = false;
 
   private online = new OnlineClient({
     onState: (state) => {
@@ -119,6 +124,21 @@ export class GameController {
     else if (this.isOnlineMode() && this.onlineWaiting) turnLabel += ' — 상대 대기 중…';
     else if (this.isOnlineMode() && this.onlineSide && !this.isMyTurn(state)) turnLabel += ' — 상대 차례';
 
+    const resultLabel = result
+      ? `${PLAYER_KO[result.winner]} 승리! — ${REASON_KO[result.reason]}`
+      : null;
+
+    let lastMgn: string | null = null;
+    if (result) {
+      lastMgn = exportGameMgn({
+        state,
+        result,
+        config: this.config,
+        settings: this.settings,
+        humanSide: this.humanSide,
+      }).mgn;
+    }
+
     return {
       state,
       result,
@@ -133,9 +153,8 @@ export class GameController {
       canUndo: this.canUndo(),
       isMyTurn: this.isMyTurn(state),
       turnLabel,
-      resultLabel: result
-        ? `${PLAYER_KO[result.winner]} 승리! — ${REASON_KO[result.reason]}`
-        : null,
+      resultLabel,
+      lastMgn,
     };
   }
 
@@ -252,8 +271,20 @@ export class GameController {
     this.applySidesFromSettings();
     this.states = [initialState(this.config)];
     this.selected = null;
+    this.learningRecorded = false;
     this.notify();
     this.maybeAiTurn();
+  }
+
+  private recordLearningIfEnded() {
+    const state = this.current();
+    const result = getResult(state, this.config);
+    if (!result || !this.isAiMode() || this.learningRecorded) return;
+    this.learningRecorded = true;
+    getBotBrain(this.config).onGameEnd(
+      { state, result, config: this.config, settings: this.settings, humanSide: this.humanSide },
+      this.aiSide,
+    );
   }
 
   private maybeAiTurn() {
@@ -264,9 +295,17 @@ export class GameController {
     this.aiThinking = true;
     this.notify();
     setTimeout(() => {
-      const move = chooseMove(this.current(), this.config, DEFAULT_AI_OPTIONS);
+      const cur = this.current();
+      const brain = getBotBrain(this.config);
+      const hints = brain.hintsFor(cur, this.aiSide);
+      const move = chooseMove(cur, this.config, {
+        ...DEFAULT_AI_OPTIONS,
+        hints,
+        botSide: this.aiSide,
+      });
       this.aiThinking = false;
       if (move) this.states.push(applyMove(this.current(), move));
+      this.recordLearningIfEnded();
       this.notify();
     }, 120);
   }
@@ -360,6 +399,7 @@ export class GameController {
     }
 
     this.states.push(applyMove(state, move));
+    this.recordLearningIfEnded();
     this.notify();
     this.maybeAiTurn();
   }
