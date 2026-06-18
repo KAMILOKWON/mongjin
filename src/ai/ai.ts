@@ -319,15 +319,20 @@ export function chooseMove(
   };
   let lastCompleted: Move[] = [moves[0]];
 
-  for (let depth = 1; depth <= maxDepth && !ctx.aborted; depth++) {
-    ctx.aborted = false;
+  for (let depth = 1; depth <= maxDepth; depth++) {
+    if (performance.now() > ctx.deadline) break;
+
     let best = -Infinity;
     let alpha = -Infinity;
     const beta = Infinity;
     const iterBest: Move[] = [];
+    let depthComplete = true;
     for (const m of moves) {
       const v = -negamax(child(state, m), ctx, depth - 1, -beta, -alpha, hints, botSide);
-      if (ctx.aborted) break;
+      if (ctx.aborted) {
+        depthComplete = false;
+        break;
+      }
       if (v > best) {
         best = v;
         iterBest.length = 0;
@@ -337,7 +342,7 @@ export function chooseMove(
         iterBest.push(m);
       }
     }
-    if (ctx.aborted && depth > 1) break;
+    if (!depthComplete && depth > 1) break;
     if (iterBest.length) {
       lastCompleted = iterBest.slice();
       moves = [iterBest[0], ...moves.filter((m) => m !== iterBest[0])];

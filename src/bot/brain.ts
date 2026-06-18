@@ -69,9 +69,13 @@ export class BotBrain {
   }
 
   onGameEnd(input: RecordGameInput, botSide: 'BLACK' | 'WHITE'): void {
-    this.memory = learnFromGame(this.book, input, botSide, this.memory);
-    saveMemory(this.memory);
-    this.openingBook = OpeningBook.fromStrategies(this.book.exportJson(), this.config);
+    try {
+      this.memory = learnFromGame(this.book, input, botSide, this.memory);
+      saveMemory(this.memory);
+      this.openingBook = OpeningBook.fromStrategies(this.book.exportJson(), this.config);
+    } catch {
+      /* 학습 갱신 실패 시 기존 전략서 유지 */
+    }
   }
 
   get gamesLearned(): number {

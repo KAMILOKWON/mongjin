@@ -18,7 +18,12 @@ export class OpeningBook {
     const book = new OpeningBook();
     for (const s of strategies) {
       if (s.phase !== 'opening' && !s.mgnPattern.includes('@')) continue;
-      const patternMoves = parsePatternMoves(s.mgnPattern, config);
+      let patternMoves;
+      try {
+        patternMoves = parsePatternMoves(s.mgnPattern, config);
+      } catch {
+        continue;
+      }
       if (patternMoves.length < 2) continue;
 
       const weight = Math.round(s.confidence * 160);

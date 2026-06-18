@@ -8,10 +8,14 @@ import { historyKey } from './moveKey';
 import type { BotMemory } from './storage';
 
 function patternMatchesHistory(pattern: string, historyKeys: string[], config: RuleConfig): boolean {
-  const moves = parsePatternMoves(pattern, config);
-  if (!moves.length) return false;
-  const prefix = historyKey(moves);
-  return historyKeys.some((h) => h.startsWith(prefix) || prefix.startsWith(h));
+  try {
+    const moves = parsePatternMoves(pattern, config);
+    if (!moves.length) return false;
+    const prefix = historyKey(moves);
+    return historyKeys.some((h) => h.startsWith(prefix) || prefix.startsWith(h));
+  } catch {
+    return false;
+  }
 }
 
 function humanOpeningSquares(input: RecordGameInput, humanSide: Player): string[] {

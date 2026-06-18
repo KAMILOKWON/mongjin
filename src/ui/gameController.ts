@@ -277,14 +277,42 @@ export class GameController {
   }
 
   private recordLearningIfEnded() {
-    const state = this.current();
-    const result = getResult(state, this.config);
-    if (!result || !this.isAiMode() || this.learningRecorded) return;
-    this.learningRecorded = true;
-    getBotBrain(this.config).onGameEnd(
-      { state, result, config: this.config, settings: this.settings, humanSide: this.humanSide },
-      this.aiSide,
-    );
+    try {
+      const state = this.current();
+      const result = getResult(state, this.config);
+      if (!result || !this.isAiMode() || this.learningRecorded) return;
+      this.learningRecorded = true;
+      getBotBrain(this.config).onGameEnd(
+        { state, result, config: this.config, settings: this.settings, humanSide: this.humanSide },
+        this.aiSide,
+      );
+    } catch {
+      /* 학습 저장 실패가 대국을 막지 않도록 */
+    }
+  }
+
+  /** 힌트 실패·예외 시에도 합법 수를 반환 */
+  private pickAiMove(state: GameState, maxMs: number): Move | null {
+    const baseOpts = {
+      maxMs,
+      maxDepth: DEFAULT_AI_OPTIONS.maxDepth,
+    };
+    try {
+      const brain = getBotBrain(this.config);
+      const hints = brain.hintsFor(state, this.aiSide);
+      const move = chooseMove(state, this.config, { ...baseOpts, hints, botSide: this.aiSide });
+      if (move) return move;
+    } catch {
+      /* 힌트·전략서 오류 시 순수 미니맥스로 폴백 */
+    }
+    try {
+      const move = chooseMove(state, this.config, baseOpts);
+      if (move) return move;
+    } catch {
+      /* ignore */
+    }
+    const legal = legalMoves(state, this.config);
+    return legal[0] ?? null;
   }
 
   private maybeAiTurn() {
@@ -294,19 +322,31 @@ export class GameController {
     }
     this.aiThinking = true;
     this.notify();
-    setTimeout(() => {
-      const cur = this.current();
-      const brain = getBotBrain(this.config);
-      const hints = brain.hintsFor(cur, this.aiSide);
-      const move = chooseMove(cur, this.config, {
-        ...DEFAULT_AI_OPTIONS,
-        hints,
-        botSide: this.aiSide,
-      });
-      this.aiThinking = false;
-      if (move) this.states.push(applyMove(this.current(), move));
-      this.recordLearningIfEnded();
-      this.notify();
+    const wallDeadline = Date.now() + 4000;
+    window.setTimeout(() => {
+      try {
+        const cur = this.current();
+        if (!this.isAiMode() || getResult(cur, this.config) || cur.turn !== this.aiSide) return;
+        const budget = Math.max(
+          100,
+          Math.min(DEFAULT_AI_OPTIONS.maxMs ?? 1800, wallDeadline - Date.now()),
+        );
+        const move = this.pickAiMove(cur, budget);
+        if (move) this.states.push(applyMove(this.current(), move));
+        this.recordLearningIfEnded();
+      } finally {
+        this.aiThinking = false;
+        this.notify();
+        const after = this.current();
+        if (
+          this.isAiMode() &&
+          !getResult(after, this.config) &&
+          after.turn === this.aiSide &&
+          legalMoves(after, this.config).length > 0
+        ) {
+          this.maybeAiTurn();
+        }
+      }
     }, 120);
   }
 

@@ -66,10 +66,10 @@ describe('AI (미니맥스)', () => {
     expect(['surround', 'capture']).toContain(result?.reason);
   });
 
-  it('초기 국면 응답이 2초 이내', () => {
+  it('시간 한도 내에 응답한다', () => {
     const s = initialState(CFG);
     const t0 = performance.now();
-    chooseMove(s, CFG, { maxMs: 500, maxDepth: 6 });
-    expect(performance.now() - t0).toBeLessThan(2000);
+    chooseMove(s, CFG, { maxMs: 200, maxDepth: 11 });
+    expect(performance.now() - t0).toBeLessThan(800);
   });
 });
