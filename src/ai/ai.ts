@@ -261,7 +261,7 @@ function evaluate(state: GameState, config: RuleConfig, hints?: BotHints, botSid
   const myD = bfsKingDist(state, me, config);
   const oppD = bfsKingDist(state, opp, config);
 
-  let score = 3 * (guardTotal(state, me) - guardTotal(state, opp));
+  let score = 7 * (guardTotal(state, me) - guardTotal(state, opp));
   if (config.kingCapture) {
     if (kingThreatened(state, opp)) score += 5000;
     if (kingThreatened(state, me)) score -= 60;
@@ -311,7 +311,8 @@ function orderMoves(
       if (killers[0] && movesEqual(m, killers[0])) s += 900_000;
       else if (killers[1] && movesEqual(m, killers[1])) s += 800_000;
     }
-    s += ctx.history.get(moveSig(m)) ?? 0;
+    // 히스토리는 490으로 상한 → 호위병 포착(500)이 항상 우선
+    s += Math.min(ctx.history.get(moveSig(m)) ?? 0, 490);
 
     if (m.kind === 'MOVE') {
       const target = state.board[m.to.r][m.to.c];
