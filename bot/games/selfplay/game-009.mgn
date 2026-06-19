@@ -1,7 +1,7 @@
 [MGN "1"]
 [event "Self-play"]
 [site "mongjin-selfplay"]
-[date "2026.06.17"]
+[date "2026.06.19"]
 [round "9"]
 [opponentId "ai-vs-ai"]
 [termination "goal"]
@@ -17,4 +17,4 @@
 [noGuardOnGoal "true"]
 [kingCapture "true"]
 
-1. Ke1-d2 Ke9-d8 2. Kd2-e3 Kd8-c7 3. Ke3-f4 Kc7-c6 4. Kf4-e5 Kc6-b5 5. Ke5-e6 @b4 6. Ke6-f7 @b6 7. Kf7-g8 Gb6-c6 8. Kg8-f9
+1. Ke1-e2 Ke9-e8 2. Ke2-e3 Ke8-d7 3. Ke3-f4 Kd7-e8 4. Kf4-g5 @f8 5. Kg5-f6 @e7 6. Kf6-e5 @d8 7. @e6 Ge7xe6 8. Ke5-d5 @c8 9. @d6 Ge6xd6 10. Kd5-e4 Gf8-g8 11. Ke4-e5 Ke8-d7 12. Ke5-e4 Kd7-c6 13. Ke4-d3 Kc6-c5 14. @c3 Kc5-d4 15. @e3 Kd4-e5 16. @f3 @e4 17. Ge3xe4 Ke5-f6 18. Gf3-g3 Gd6-d5 19. @c4 @d4 20. Gc4xd4 Gd5xd4 21. Ge4xd4 Kf6-g5 22. @e3 Kg5-f6 23. Gg3-h3 Kf6-e7 24. Gc3-c2 Ke7-d7 25. Gd4-d5 Kd7-c7 26. @d6 @g7 27. Gd5-d4 Kc7-b8 28. Gd6-c6 @b9 29. Gc6-b6 Kb8-c9 30. Gb6-b7 Gg7-g6 31. Gb7-a7 Gg6-g5 32. Ga7-a8 Gg5-f5 33. Ga8-a7 Gf5-f4 34. Ga7-a8 Gf4-f5 35. Ga8-a7 Gf5-f4 36. Ga7-a8 Gf4-g4 37. Gd4-e4 Gg4-g5 38. Ga8-a7 Gg5-f5 39. Ga7-a8 Gf5-f6 40. Ga8-a7 Gf6-f5 41. Ga7-a8 Gf5-f6 42. Ga8-a7 Gf6-e6 43. Ga7-a8 Ge6-d6 44. Ge4-e5 Gd6-c6 45. Ge5-e4 Gc6-c5 46. Ge4-d4 Gc5-b5 47. Ga8-a7 Gb5-b4 48. Gc2-b2 Gb4-b5 49. Gb2-c2 Gb5-b4 50. Kd3-d2 Gb4-b3 51. Gd4-d3 Gb3-b4 52. Ga7-a8 Gb4-b3 53. Ga8-a7 Gb3-b4 54. Ga7-a8 Gb4-b3 55. Gc2-c1 Gb3-b2 56. Ga8-a7 Gc8-c7 57. Kd2-e2 Gb2-b3 58. Ke2-d2 Gb3-b2 59. Kd2-e2 Gb2-b3 60. Ke2-d2 Gb3-b4 61. Ga7-a8 Gc7-c8 62. Ga8-a7 Gb4-b3 63. Ga7-a8 Gb3-b2 64. Ga8-a7 Gb9-b8 65. Ga7-a6 Gb8-b7 66. Kd2-e2 Gb7-b8 67. Ke2-d2 Gb8-b7 68. Ga6-a5 Gb7-b8 69. Ga5-b5 Gb8-b7 70. Kd2-e2 Gb7-b8 71. Gb5-b4 Gb8-b7 72. Gb4-b5 Gb7-b8 73. Gb5-b4 Gb8-b7 74. Gb4-a4 Gb7-b8 75. Ga4-a3 Gb8-b9 76. Ke2-d2 Gb9-b8 77. Kd2-e2 Gb8-b9 78. Ke2-f3 Gb9-b8 79. Kf3-e4 Gb8-b9 80. Ga3-a4 Gb2-b3 81. Ga4-a5 Gb3-b4 82. Gd3-d4 Gb4-b3 83. Ga5-b5 Gb3-c3 84. Ge3-f3 Gc3-b3 85. Gd4-d5 Gb3-c3 86. Gd5-e5 Gc3-d3 87. Ke4-f4 Gd3-d4 88. Gb5-b4 Gb9-b8 89. Kf4-g4 Gd4-d3 90. Gb4-b5 Gd3-d4 91. Gf3-f4 Gd4-d3 92. Kg4-f5 Gd3-d4 93. Gb5-b4 Gd4-d3 94. Gb4-b5 Gd3-d4 95. Gb5-b4 Gd8-e8 96. Kf5-g4 Ge8-d8 97. Gb4-b5 Gd4-d3 98. Ge5-d5 Gd3-e3 99. Gd5-e5 Ge3-e2 100. Kg4-f5 Ge2-e3 101. Gb5-b4 Gd8-e8 102. Ge5-d5 Ge3-d3 103. Gd5-e5 Gd3-d4 104. Gf4-g4 Ge8-d8 105. Gg4-g5 Gd4-d3 106. Gb4-b5 Gd3-d4 107. Gb5-b4 Gd4-d3 108. Gb4-b5 Gd3-d4 109. Kf5-f6 Gd8-e8 110. Gb5-b6 Ge8-d8 111. Gh3-h4 Gd4-e4 112. Ge5xe4 Gc8-c7 113. Ge4-e5 Gc7-c6 114. Gb6xc6 Gb8-b9 115. Gg5-g6 Gd8-d7 116. Gc6-c7 Gd7xc7 117. Kf6-e7 Kc9-d8 118. Ke7-e8 Kd8-d7 119. Ke8-e9

@@ -1,10 +1,10 @@
 [MGN "1"]
 [event "Self-play"]
 [site "mongjin-selfplay"]
-[date "2026.06.17"]
+[date "2026.06.19"]
 [round "12"]
 [opponentId "ai-vs-ai"]
-[termination "goal"]
+[termination "capture"]
 [Black "AI-Black"]
 [White "AI-White"]
 [Result "BLACK"]
@@ -17,4 +17,4 @@
 [noGuardOnGoal "true"]
 [kingCapture "true"]
 
-1. Ke1-f2 Ke9-e8 2. Kf2-g3 Ke8-f7 3. Kg3-f4 Kf7-g7 4. Kf4-e5 Kg7-h6 5. Ke5-e6 Kh6-i6 6. Ke6-d7 Ki6-i7 7. Kd7-e8 Ki7-h8 8. Ke8-e9
+1. Ke1-e2 Ke9-e8 2. Ke2-e3 @d8 3. Ke3-d4 @f8 4. Kd4-e5 @c8 5. @e6 Gf8-g8 6. @e7 Ke8-d9 7. Ge7-d7 Gd8xd7 8. @f6 Kd9-d8 9. @d6 Gd7xd6 10. Ge6xd6 @e8 11. @d7 Kd8-c9 12. @d8 Gc8xd8 13. @c7 @e7 14. @c8 Gd8xc8 15. Gc7xc8 Kc9-d9 16. Gd7-d8 Kd9-e9 17. Ke5-d5 @d7 18. Kd5-c6 Gd7xd6 19. Kc6-b7 Ge7-d7 20. Gd8xe8 Ke9-f9 21. Kb7-b8 Kf9-g9 22. Kb8-c9 Kg9-f8 23. Ge8xf8

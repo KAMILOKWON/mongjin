@@ -1,332 +1,287 @@
 [
   {
-    "id": "sp-opening-n6i5uq",
-    "title": "오프닝 패턴 (흑 89%)",
+    "id": "sp-motif-ja915r",
+    "title": "목적지 돌파",
+    "phase": "endgame",
+    "summary": "왕을 목적지에 도달시키는 마무리 패턴",
+    "mgnPattern": "Ke3-e2 Ke4-e3 Ke2-e1 Ke3-d2 Ke1-e2 Kd2-d1",
+    "tags": [
+      "goal",
+      "king-rush",
+      "selfplay"
+    ],
+    "lessons": [
+      "10판 중 10승"
+    ],
+    "sourceGames": [],
+    "confidence": 0.9,
+    "updatedAt": "2026-06-19T05:42:54.903Z"
+  },
+  {
+    "id": "sp-opening-i4qzku",
+    "title": "오프닝 패턴 (백 85%)",
     "phase": "opening",
-    "summary": "셀프플레이 9판 중 흑 승률 89%",
-    "mgnPattern": "1. Ke1-d2 Ke9-f8",
+    "summary": "셀프플레이 20판 중 백 승률 85%",
+    "mgnPattern": "1. Ke1-e2 Ke9-e8",
     "tags": [
       "opening",
       "selfplay",
-      "black"
+      "white"
     ],
     "lessons": [
-      "9판 검증 — 승률 89%"
+      "20판 검증 — 승률 85%"
     ],
     "sourceGames": [
-      "sp-2026.06.17-1",
-      "sp-2026.06.17-5",
-      "sp-2026.06.17-13",
-      "sp-2026.06.17-14",
-      "sp-2026.06.17-15",
-      "sp-2026.06.17-17",
-      "sp-2026.06.17-29",
-      "sp-2026.06.17-37",
-      "sp-2026.06.17-41"
+      "sp-2026.06.19-0",
+      "sp-2026.06.19-1",
+      "sp-2026.06.19-2",
+      "sp-2026.06.19-3",
+      "sp-2026.06.19-4",
+      "sp-2026.06.19-5",
+      "sp-2026.06.19-6",
+      "sp-2026.06.19-7",
+      "sp-2026.06.19-8",
+      "sp-2026.06.19-9",
+      "sp-2026.06.19-10",
+      "sp-2026.06.19-11"
     ],
-    "confidence": 0.6666666666666666,
-    "updatedAt": "2026-06-17T15:42:42.628Z"
+    "confidence": 0.85,
+    "updatedAt": "2026-06-19T05:42:54.903Z"
   },
   {
-    "id": "sp-opening-i4qzkv",
-    "title": "오프닝 패턴 (흑 58%)",
-    "phase": "opening",
-    "summary": "셀프플레이 12판 중 흑 승률 58%",
-    "mgnPattern": "1. Ke1-e2 Ke9-f8",
-    "tags": [
-      "opening",
-      "selfplay",
-      "black"
-    ],
-    "lessons": [
-      "12판 검증 — 승률 58%"
-    ],
-    "sourceGames": [
-      "sp-2026.06.17-2",
-      "sp-2026.06.17-9",
-      "sp-2026.06.17-10",
-      "sp-2026.06.17-16",
-      "sp-2026.06.17-22",
-      "sp-2026.06.17-26",
-      "sp-2026.06.17-28",
-      "sp-2026.06.17-32",
-      "sp-2026.06.17-33",
-      "sp-2026.06.17-35",
-      "sp-2026.06.17-39",
-      "sp-2026.06.17-42"
-    ],
-    "confidence": 0.5833333333333334,
-    "updatedAt": "2026-06-17T15:42:42.628Z"
-  },
-  {
-    "id": "sp-opening-csk7nk",
-    "title": "오프닝 패턴 (흑 100%)",
-    "phase": "opening",
-    "summary": "셀프플레이 5판 중 흑 승률 100%",
-    "mgnPattern": "1. Ke1-d2 Ke9-f8 2. Kd2-c3 Kf8-g7",
-    "tags": [
-      "opening",
-      "selfplay",
-      "black"
-    ],
-    "lessons": [
-      "5판 검증 — 승률 100%"
-    ],
-    "sourceGames": [
-      "sp-2026.06.17-5",
-      "sp-2026.06.17-14",
-      "sp-2026.06.17-17",
-      "sp-2026.06.17-37",
-      "sp-2026.06.17-41"
-    ],
-    "confidence": 0.4166666666666667,
-    "updatedAt": "2026-06-17T15:42:42.628Z"
-  },
-  {
-    "id": "sp-opening-i4qzkt",
-    "title": "오프닝 패턴 (흑 80%)",
-    "phase": "opening",
-    "summary": "셀프플레이 5판 중 흑 승률 80%",
-    "mgnPattern": "1. Ke1-e2 Ke9-d8",
-    "tags": [
-      "opening",
-      "selfplay",
-      "black"
-    ],
-    "lessons": [
-      "5판 검증 — 승률 80%"
-    ],
-    "sourceGames": [
-      "sp-2026.06.17-0",
-      "sp-2026.06.17-12",
-      "sp-2026.06.17-19",
-      "sp-2026.06.17-21",
-      "sp-2026.06.17-27"
-    ],
-    "confidence": 0.33333333333333337,
-    "updatedAt": "2026-06-17T15:42:42.628Z"
-  },
-  {
-    "id": "sp-opening-csk7nj",
-    "title": "오프닝 패턴 (흑 100%)",
-    "phase": "opening",
-    "summary": "셀프플레이 3판 중 흑 승률 100%",
-    "mgnPattern": "1. Ke1-d2 Ke9-f8 2. Kd2-c3 Kf8-f7",
-    "tags": [
-      "opening",
-      "selfplay",
-      "black"
-    ],
-    "lessons": [
-      "3판 검증 — 승률 100%"
-    ],
-    "sourceGames": [
-      "sp-2026.06.17-1",
-      "sp-2026.06.17-13",
-      "sp-2026.06.17-29"
-    ],
-    "confidence": 0.25,
-    "updatedAt": "2026-06-17T15:42:42.628Z"
-  },
-  {
-    "id": "sp-opening-peihdv",
+    "id": "sp-opening-2ybeij",
     "title": "오프닝 패턴 (백 100%)",
     "phase": "opening",
-    "summary": "셀프플레이 3판 중 백 승률 100%",
-    "mgnPattern": "1. Ke1-e2 Ke9-f8 2. Ke2-f3 Kf8-e7",
+    "summary": "셀프플레이 9판 중 백 승률 100%",
+    "mgnPattern": "1. Ke1-e2 Ke9-e8 2. Ke2-d3 @d8",
     "tags": [
       "opening",
       "selfplay",
       "white"
     ],
     "lessons": [
-      "3판 검증 — 승률 100%"
+      "9판 검증 — 승률 100%"
     ],
     "sourceGames": [
-      "sp-2026.06.17-16",
-      "sp-2026.06.17-32",
-      "sp-2026.06.17-39"
+      "sp-2026.06.19-1",
+      "sp-2026.06.19-2",
+      "sp-2026.06.19-3",
+      "sp-2026.06.19-4",
+      "sp-2026.06.19-6",
+      "sp-2026.06.19-7",
+      "sp-2026.06.19-10",
+      "sp-2026.06.19-16",
+      "sp-2026.06.19-19"
     ],
-    "confidence": 0.25,
-    "updatedAt": "2026-06-17T15:42:42.628Z"
+    "confidence": 0.75,
+    "updatedAt": "2026-06-19T05:42:54.903Z"
   },
   {
-    "id": "sp-opening-uiz0q7",
+    "id": "sp-opening-ktgk2z",
     "title": "오프닝 패턴 (백 100%)",
     "phase": "opening",
-    "summary": "셀프플레이 3판 중 백 승률 100%",
-    "mgnPattern": "1. Ke1-e2 Ke9-f8 2. Ke2-f3 Kf8-e7 3. Kf3-g4 @f7",
+    "summary": "셀프플레이 9판 중 백 승률 100%",
+    "mgnPattern": "1. Ke1-e2 Ke9-e8 2. Ke2-d3 @d8 3. Kd3-d4 @f8",
     "tags": [
       "opening",
       "selfplay",
       "white"
     ],
     "lessons": [
-      "3판 검증 — 승률 100%"
+      "9판 검증 — 승률 100%"
     ],
     "sourceGames": [
-      "sp-2026.06.17-16",
-      "sp-2026.06.17-32",
-      "sp-2026.06.17-39"
+      "sp-2026.06.19-1",
+      "sp-2026.06.19-2",
+      "sp-2026.06.19-3",
+      "sp-2026.06.19-4",
+      "sp-2026.06.19-6",
+      "sp-2026.06.19-7",
+      "sp-2026.06.19-10",
+      "sp-2026.06.19-16",
+      "sp-2026.06.19-19"
     ],
-    "confidence": 0.25,
-    "updatedAt": "2026-06-17T15:42:42.628Z"
+    "confidence": 0.75,
+    "updatedAt": "2026-06-19T05:42:54.903Z"
   },
   {
-    "id": "sp-opening-bl3wyo",
-    "title": "오프닝 패턴 (백 60%)",
+    "id": "sp-opening-p08czo",
+    "title": "오프닝 패턴 (백 100%)",
     "phase": "opening",
-    "summary": "셀프플레이 5판 중 백 승률 60%",
-    "mgnPattern": "1. Ke1-f2 Ke9-f8",
+    "summary": "셀프플레이 9판 중 백 승률 100%",
+    "mgnPattern": "1. Ke1-e2 Ke9-e8 2. Ke2-d3 @d8 3. Kd3-d4 @f8 4. Kd4-e5 Gd8-c8",
     "tags": [
       "opening",
       "selfplay",
       "white"
     ],
     "lessons": [
-      "5판 검증 — 승률 60%"
+      "9판 검증 — 승률 100%"
     ],
     "sourceGames": [
-      "sp-2026.06.17-24",
-      "sp-2026.06.17-30",
-      "sp-2026.06.17-34",
-      "sp-2026.06.17-38",
-      "sp-2026.06.17-43"
+      "sp-2026.06.19-1",
+      "sp-2026.06.19-2",
+      "sp-2026.06.19-3",
+      "sp-2026.06.19-4",
+      "sp-2026.06.19-6",
+      "sp-2026.06.19-7",
+      "sp-2026.06.19-10",
+      "sp-2026.06.19-16",
+      "sp-2026.06.19-19"
     ],
-    "confidence": 0.25,
-    "updatedAt": "2026-06-17T15:42:42.628Z"
+    "confidence": 0.75,
+    "updatedAt": "2026-06-19T05:42:54.903Z"
   },
   {
-    "id": "sp-opening-eto9c4",
+    "id": "sp-opening-qf9lgk",
+    "title": "오프닝 패턴 (백 100%)",
+    "phase": "opening",
+    "summary": "셀프플레이 9판 중 백 승률 100%",
+    "mgnPattern": "1. Ke1-e2 Ke9-e8 2. Ke2-d3 @d8 3. Kd3-d4 @f8 4. Kd4-e5 Gd8-c8 5. @e6 Ke8-f9",
+    "tags": [
+      "opening",
+      "selfplay",
+      "white"
+    ],
+    "lessons": [
+      "9판 검증 — 승률 100%"
+    ],
+    "sourceGames": [
+      "sp-2026.06.19-1",
+      "sp-2026.06.19-2",
+      "sp-2026.06.19-3",
+      "sp-2026.06.19-4",
+      "sp-2026.06.19-6",
+      "sp-2026.06.19-7",
+      "sp-2026.06.19-10",
+      "sp-2026.06.19-16",
+      "sp-2026.06.19-19"
+    ],
+    "confidence": 0.75,
+    "updatedAt": "2026-06-19T05:42:54.903Z"
+  },
+  {
+    "id": "sp-opening-bq2vpi",
     "title": "오프닝 패턴 (백 75%)",
     "phase": "opening",
-    "summary": "셀프플레이 4판 중 백 승률 75%",
-    "mgnPattern": "1. Ke1-f2 Ke9-f8 2. Kf2-e3 Kf8-e7",
+    "summary": "셀프플레이 8판 중 백 승률 75%",
+    "mgnPattern": "1. Ke1-e2 Ke9-e8 2. Ke2-e3 @d8",
     "tags": [
       "opening",
       "selfplay",
       "white"
     ],
     "lessons": [
-      "4판 검증 — 승률 75%"
+      "8판 검증 — 승률 75%"
     ],
     "sourceGames": [
-      "sp-2026.06.17-24",
-      "sp-2026.06.17-30",
-      "sp-2026.06.17-38",
-      "sp-2026.06.17-43"
+      "sp-2026.06.19-0",
+      "sp-2026.06.19-9",
+      "sp-2026.06.19-11",
+      "sp-2026.06.19-13",
+      "sp-2026.06.19-14",
+      "sp-2026.06.19-15",
+      "sp-2026.06.19-17",
+      "sp-2026.06.19-18"
     ],
-    "confidence": 0.25,
-    "updatedAt": "2026-06-17T15:42:42.628Z"
+    "confidence": 0.5,
+    "updatedAt": "2026-06-19T05:42:54.903Z"
   },
   {
-    "id": "sp-opening-wborx2",
-    "title": "오프닝 패턴 (백 100%)",
+    "id": "sp-opening-bop9yl",
+    "title": "오프닝 패턴 (백 75%)",
     "phase": "opening",
-    "summary": "셀프플레이 3판 중 백 승률 100%",
-    "mgnPattern": "1. Ke1-f2 Ke9-f8 2. Kf2-e3 Kf8-e7 3. Ke3-d4 @d7",
+    "summary": "셀프플레이 8판 중 백 승률 75%",
+    "mgnPattern": "1. Ke1-e2 Ke9-e8 2. Ke2-e3 @d8 3. Ke3-d4 @f8",
     "tags": [
       "opening",
       "selfplay",
       "white"
     ],
     "lessons": [
-      "3판 검증 — 승률 100%"
+      "8판 검증 — 승률 75%"
     ],
     "sourceGames": [
-      "sp-2026.06.17-30",
-      "sp-2026.06.17-38",
-      "sp-2026.06.17-43"
+      "sp-2026.06.19-0",
+      "sp-2026.06.19-9",
+      "sp-2026.06.19-11",
+      "sp-2026.06.19-13",
+      "sp-2026.06.19-14",
+      "sp-2026.06.19-15",
+      "sp-2026.06.19-17",
+      "sp-2026.06.19-18"
     ],
-    "confidence": 0.25,
-    "updatedAt": "2026-06-17T15:42:42.628Z"
+    "confidence": 0.5,
+    "updatedAt": "2026-06-19T05:42:54.903Z"
   },
   {
-    "id": "sp-opening-bl3wyp",
-    "title": "오프닝 패턴 (흑 67%)",
+    "id": "sp-opening-ndy3eu",
+    "title": "오프닝 패턴 (백 86%)",
     "phase": "opening",
-    "summary": "셀프플레이 3판 중 흑 승률 67%",
-    "mgnPattern": "1. Ke1-f2 Ke9-e8",
+    "summary": "셀프플레이 7판 중 백 승률 86%",
+    "mgnPattern": "1. Ke1-e2 Ke9-e8 2. Ke2-e3 @d8 3. Ke3-d4 @f8 4. Kd4-e5 Gd8-c8",
     "tags": [
       "opening",
       "selfplay",
-      "black"
+      "white"
     ],
     "lessons": [
-      "3판 검증 — 승률 67%"
+      "7판 검증 — 승률 86%"
     ],
     "sourceGames": [
-      "sp-2026.06.17-4",
-      "sp-2026.06.17-11",
-      "sp-2026.06.17-47"
+      "sp-2026.06.19-0",
+      "sp-2026.06.19-9",
+      "sp-2026.06.19-13",
+      "sp-2026.06.19-14",
+      "sp-2026.06.19-15",
+      "sp-2026.06.19-17",
+      "sp-2026.06.19-18"
     ],
-    "confidence": 0.16666666666666666,
-    "updatedAt": "2026-06-17T15:42:42.628Z"
+    "confidence": 0.5,
+    "updatedAt": "2026-06-19T05:42:54.903Z"
   },
   {
-    "id": "sp-opening-bl3wyq",
-    "title": "오프닝 패턴 (흑 67%)",
+    "id": "sp-opening-7dhije",
+    "title": "오프닝 패턴 (백 86%)",
     "phase": "opening",
-    "summary": "셀프플레이 3판 중 흑 승률 67%",
-    "mgnPattern": "1. Ke1-f2 Ke9-d8",
+    "summary": "셀프플레이 7판 중 백 승률 86%",
+    "mgnPattern": "1. Ke1-e2 Ke9-e8 2. Ke2-e3 @d8 3. Ke3-d4 @f8 4. Kd4-e5 Gd8-c8 5. @e6 Ke8-f9",
     "tags": [
       "opening",
       "selfplay",
-      "black"
+      "white"
     ],
     "lessons": [
-      "3판 검증 — 승률 67%"
+      "7판 검증 — 승률 86%"
     ],
     "sourceGames": [
-      "sp-2026.06.17-6",
-      "sp-2026.06.17-36",
-      "sp-2026.06.17-44"
+      "sp-2026.06.19-0",
+      "sp-2026.06.19-9",
+      "sp-2026.06.19-13",
+      "sp-2026.06.19-14",
+      "sp-2026.06.19-15",
+      "sp-2026.06.19-17",
+      "sp-2026.06.19-18"
     ],
-    "confidence": 0.16666666666666666,
-    "updatedAt": "2026-06-17T15:42:42.628Z"
+    "confidence": 0.5,
+    "updatedAt": "2026-06-19T05:42:54.903Z"
   },
   {
-    "id": "sp-opening-n6i5ur",
-    "title": "오프닝 패턴 (흑 67%)",
-    "phase": "opening",
-    "summary": "셀프플레이 3판 중 흑 승률 67%",
-    "mgnPattern": "1. Ke1-d2 Ke9-e8",
+    "id": "sp-motif-fylqws",
+    "title": "목적지 돌파",
+    "phase": "endgame",
+    "summary": "왕을 목적지에 도달시키는 마무리 패턴",
+    "mgnPattern": "Ke4-e3 Kd4-d3 Ke3-d2 Kd3-e2 Kd2-d3 Ke2-e1",
     "tags": [
-      "opening",
-      "selfplay",
-      "black"
+      "goal",
+      "king-rush",
+      "selfplay"
     ],
     "lessons": [
-      "3판 검증 — 승률 67%"
+      "3판 중 3승"
     ],
-    "sourceGames": [
-      "sp-2026.06.17-20",
-      "sp-2026.06.17-31",
-      "sp-2026.06.17-40"
-    ],
-    "confidence": 0.16666666666666666,
-    "updatedAt": "2026-06-17T15:42:42.628Z"
-  },
-  {
-    "id": "sp-opening-9a6fnf",
-    "title": "오프닝 패턴 (흑 67%)",
-    "phase": "opening",
-    "summary": "셀프플레이 3판 중 흑 승률 67%",
-    "mgnPattern": "1. Ke1-d2 Ke9-e8 2. Kd2-c3 Ke8-d7",
-    "tags": [
-      "opening",
-      "selfplay",
-      "black"
-    ],
-    "lessons": [
-      "3판 검증 — 승률 67%"
-    ],
-    "sourceGames": [
-      "sp-2026.06.17-20",
-      "sp-2026.06.17-31",
-      "sp-2026.06.17-40"
-    ],
-    "confidence": 0.16666666666666666,
-    "updatedAt": "2026-06-17T15:42:42.628Z"
+    "sourceGames": [],
+    "confidence": 0.3,
+    "updatedAt": "2026-06-19T05:42:54.903Z"
   }
 ]

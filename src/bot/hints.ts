@@ -97,7 +97,15 @@ export function moveStrategyBonus(
   const punishW = bonuses.get('__punish__') ?? 0;
 
   if (centerW > 0 && move.kind === 'PLACE' && CENTER_FILES.has(move.to.c)) {
-    bonus += centerW;
+    // 중앙 호위는 2개까지만 보너스 (이후 과전개 방지)
+    let centerCount = 0;
+    for (const fc of CENTER_FILES) {
+      for (let r = 0; r < config.boardSize; r++) {
+        const p = state.board[r]?.[fc];
+        if (p?.player === botSide && p.type === 'GUARD') centerCount++;
+      }
+    }
+    if (centerCount < 2) bonus += centerW;
   }
 
   if (punishW > 0 && move.kind === 'MOVE') {
@@ -147,13 +155,16 @@ export function evalStrategyBonus(
 
     if (s.tags.includes('center-control') && opening) {
       const n = config.boardSize;
-      for (let c of CENTER_FILES) {
+      let centerCount = 0;
+      for (const c of CENTER_FILES) {
         if (c >= n) continue;
         for (let r = 0; r < n; r++) {
           const p = state.board[r][c];
-          if (p?.player === me && p.type === 'GUARD') score += 8 * w;
+          if (p?.player === me && p.type === 'GUARD') centerCount++;
         }
       }
+      // 중앙 호위 2개까지만 평가 보너스 (과전개 방지)
+      score += 8 * w * Math.min(centerCount, 2);
     }
 
     if (s.tags.includes('punish')) {

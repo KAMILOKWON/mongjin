@@ -264,7 +264,19 @@ function evaluate(state: GameState, config: RuleConfig, hints?: BotHints, botSid
   const myD = bfsKingDist(state, me, config);
   const oppD = bfsKingDist(state, opp, config);
 
-  let score = 7 * (guardTotal(state, me) - guardTotal(state, opp));
+  const myTotal = guardTotal(state, me);
+  const oppTotal = guardTotal(state, opp);
+  let score = 7 * (myTotal - oppTotal);
+
+  // 손에 든 호위에 유연성 보너스: 배치 행위 자체의 턴 비용 반영
+  score += 2 * (state.guardsInHand[me] - state.guardsInHand[opp]);
+
+  // 과전개 패널티: 상대보다 보드 호위 2개 이상 더 배치 시 감점 (낭비 템포)
+  const myOnBoard = myTotal - state.guardsInHand[me];
+  const oppOnBoard = oppTotal - state.guardsInHand[opp];
+  const excessDeploy = Math.max(0, myOnBoard - oppOnBoard - 2);
+  score -= 5 * excessDeploy;
+
   if (config.kingCapture) {
     if (kingThreatened(state, opp)) score += 5000;
     if (kingThreatened(state, me)) score -= 60;
@@ -301,6 +313,8 @@ function orderMoves(
   const n = state.board.length;
   const goalR = goalRow(me, n);
   const oppKing = findKing(state, opp);
+  const myKing = findKing(state, me);
+  const myEsc = escortCount(state, me);
   const near = (r: number, c: number) =>
     oppKing ? 8 - Math.max(Math.abs(r - oppKing.r), Math.abs(c - oppKing.c)) : 0;
 
@@ -322,14 +336,28 @@ function orderMoves(
       if (target) s += target.type === 'KING' ? 10000 : 500;
       const piece = state.board[m.from.r][m.from.c]!;
       if (piece.type === 'KING') {
-        s += 20 * (Math.abs(m.from.r - goalR) - Math.abs(m.to.r - goalR));
+        // 왕 전진을 강하게 평가: 목표행 접근 시 30점/칸 (기존 20에서 강화)
+        const stepsCloser = Math.abs(m.from.r - goalR) - Math.abs(m.to.r - goalR);
+        s += stepsCloser > 0 ? stepsCloser * 30 : stepsCloser * 5;
         if (isGoalCell(me, m.to, config)) s += 10000;
       } else {
         s += near(m.to.r, m.to.c);
       }
     } else {
-      s += 3 + near(m.to.r, m.to.c);
-      s += placementDelay(state, m, config) * 35;
+      // PLACE: 전략적 가치 기반 차등 평가
+      const delay = placementDelay(state, m, config);
+      // 체크성 위협: 상대 왕 인접(체비쇼프 ≤ 1)
+      const adjOppKing = oppKing !== null &&
+        Math.max(Math.abs(m.to.r - oppKing.r), Math.abs(m.to.c - oppKing.c)) <= 1;
+      // 왕 호위 보강: 내 왕 인접 + 아직 호위 2개 미만
+      const adjMyKing = myKing !== null &&
+        Math.max(Math.abs(m.to.r - myKing.r), Math.abs(m.to.c - myKing.c)) <= 1;
+      const useful = delay >= 1 || adjOppKing || (adjMyKing && myEsc < 2);
+
+      s += near(m.to.r, m.to.c);
+      if (delay > 0) s += delay * 40;
+      // 유용한 배치는 +5, 무의미한 배치는 -25 패널티
+      s += useful ? 5 : -25;
     }
     if (hints && botSide && state.turn === botSide) {
       s += hints.moveBonus(state, m);

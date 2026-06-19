@@ -1,7 +1,7 @@
 [MGN "1"]
 [event "Self-play"]
 [site "mongjin-selfplay"]
-[date "2026.06.17"]
+[date "2026.06.19"]
 [round "10"]
 [opponentId "ai-vs-ai"]
 [termination "goal"]
@@ -17,4 +17,4 @@
 [noGuardOnGoal "true"]
 [kingCapture "true"]
 
-1. Ke1-e2 Ke9-f8 2. Ke2-f3 Kf8-f7 3. Kf3-e4 Kf7-e8 4. Ke4-f5 @e7 5. @f6 @f8 6. @f7 Gf8xf7 7. Gf6xf7 Ge7xf7 8. Kf5-e6 @d8 9. @e7 Gf7xe7 10. Ke6-f5 @f8 11. @e5 @g8 12. @e6 Ke8-d9 13. Ge6-f6 Kd9-c8 14. @g6 Kc8-b7 15. Gg6-g7 @c8 16. Gf6-g6 Gg8-h8 17. @h7 @h9 18. Gh7xh8 Gh9xh8 19. @g8 Gh8xg8 20. Kf5-f6 @a7 21. Ge5-f5 Gc8-b8 22. Kf6-e5 Gb8-b9 23. Gg7xg8 Ge7-e6 24. Ke5-e4 Gf8xg8 25. Gf5-f6 Ge6-e7 26. Gg6-g7 Ge7-f7 27. Gg7xg8 Kb7-a6 28. Ke4-f5 Ka6-a5 29. Kf5-g6 Ka5-b4 30. Gf6xf7 Ga7-a8 31. Kg6-g7 Gd8-e8 32. Gf7-e7 Kb4-c3 33. Ge7-e6 Kc3-c2 34. Gg8-f8 Kc2-d1
+1. Ke1-e2 Ke9-e8 2. Ke2-e3 @d8 3. Ke3-d4 @f8 4. Kd4-e5 Gd8-c8 5. @e6 Ke8-f9 6. @d6 Kf9-g8 7. Ge6-f6 @h8 8. @f7 @d8 9. Gf7xf8 Kg8-h7 10. @g6 Kh7-i6 11. Gg6-h6 Ki6-i5 12. @e4 Ki5-i4 13. Gh6-h7 Gh8xh7 14. Ke5-e6 Gh7-h8 15. Ge4-e5 Ki4-h3 16. Gf8-f7 Kh3-g2 17. Ke6-e7 Kg2-f1
