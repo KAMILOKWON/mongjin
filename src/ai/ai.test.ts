@@ -72,4 +72,36 @@ describe('AI (미니맥스)', () => {
     chooseMove(s, CFG, { maxMs: 200, maxDepth: 12 });
     expect(performance.now() - t0).toBeLessThan(900);
   });
+
+  it('방치된 호위 잡기를 놓치지 않는다', () => {
+    const s = makeState(
+      [
+        [4, 4, 'BLACK', 'GUARD'],
+        [5, 4, 'WHITE', 'GUARD'],
+        [8, 4, 'BLACK', 'KING'],
+        [0, 4, 'WHITE', 'KING'],
+      ],
+      'WHITE',
+      { BLACK: 0, WHITE: 0 },
+    );
+    const m = chooseMove(s, CFG, { maxMs: 100, maxDepth: 4 })!;
+    expect(m.kind).toBe('MOVE');
+    expect(m.to).toEqual({ r: 4, c: 4 });
+  });
+
+  it('왕 인접 잡기 한 수 승리를 놓치지 않는다', () => {
+    const s = makeState(
+      [
+        [4, 4, 'BLACK', 'KING'],
+        [5, 4, 'WHITE', 'GUARD'],
+        [0, 4, 'WHITE', 'KING'],
+      ],
+      'WHITE',
+      { BLACK: 0, WHITE: 0 },
+    );
+    const m = chooseMove(s, CFG, { maxMs: 100, maxDepth: 4 })!;
+    const next = applyMove(s, m);
+    expect(getResult(next, CFG)?.winner).toBe('WHITE');
+    expect(getResult(next, CFG)?.reason).toBe('capture');
+  });
 });

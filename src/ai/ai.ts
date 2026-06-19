@@ -2,6 +2,12 @@ import type { GameState, Move, Player } from '../core/types';
 import type { RuleConfig } from '../core/config';
 import type { BotHints } from '../bot/brain';
 import {
+  captureSwing,
+  findWinningMove,
+  isQuiescenceMove,
+  pickObviousMove,
+} from './tactics';
+import {
   ALL8,
   ORTHO,
   findKing,
@@ -17,7 +23,7 @@ import {
 const WIN = 10000;
 const BLOCKED_DIST = 30;
 const HISTORY_MAX = 10_000;
-const QUIESCENCE_MAX = 4;
+const QUIESCENCE_MAX = 6;
 const MAX_KILLER_DEPTH = 32;
 
 /** 브라우저·GitHub Pages에서 쓰는 기본 AI 강도 */
@@ -120,11 +126,7 @@ function isCapture(state: GameState, move: Move): boolean {
 }
 
 function isCaptureOrGoal(state: GameState, move: Move, config: RuleConfig): boolean {
-  if (move.kind !== 'MOVE') return false;
-  const target = state.board[move.to.r][move.to.c];
-  if (target) return true;
-  const piece = state.board[move.from.r][move.from.c]!;
-  return piece.type === 'KING' && isGoalCell(state.turn, move.to, config);
+  return isQuiescenceMove(state, move, config);
 }
 
 function recordKiller(ctx: SearchCtx, depth: number, move: Move) {
@@ -465,10 +467,20 @@ function negamax(
 }
 
 function instantWinMove(state: GameState, moves: Move[], config: RuleConfig): Move | null {
+  return findWinningMove(state, moves, config);
+}
+
+function findBestNetCapture(state: GameState, moves: Move[], config: RuleConfig): Move | null {
+  let best: Move | null = null;
+  let bestSwing = 2;
   for (const m of moves) {
-    if (getTerminalWinner(child(state, m), config) === state.turn) return m;
+    const swing = captureSwing(state, m, config);
+    if (swing > bestSwing) {
+      bestSwing = swing;
+      best = m;
+    }
   }
-  return null;
+  return best;
 }
 
 export function chooseMove(
@@ -497,6 +509,7 @@ export function chooseMove(
   if (immediate) return immediate;
 
   let lastCompleted: Move[] = [moves[0]];
+  let completedDepth = 0;
 
   for (let depth = 1; depth <= maxDepth; depth++) {
     if (performance.now() > ctx.deadline) break;
@@ -530,6 +543,7 @@ export function chooseMove(
     if (!depthComplete && depth > 1) break;
     if (iterBest.length) {
       lastCompleted = iterBest.slice();
+      completedDepth = depth;
       const bestMove = iterBest[0]!;
       moves = [bestMove, ...moves.filter((m) => !movesEqual(m, bestMove))];
       ttStore(ctx, rootKey, depth, best, 'exact', bestMove);
@@ -537,5 +551,24 @@ export function chooseMove(
     if (best >= WIN) break;
   }
 
-  return lastCompleted[Math.floor(Math.random() * lastCompleted.length)];
+  const allLegal = legalMoves(state, config);
+  const finalWin = findWinningMove(state, allLegal, config);
+  if (finalWin) return finalWin;
+
+  let chosen = lastCompleted[Math.floor(Math.random() * lastCompleted.length)]!;
+  const netCapture = findBestNetCapture(state, allLegal, config);
+  if (
+    netCapture &&
+    !isCapture(state, chosen) &&
+    captureSwing(state, netCapture, config) >= 3
+  ) {
+    chosen = netCapture;
+  }
+
+  if (completedDepth <= 1 || ctx.aborted) {
+    const fallback = pickObviousMove(state, allLegal, config);
+    if (fallback) return fallback;
+  }
+
+  return chosen;
 }
