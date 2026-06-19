@@ -28,11 +28,19 @@ function escortCount(state: GameState, p: Player): number {
   return count;
 }
 
+// Returns distance from king to its goal row (lower = closer to winning).
 function kingAdvance(state: GameState, p: Player, config: RuleConfig): number {
   const k = findKing(state, p);
   if (!k) return 0;
-  const home = p === 'BLACK' ? config.boardSize - 1 : 0;
-  return Math.abs(k.r - home);
+  const g = goalRow(p, config.boardSize);
+  return Math.abs(k.r - g);
+}
+
+function isEndgame(state: GameState, config: RuleConfig): boolean {
+  for (const p of ['BLACK', 'WHITE'] as Player[]) {
+    if (kingAdvance(state, p, config) <= 3) return true;
+  }
+  return false;
 }
 
 /** 전략서 기반 수 정렬·평가 보너스 (순수 산술, 검색 비용 없음) */
@@ -49,9 +57,19 @@ export function buildStrategyBonuses(
 
   const opp = me === 'BLACK' ? 'WHITE' : 'BLACK';
   const opening = isOpening(state);
+  const endgame = isEndgame(state, config);
+
+  const myDist = kingAdvance(state, me, config);
+  const oppDist = kingAdvance(state, opp, config);
+  const raceBehind = myDist > oppDist + 1;
+  const myEscort = escortCount(state, me);
 
   let centerWeight = 0;
   let punishWeight = 0;
+  let endgameGoalWeight = 0;
+  let raceBehindWeight = 0;
+  let guardBeltWeight = 0;
+
   for (const s of strategies) {
     if (s.tags.includes('center-control') || s.tags.includes('defense')) {
       centerWeight = Math.max(centerWeight, s.confidence);
@@ -59,18 +77,19 @@ export function buildStrategyBonuses(
     if (s.tags.includes('punish') || s.tags.includes('king-capture')) {
       punishWeight = Math.max(punishWeight, s.confidence);
     }
+    if (s.tags.includes('endgame-goal-row') && endgame) {
+      endgameGoalWeight = Math.max(endgameGoalWeight, s.confidence);
+    }
+    if (s.tags.includes('race-behind') && raceBehind) {
+      raceBehindWeight = Math.max(raceBehindWeight, s.confidence);
+    }
+    if (s.tags.includes('guard-belt') && myEscort < 2) {
+      guardBeltWeight = Math.max(guardBeltWeight, s.confidence);
+    }
   }
 
   const oppEscort = escortCount(state, opp);
-  const oppAdvanced = kingAdvance(state, opp, config);
-  const nakedKing = config.kingCapture && oppEscort <= 1 && oppAdvanced >= 2;
-
-  for (const row of state.board) {
-    for (const piece of row) {
-      if (!piece || piece.player !== me) continue;
-      // noop — bonuses applied per candidate move in chooseMove path via legal moves iteration
-    }
-  }
+  const nakedKing = config.kingCapture && oppEscort <= 1 && oppDist >= 2;
 
   // store meta on bonuses map under special keys consumed by ai.ts
   if (opening && centerWeight > 0) {
@@ -78,6 +97,15 @@ export function buildStrategyBonuses(
   }
   if (nakedKing && punishWeight > 0) {
     bonuses.set('__punish__', punishWeight * 80);
+  }
+  if (endgameGoalWeight > 0) {
+    bonuses.set('__endgame-goal__', endgameGoalWeight * 50);
+  }
+  if (raceBehindWeight > 0) {
+    bonuses.set('__race-behind__', raceBehindWeight * 25);
+  }
+  if (guardBeltWeight > 0) {
+    bonuses.set('__guard-belt__', guardBeltWeight * 20);
   }
 
   return bonuses;
@@ -95,6 +123,9 @@ export function moveStrategyBonus(
   let bonus = bonuses.get(moveKey(move)) ?? 0;
   const centerW = bonuses.get('__center__') ?? 0;
   const punishW = bonuses.get('__punish__') ?? 0;
+  const endgameGoalW = bonuses.get('__endgame-goal__') ?? 0;
+  const raceBehindW = bonuses.get('__race-behind__') ?? 0;
+  const guardBeltW = bonuses.get('__guard-belt__') ?? 0;
 
   if (centerW > 0 && move.kind === 'PLACE' && CENTER_FILES.has(move.to.c)) {
     // 중앙 호위는 2개까지만 보너스 (이후 과전개 방지)
@@ -117,6 +148,31 @@ export function moveStrategyBonus(
       const dist =
         Math.abs(move.to.r - oppKing.r) + Math.abs(move.to.c - oppKing.c);
       if (dist <= 2) bonus += punishW * 0.4;
+    }
+  }
+
+  // Endgame goal row: bonus for moves to opponent's goal approach rows
+  if (endgameGoalW > 0) {
+    const opp = botSide === 'BLACK' ? 'WHITE' : 'BLACK';
+    const oppGoalR = goalRow(opp, config.boardSize);
+    const dist = Math.abs(move.to.r - oppGoalR);
+    if (dist >= 1 && dist <= 2) bonus += endgameGoalW;
+  }
+
+  // Race behind: extra bonus for any blocking PLACE
+  if (raceBehindW > 0 && move.kind === 'PLACE') {
+    bonus += raceBehindW;
+  }
+
+  // Guard belt: bonus for PLACE adjacent to own king when escort count is low
+  if (guardBeltW > 0 && move.kind === 'PLACE') {
+    const myKing = findKing(state, botSide);
+    if (myKing) {
+      const d = Math.max(
+        Math.abs(move.to.r - myKing.r),
+        Math.abs(move.to.c - myKing.c),
+      );
+      if (d <= 1) bonus += guardBeltW;
     }
   }
 
@@ -148,6 +204,7 @@ export function evalStrategyBonus(
 
   let score = 0;
   const opening = isOpening(state);
+  const endgame = isEndgame(state, config);
 
   for (const s of strategies) {
     if (!opening && s.phase === 'opening') continue;
@@ -163,7 +220,6 @@ export function evalStrategyBonus(
           if (p?.player === me && p.type === 'GUARD') centerCount++;
         }
       }
-      // 중앙 호위 2개까지만 평가 보너스 (과전개 방지)
       score += 8 * w * Math.min(centerCount, 2);
     }
 
@@ -172,6 +228,23 @@ export function evalStrategyBonus(
       if (escortCount(state, opp) <= 1 && kingAdvance(state, opp, config) >= 2) {
         score += 120 * w;
       }
+    }
+
+    if (s.tags.includes('endgame-goal-row') && endgame) {
+      // Bonus for guards controlling opponent's goal approach rows
+      const opp = me === 'BLACK' ? 'WHITE' : 'BLACK';
+      const oppGoalR = goalRow(opp, config.boardSize);
+      const n = config.boardSize;
+      let count = 0;
+      for (let dr = 1; dr <= 2; dr++) {
+        const r = oppGoalR === 0 ? oppGoalR + dr : oppGoalR - dr;
+        if (r < 0 || r >= n) continue;
+        for (let c = 0; c < n; c++) {
+          const p = state.board[r]?.[c];
+          if (p?.player === me && p.type === 'GUARD') count++;
+        }
+      }
+      score += 12 * w * Math.min(count, 3);
     }
   }
 

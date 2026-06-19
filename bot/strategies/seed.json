@@ -28,5 +28,69 @@
     "sourceGames": ["example-opening-center"],
     "confidence": 0.75,
     "updatedAt": "2026-06-17T00:00:00.000Z"
+  },
+  {
+    "id": "path-blocking",
+    "title": "진로 차단",
+    "phase": "middlegame",
+    "summary": "호위를 상대 왕의 안전 BFS 경로 위에 놓아 목적지까지 안전 거리를 늘린다.",
+    "mgnPattern": "1. Ke1-e2 Ke9-e8 2. Ke2-e3 @d8",
+    "tags": ["defense", "path-blocking", "blocking"],
+    "lessons": [
+      "상대 왕의 최단 경로 위에 호위를 두면 실질 도착 거리가 늘어난다",
+      "목적지 바로 앞 d8/e8/f8 또는 d2/e2/f2 주변이 가장 좋은 차단 지점이다",
+      "레이스에서 뒤질 때는 차단이 왕 전진보다 우선이다"
+    ],
+    "sourceGames": ["strategy-doc-4.1"],
+    "confidence": 0.8,
+    "updatedAt": "2026-06-19T00:00:00.000Z"
+  },
+  {
+    "id": "guard-belt",
+    "title": "호위 띠",
+    "phase": "middlegame",
+    "summary": "왕 주변 1-2개 호위를 띠처럼 붙여 왕의 전진과 안전을 동시에 만든다.",
+    "mgnPattern": "@e2 @d2 Ke1-e2",
+    "tags": ["defense", "guard-belt", "king-safety"],
+    "lessons": [
+      "왕 주변 8칸 중 내 호위 1개는 최소 안전선이다",
+      "호위가 왕 앞을 막지 않고 옆/뒤대각에 있어야 왕 속도를 늦추지 않는다",
+      "왕 전진 전에 최소 1개 호위를 왕 주변에 배치한다"
+    ],
+    "sourceGames": ["strategy-doc-4.2"],
+    "confidence": 0.75,
+    "updatedAt": "2026-06-19T00:00:00.000Z"
+  },
+  {
+    "id": "endgame-goal-row",
+    "title": "목적지 앞줄 장악",
+    "phase": "endgame",
+    "summary": "종반에는 목적지 칸 자체보다 바로 앞줄(rank 2 또는 rank 8)을 장악해 상대 왕 진입을 차단한다.",
+    "mgnPattern": "@d8 @f8",
+    "tags": ["endgame", "endgame-goal-row", "blocking"],
+    "lessons": [
+      "목적지 칸은 호위로 막을 수 없으므로 앞줄 중앙을 넓게 관리한다",
+      "앞줄 d8/e8/f8(또는 d2/e2/f2) 점유가 종반의 핵심 전장이다",
+      "왕이 앞줄에 오르면 세 목적지 중 둘 이상을 노릴 수 있다"
+    ],
+    "sourceGames": ["strategy-doc-8.1"],
+    "confidence": 0.85,
+    "updatedAt": "2026-06-19T00:00:00.000Z"
+  },
+  {
+    "id": "race-behind-block",
+    "title": "레이스 지연 시 방어 전환",
+    "phase": "middlegame",
+    "summary": "내 왕이 상대 왕보다 2수 이상 뒤처지면 왕 전진 대신 상대 경로 차단으로 전환한다.",
+    "mgnPattern": "@d8 @f8 @c8",
+    "tags": ["counter", "race-behind", "blocking", "defense"],
+    "lessons": [
+      "순수 레이스에서 뒤지면 차단이 유일한 역전 수단이다",
+      "차단은 시간을 벌기 위한 수이고 번 시간을 왕 전진으로 바꿔야 한다",
+      "상대 왕 2수 앞 칸을 미리 잡는 것이 바로 앞 1칸 막는 것보다 강하다"
+    ],
+    "sourceGames": ["strategy-doc-2.5"],
+    "confidence": 0.7,
+    "updatedAt": "2026-06-19T00:00:00.000Z"
   }
 ]
