@@ -1,8 +1,8 @@
 import { applyMove } from '../core/apply';
 import type { RuleConfig } from '../core/config';
 import { getResult } from '../core/result';
-import { findKing, legalMoves, opponent } from '../core/rules';
-import type { GameState, Move, Player } from '../core/types';
+import { legalMoves } from '../core/rules';
+import type { GameState, Move } from '../core/types';
 
 const WIN = 10000;
 
@@ -49,46 +49,9 @@ export function captureSwing(state: GameState, move: Move, config: RuleConfig): 
   return gain;
 }
 
-function kingThreatened(state: GameState, p: Player): boolean {
-  const k = findKing(state, p);
-  if (!k) return false;
-  const n = state.board.length;
-  for (const [dr, dc] of [
-    [-1, 0],
-    [1, 0],
-    [0, -1],
-    [0, 1],
-  ] as const) {
-    const r = k.r + dr;
-    const c = k.c + dc;
-    if (r < 0 || r >= n || c < 0 || c >= n) continue;
-    const piece = state.board[r][c];
-    if (piece && piece.player !== p && piece.type === 'GUARD') return true;
-  }
-  return false;
-}
-
-function escortCount(state: GameState, p: Player): number {
-  const k = findKing(state, p);
-  if (!k) return 0;
-  const n = state.board.length;
-  let count = 0;
-  for (let dr = -1; dr <= 1; dr++) {
-    for (let dc = -1; dc <= 1; dc++) {
-      if (!dr && !dc) continue;
-      const r = k.r + dr;
-      const c = k.c + dc;
-      if (r < 0 || r >= n || c < 0 || c >= n) continue;
-      const piece = state.board[r][c];
-      if (piece?.player === p && piece.type === 'GUARD') count++;
-    }
-  }
-  return count;
-}
-
 /**
- * 탐색이 얕게 끊겼을 때 쓰는 전술 폴백.
- * 즉시 승리 → 순이득 캡처 → 동가 캡처 → 알몸 왕 위협
+ * 탐색이 얕게 끊겼을 때만 쓰는 전술 폴백 (completedDepth <= 1).
+ * 즉시 승리 → 순이득 캡처만
  */
 export function pickObviousMove(
   state: GameState,
@@ -101,42 +64,12 @@ export function pickObviousMove(
   const captures = moves.filter(
     (m) => m.kind === 'MOVE' && state.board[m.to.r][m.to.c] !== null,
   );
-  if (captures.length) {
-    captures.sort((a, b) => captureSwing(state, b, config) - captureSwing(state, a, config));
-    const best = captures[0]!;
-    const swing = captureSwing(state, best, config);
-    if (swing >= WIN - 100) return best;
-    if (swing >= 3) return best;
-    if (swing >= 0) return best;
-  }
+  if (!captures.length) return null;
 
-  if (!config.kingCapture) return null;
-
-  const opp = opponent(state.turn);
-  let bestThreat: Move | null = null;
-  let bestThreatScore = -Infinity;
-
-  for (const m of moves) {
-    if (m.kind !== 'MOVE' || state.board[m.to.r][m.to.c]) continue;
-    const after = applyMove(state, m);
-    if (!kingThreatened(after, opp)) continue;
-    if (escortCount(after, opp) > 1) continue;
-    const score = 5000 - Math.abs(m.from.r - m.to.r) - Math.abs(m.from.c - m.to.c);
-    if (score > bestThreatScore) {
-      bestThreatScore = score;
-      bestThreat = m;
-    }
-  }
-  return bestThreat;
-}
-
-export function isQuiescenceMove(state: GameState, move: Move, config: RuleConfig): boolean {
-  if (move.kind === 'MOVE') {
-    if (state.board[move.to.r][move.to.c]) return true;
-    const piece = state.board[move.from.r][move.from.c]!;
-    if (piece.type === 'KING') return true;
-    const after = applyMove(state, move);
-    if (config.kingCapture && kingThreatened(after, opponent(state.turn))) return true;
-  }
-  return false;
+  captures.sort((a, b) => captureSwing(state, b, config) - captureSwing(state, a, config));
+  const best = captures[0]!;
+  const swing = captureSwing(state, best, config);
+  if (swing >= WIN - 100) return best;
+  if (swing >= 3) return best;
+  return null;
 }

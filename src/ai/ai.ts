@@ -4,7 +4,6 @@ import type { BotHints } from '../bot/brain';
 import {
   captureSwing,
   findWinningMove,
-  isQuiescenceMove,
   pickObviousMove,
 } from './tactics';
 import {
@@ -23,7 +22,7 @@ import {
 const WIN = 10000;
 const BLOCKED_DIST = 30;
 const HISTORY_MAX = 10_000;
-const QUIESCENCE_MAX = 6;
+const QUIESCENCE_MAX = 4;
 const MAX_KILLER_DEPTH = 32;
 
 /** 브라우저·GitHub Pages에서 쓰는 기본 AI 강도 */
@@ -126,7 +125,11 @@ function isCapture(state: GameState, move: Move): boolean {
 }
 
 function isCaptureOrGoal(state: GameState, move: Move, config: RuleConfig): boolean {
-  return isQuiescenceMove(state, move, config);
+  if (move.kind !== 'MOVE') return false;
+  const target = state.board[move.to.r][move.to.c];
+  if (target) return true;
+  const piece = state.board[move.from.r][move.from.c]!;
+  return piece.type === 'KING' && isGoalCell(state.turn, move.to, config);
 }
 
 function recordKiller(ctx: SearchCtx, depth: number, move: Move) {
@@ -565,7 +568,7 @@ export function chooseMove(
     chosen = netCapture;
   }
 
-  if (completedDepth <= 1 || ctx.aborted) {
+  if (completedDepth <= 1) {
     const fallback = pickObviousMove(state, allLegal, config);
     if (fallback) return fallback;
   }
