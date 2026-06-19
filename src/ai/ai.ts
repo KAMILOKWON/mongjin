@@ -22,13 +22,15 @@ import {
 const WIN = 10000;
 const BLOCKED_DIST = 30;
 const HISTORY_MAX = 10_000;
-const QUIESCENCE_MAX = 4;
+const QUIESCENCE_MAX = 5;
 const MAX_KILLER_DEPTH = 32;
+const LMR_MIN_DEPTH = 3;
+const LMR_QUIET_THRESHOLD = 4;
 
 /** 브라우저·GitHub Pages에서 쓰는 기본 AI 강도 */
 export const DEFAULT_AI_OPTIONS: AiOptions = {
   maxMs: 1800,
-  maxDepth: 12,
+  maxDepth: 20,
 };
 
 export interface AiOptions {
@@ -443,9 +445,38 @@ function negamax(
   let best = -Infinity;
   let bestMove: Move | null = null;
   let flag: TTFlag = 'upper';
+  const killerRow = depth > 0 && depth < MAX_KILLER_DEPTH ? ctx.killers[depth] : null;
 
-  for (const m of moves) {
-    const v = -negamax(child(state, m), ctx, depth - 1, -beta, -alpha, hints, botSide);
+  for (let i = 0; i < moves.length; i++) {
+    const m = moves[i]!;
+    const capture = isCapture(state, m);
+    const isKillerMove =
+      !!killerRow &&
+      ((!!killerRow[0] && movesEqual(m, killerRow[0])) ||
+        (!!killerRow[1] && movesEqual(m, killerRow[1])));
+
+    // LMR: 조용한 이동(PLACE 제외)에서만 깊이 축약
+    let reduction = 0;
+    if (
+      depth >= LMR_MIN_DEPTH &&
+      i >= LMR_QUIET_THRESHOLD &&
+      !capture &&
+      !isKillerMove &&
+      m.kind !== 'PLACE'
+    ) {
+      reduction = 1;
+    }
+
+    let v: number;
+    if (i === 0) {
+      v = -negamax(child(state, m), ctx, depth - 1, -beta, -alpha, hints, botSide);
+    } else {
+      v = -negamax(child(state, m), ctx, depth - 1 - reduction, -alpha - 1, -alpha, hints, botSide);
+      if (!ctx.aborted && v > alpha) {
+        v = -negamax(child(state, m), ctx, depth - 1, -beta, -alpha, hints, botSide);
+      }
+    }
+
     if (ctx.aborted) break;
     if (v > best) {
       best = v;
@@ -456,7 +487,7 @@ function negamax(
       flag = 'exact';
     }
     if (alpha >= beta) {
-      if (!isCapture(state, m)) recordKiller(ctx, depth, m);
+      if (!capture) recordKiller(ctx, depth, m);
       recordHistory(ctx, m, depth);
       flag = 'lower';
       break;
@@ -558,7 +589,7 @@ export function chooseMove(
   const finalWin = findWinningMove(state, allLegal, config);
   if (finalWin) return finalWin;
 
-  let chosen = lastCompleted[Math.floor(Math.random() * lastCompleted.length)]!;
+  let chosen = lastCompleted[0]!;
   const netCapture = findBestNetCapture(state, allLegal, config);
   if (
     netCapture &&
