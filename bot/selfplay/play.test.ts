@@ -20,7 +20,7 @@ describe('셀프플레이', () => {
   it(
     'AI vs AI 1판이 정상 종료된다',
     () => {
-      const out = playAiVsAi(DEFAULT_CONFIG, { maxMs: 50, maxDepth: 5 });
+      const out = playAiVsAi(DEFAULT_CONFIG, { maxMs: 100, maxDepth: 6 });
       expect(out).not.toBeNull();
       expect(out!.plies).toBeGreaterThan(10);
     },

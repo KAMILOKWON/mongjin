@@ -11,24 +11,35 @@ import {
   isGoalCell,
   legalMoves,
   opponent,
+  positionKey,
 } from '../core/rules';
 
 const WIN = 10000;
 const BLOCKED_DIST = 30;
+const HISTORY_MAX = 10_000;
+const QUIESCENCE_MAX = 4;
+const MAX_KILLER_DEPTH = 32;
 
 /** 브라우저·GitHub Pages에서 쓰는 기본 AI 강도 */
 export const DEFAULT_AI_OPTIONS: AiOptions = {
   maxMs: 1800,
-  maxDepth: 11,
+  maxDepth: 12,
 };
 
 export interface AiOptions {
   maxMs?: number;
   maxDepth?: number;
-  /** 전략서·오프닝 북 힌트 (웹 봇 두뇌) */
   hints?: BotHints;
-  /** 봇 진영 — 힌트 적용 시 필요 */
   botSide?: Player;
+}
+
+type TTFlag = 'exact' | 'lower' | 'upper';
+
+interface TTEntry {
+  depth: number;
+  score: number;
+  flag: TTFlag;
+  move: Move | null;
 }
 
 interface SearchCtx {
@@ -36,6 +47,32 @@ interface SearchCtx {
   deadline: number;
   nodes: number;
   aborted: boolean;
+  tt: Map<string, TTEntry>;
+  history: Map<string, number>;
+  killers: (Move | null)[][];
+}
+
+function moveSig(m: Move): string {
+  if (m.kind === 'PLACE') return `P:${m.to.r},${m.to.c}`;
+  return `M:${m.from.r},${m.from.c}>${m.to.r},${m.to.c}`;
+}
+
+function movesEqual(a: Move, b: Move): boolean {
+  return moveSig(a) === moveSig(b);
+}
+
+function createSearchCtx(config: RuleConfig, deadline: number): SearchCtx {
+  const killers: (Move | null)[][] = [];
+  for (let i = 0; i < MAX_KILLER_DEPTH; i++) killers.push([null, null]);
+  return {
+    config,
+    deadline,
+    nodes: 0,
+    aborted: false,
+    tt: new Map(),
+    history: new Map(),
+    killers,
+  };
 }
 
 function child(state: GameState, move: Move): GameState {
@@ -76,6 +113,33 @@ function getTerminalWinner(state: GameState, config: RuleConfig): Player | null 
     }
   }
   return null;
+}
+
+function isCapture(state: GameState, move: Move): boolean {
+  return move.kind === 'MOVE' && state.board[move.to.r][move.to.c] !== null;
+}
+
+function isCaptureOrGoal(state: GameState, move: Move, config: RuleConfig): boolean {
+  if (move.kind !== 'MOVE') return false;
+  const target = state.board[move.to.r][move.to.c];
+  if (target) return true;
+  const piece = state.board[move.from.r][move.from.c]!;
+  return piece.type === 'KING' && isGoalCell(state.turn, move.to, config);
+}
+
+function recordKiller(ctx: SearchCtx, depth: number, move: Move) {
+  if (depth <= 0 || depth >= MAX_KILLER_DEPTH) return;
+  const row = ctx.killers[depth]!;
+  if (row[0] && movesEqual(row[0], move)) return;
+  if (row[1] && movesEqual(row[1], move)) return;
+  row[0] = row[1];
+  row[1] = move;
+}
+
+function recordHistory(ctx: SearchCtx, move: Move, depth: number) {
+  const key = moveSig(move);
+  const bonus = depth * depth;
+  ctx.history.set(key, Math.min(HISTORY_MAX, (ctx.history.get(key) ?? 0) + bonus));
 }
 
 function buildDangerMask(state: GameState, p: Player, config: RuleConfig, n: number): Uint8Array {
@@ -216,8 +280,11 @@ function orderMoves(
   state: GameState,
   moves: Move[],
   config: RuleConfig,
+  ctx: SearchCtx,
+  depth: number,
   hints?: BotHints,
   botSide?: Player,
+  ttMove?: Move | null,
 ): Move[] {
   const me = state.turn;
   const opp = opponent(me);
@@ -227,8 +294,18 @@ function orderMoves(
   const near = (r: number, c: number) =>
     oppKing ? 8 - Math.max(Math.abs(r - oppKing.r), Math.abs(c - oppKing.c)) : 0;
 
+  const killers = depth > 0 && depth < MAX_KILLER_DEPTH ? ctx.killers[depth] : null;
+
   const scored = moves.map((m) => {
     let s = 0;
+
+    if (ttMove && movesEqual(m, ttMove)) s += 2_000_000;
+    if (killers) {
+      if (killers[0] && movesEqual(m, killers[0])) s += 900_000;
+      else if (killers[1] && movesEqual(m, killers[1])) s += 800_000;
+    }
+    s += ctx.history.get(moveSig(m)) ?? 0;
+
     if (m.kind === 'MOVE') {
       const target = state.board[m.to.r][m.to.c];
       if (target) s += target.type === 'KING' ? 10000 : 500;
@@ -260,6 +337,73 @@ function tick(ctx: SearchCtx): boolean {
   return false;
 }
 
+function ttProbe(
+  ctx: SearchCtx,
+  key: string,
+  depth: number,
+  alpha: number,
+  beta: number,
+): { cutoff: number | null; move: Move | null } {
+  const entry = ctx.tt.get(key);
+  if (!entry) return { cutoff: null, move: null };
+
+  let cutoff: number | null = null;
+  if (entry.depth >= depth) {
+    if (entry.flag === 'exact') cutoff = entry.score;
+    else if (entry.flag === 'lower' && entry.score >= beta) cutoff = entry.score;
+    else if (entry.flag === 'upper' && entry.score <= alpha) cutoff = entry.score;
+  }
+  return { cutoff, move: entry.move };
+}
+
+function ttStore(
+  ctx: SearchCtx,
+  key: string,
+  depth: number,
+  score: number,
+  flag: TTFlag,
+  move: Move | null,
+) {
+  const prev = ctx.tt.get(key);
+  if (prev && prev.depth > depth) return;
+  ctx.tt.set(key, { depth, score, flag, move });
+}
+
+function quiescence(
+  state: GameState,
+  ctx: SearchCtx,
+  alpha: number,
+  beta: number,
+  qDepth: number,
+  hints?: BotHints,
+  botSide?: Player,
+): number {
+  if (tick(ctx)) return evaluate(state, ctx.config, hints, botSide);
+
+  const winner = getTerminalWinner(state, ctx.config);
+  if (winner) return winner === state.turn ? WIN : -WIN;
+
+  const standPat = evaluate(state, ctx.config, hints, botSide);
+  if (standPat >= beta) return beta;
+  if (alpha < standPat) alpha = standPat;
+  if (qDepth <= 0) return alpha;
+
+  const tactical = legalMoves(state, ctx.config).filter((m) =>
+    isCaptureOrGoal(state, m, ctx.config),
+  );
+  if (!tactical.length) return alpha;
+
+  const ordered = orderMoves(state, tactical, ctx.config, ctx, 0, hints, botSide, null);
+  for (const m of ordered) {
+    const v = -quiescence(child(state, m), ctx, -beta, -alpha, qDepth - 1, hints, botSide);
+    if (ctx.aborted) break;
+    if (v >= beta) return beta;
+    if (v > alpha) alpha = v;
+  }
+  return alpha;
+}
+
+/** 네거맥스 + 알파-베타 가지치기 + 전치 테이블 + killer/history + quiescence */
 function negamax(
   state: GameState,
   ctx: SearchCtx,
@@ -271,20 +415,51 @@ function negamax(
 ): number {
   if (tick(ctx)) return evaluate(state, ctx.config, hints, botSide);
 
+  const key = positionKey(state);
+  const tt = ttProbe(ctx, key, depth, alpha, beta);
+  if (tt.cutoff !== null) return tt.cutoff;
+
   const winner = getTerminalWinner(state, ctx.config);
   if (winner) return winner === state.turn ? WIN + depth : -(WIN + depth);
-  if (depth <= 0) return evaluate(state, ctx.config, hints, botSide);
+  if (depth <= 0) return quiescence(state, ctx, alpha, beta, QUIESCENCE_MAX, hints, botSide);
 
-  const moves = orderMoves(state, legalMoves(state, ctx.config), ctx.config, hints, botSide);
+  const moves = orderMoves(
+    state,
+    legalMoves(state, ctx.config),
+    ctx.config,
+    ctx,
+    depth,
+    hints,
+    botSide,
+    tt.move,
+  );
   if (!moves.length) return -(WIN + depth);
 
   let best = -Infinity;
+  let bestMove: Move | null = null;
+  let flag: TTFlag = 'upper';
+
   for (const m of moves) {
     const v = -negamax(child(state, m), ctx, depth - 1, -beta, -alpha, hints, botSide);
     if (ctx.aborted) break;
-    if (v > best) best = v;
-    if (v > alpha) alpha = v;
-    if (alpha >= beta) break;
+    if (v > best) {
+      best = v;
+      bestMove = m;
+    }
+    if (v > alpha) {
+      alpha = v;
+      flag = 'exact';
+    }
+    if (alpha >= beta) {
+      if (!isCapture(state, m)) recordKiller(ctx, depth, m);
+      recordHistory(ctx, m, depth);
+      flag = 'lower';
+      break;
+    }
+  }
+
+  if (!ctx.aborted) {
+    ttStore(ctx, key, depth, best, flag, bestMove);
   }
   return best;
 }
@@ -305,28 +480,38 @@ export function chooseMove(
   const maxDepth = opts.maxDepth ?? DEFAULT_AI_OPTIONS.maxDepth!;
   const hints = opts.hints;
   const botSide = opts.botSide;
-  let moves = orderMoves(state, legalMoves(state, config), config, hints, botSide);
+  const ctx = createSearchCtx(config, performance.now() + maxMs);
+  let moves = orderMoves(
+    state,
+    legalMoves(state, config),
+    config,
+    ctx,
+    maxDepth,
+    hints,
+    botSide,
+    null,
+  );
   if (!moves.length) return null;
 
   const immediate = instantWinMove(state, moves, config);
   if (immediate) return immediate;
 
-  const ctx: SearchCtx = {
-    config,
-    deadline: performance.now() + maxMs,
-    nodes: 0,
-    aborted: false,
-  };
   let lastCompleted: Move[] = [moves[0]];
 
   for (let depth = 1; depth <= maxDepth; depth++) {
     if (performance.now() > ctx.deadline) break;
+
+    const rootKey = positionKey(state);
+    const rootTT = ctx.tt.get(rootKey);
 
     let best = -Infinity;
     let alpha = -Infinity;
     const beta = Infinity;
     const iterBest: Move[] = [];
     let depthComplete = true;
+
+    moves = orderMoves(state, moves, config, ctx, depth, hints, botSide, rootTT?.move ?? null);
+
     for (const m of moves) {
       const v = -negamax(child(state, m), ctx, depth - 1, -beta, -alpha, hints, botSide);
       if (ctx.aborted) {
@@ -345,7 +530,9 @@ export function chooseMove(
     if (!depthComplete && depth > 1) break;
     if (iterBest.length) {
       lastCompleted = iterBest.slice();
-      moves = [iterBest[0], ...moves.filter((m) => m !== iterBest[0])];
+      const bestMove = iterBest[0]!;
+      moves = [bestMove, ...moves.filter((m) => !movesEqual(m, bestMove))];
+      ttStore(ctx, rootKey, depth, best, 'exact', bestMove);
     }
     if (best >= WIN) break;
   }

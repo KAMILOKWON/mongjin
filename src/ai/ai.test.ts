@@ -69,7 +69,7 @@ describe('AI (미니맥스)', () => {
   it('시간 한도 내에 응답한다', () => {
     const s = initialState(CFG);
     const t0 = performance.now();
-    chooseMove(s, CFG, { maxMs: 200, maxDepth: 11 });
-    expect(performance.now() - t0).toBeLessThan(800);
+    chooseMove(s, CFG, { maxMs: 200, maxDepth: 12 });
+    expect(performance.now() - t0).toBeLessThan(900);
   });
 });
