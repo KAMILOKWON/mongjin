@@ -1,5 +1,5 @@
 import './style.css';
-import type { HumanColorChoice, OpponentMode } from './game/settings';
+import type { AiDifficulty, HumanColorChoice, OpponentMode } from './game/settings';
 import { GameController, PLAYER_KO, stoneHtml } from './ui/gameController';
 import { initAppsInToss } from './ait';
 
@@ -9,20 +9,19 @@ const app = document.querySelector<HTMLDivElement>('#app')!;
 app.innerHTML = `
   <div class="board-wrap">
     <h1>몽진<small>蒙塵 — 왕의 피난길</small></h1>
-    <div id="board"></div>
-  </div>
-  <div class="side">
-    <div id="status" class="panel"></div>
-    <div class="buttons">
-      <button class="action" id="undo">↩ 무르기</button>
-      <button class="action" id="reset">새 게임</button>
-    </div>
-    <div class="panel config">
-      <label>대전 방식
+    <section class="play-mode-panel" aria-label="대전 설정">
+      <label>대전 모드
         <select id="mode">
-          <option value="ai" selected>컴퓨터</option>
-          <option value="local">같이 두기 (핫시트)</option>
-          <option value="online">온라인</option>
+          <option value="ai" selected>컴퓨터 대전</option>
+          <option value="local">같이 두기</option>
+          <option value="online">온라인 대전</option>
+        </select>
+      </label>
+      <label id="difficulty-row">봇 난이도
+        <select id="ai-difficulty">
+          <option value="normal">보통</option>
+          <option value="hard" selected>어려움</option>
+          <option value="expert">고수</option>
         </select>
       </label>
       <label id="color-row">내 색
@@ -32,7 +31,16 @@ app.innerHTML = `
           <option value="random">랜덤</option>
         </select>
       </label>
-      <div id="online-panel" class="online-panel hidden">
+    </section>
+    <div id="board"></div>
+  </div>
+  <div class="side">
+    <div id="status" class="panel"></div>
+    <div class="buttons">
+      <button class="action" id="undo">↩ 무르기</button>
+      <button class="action" id="reset">새 게임</button>
+    </div>
+    <div id="online-panel" class="panel online-panel hidden">
         <div class="online-actions">
           <button class="action" id="create-room" type="button">입장코드 생성</button>
         </div>
@@ -47,7 +55,6 @@ app.innerHTML = `
         </div>
         <p class="online-hint">같은 입장코드를 입력한 두 사람이 대전합니다</p>
         <div id="online-status" class="online-status"></div>
-      </div>
     </div>
     <details class="panel rules-note">
       <summary>규칙 요약</summary>
@@ -68,6 +75,8 @@ const statusEl = document.querySelector<HTMLDivElement>('#status')!;
 const modeEl = document.querySelector<HTMLSelectElement>('#mode')!;
 const colorRowEl = document.querySelector<HTMLLabelElement>('#color-row')!;
 const humanColorEl = document.querySelector<HTMLSelectElement>('#human-color')!;
+const difficultyRowEl = document.querySelector<HTMLLabelElement>('#difficulty-row')!;
+const aiDifficultyEl = document.querySelector<HTMLSelectElement>('#ai-difficulty')!;
 const onlinePanelEl = document.querySelector<HTMLDivElement>('#online-panel')!;
 const onlineStatusEl = document.querySelector<HTMLDivElement>('#online-status')!;
 const roomCodeEl = document.querySelector<HTMLInputElement>('#room-code')!;
@@ -98,6 +107,7 @@ function renderStatus() {
   }
 
   colorRowEl.classList.toggle('hidden', settings.mode !== 'ai');
+  difficultyRowEl.classList.toggle('hidden', settings.mode !== 'ai');
   onlinePanelEl.classList.toggle('hidden', settings.mode !== 'online');
   onlineStatusEl.textContent = snap.onlineStatus;
   onlineStatusEl.classList.toggle('error', snap.onlineError);
@@ -119,6 +129,7 @@ game.subscribe(renderStatus);
 
 modeEl.addEventListener('change', () => game.setMode(modeEl.value as OpponentMode));
 humanColorEl.addEventListener('change', () => game.setHumanColor(humanColorEl.value as HumanColorChoice));
+aiDifficultyEl.addEventListener('change', () => game.setAiDifficulty(aiDifficultyEl.value as AiDifficulty));
 undoBtn.addEventListener('click', () => game.undo());
 document.querySelector('#reset')!.addEventListener('click', () => game.reset());
 document.querySelector('#create-room')!.addEventListener('click', () => game.createRoom());

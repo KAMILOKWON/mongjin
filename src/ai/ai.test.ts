@@ -104,4 +104,18 @@ describe('AI (미니맥스)', () => {
     expect(getResult(next, CFG)?.winner).toBe('WHITE');
     expect(getResult(next, CFG)?.reason).toBe('capture');
   });
+
+  it('상대의 즉시 승리를 막을 수 있으면 자살수를 두지 않는다', () => {
+    // 백 왕(c2)은 다음 수 d1에 도달한다. 흑 왕이 d1을 선점해야만 방어된다.
+    const s = makeState(
+      [
+        [7, 3, 'BLACK', 'KING'],
+        [7, 2, 'WHITE', 'KING'],
+      ],
+      'BLACK',
+      { BLACK: 1, WHITE: 0 },
+    );
+    const m = chooseMove(s, CFG, { maxMs: 80, maxDepth: 1 })!;
+    expect(m).toEqual({ kind: 'MOVE', from: { r: 7, c: 3 }, to: { r: 8, c: 3 } });
+  });
 });

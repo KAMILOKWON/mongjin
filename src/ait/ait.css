@@ -27,6 +27,18 @@ body {
   max-width: 100%;
 }
 
+.ait-mode-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 4px 16px 12px;
+  background: var(--adaptiveBackground, #f2f4f6);
+}
+
+.ait-mode-panel p {
+  margin: 0;
+}
+
 .ait-board {
   display: grid;
   box-sizing: border-box;
@@ -48,6 +60,12 @@ body {
   grid-template-columns: 1fr 1fr;
   gap: 8px;
   padding: 0 16px 8px;
+}
+
+.ait-online-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
 }
 
 .ait-shell .hand-stones {

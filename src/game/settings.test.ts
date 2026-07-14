@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { opponentOf, resolveHumanSide } from './settings';
+import { AI_DIFFICULTY_PRESETS, opponentOf, resolveHumanSide } from './settings';
 
 describe('settings', () => {
   it('resolveHumanSide respects fixed choice', () => {
@@ -15,5 +15,14 @@ describe('settings', () => {
   it('opponentOf', () => {
     expect(opponentOf('BLACK')).toBe('WHITE');
     expect(opponentOf('WHITE')).toBe('BLACK');
+  });
+
+  it('난이도가 높을수록 더 많이 탐색한다', () => {
+    expect(AI_DIFFICULTY_PRESETS.hard.maxMs).toBeGreaterThan(
+      AI_DIFFICULTY_PRESETS.normal.maxMs,
+    );
+    expect(AI_DIFFICULTY_PRESETS.expert.maxDepth).toBeGreaterThan(
+      AI_DIFFICULTY_PRESETS.hard.maxDepth,
+    );
   });
 });

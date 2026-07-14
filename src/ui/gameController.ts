@@ -3,12 +3,14 @@ import { DEFAULT_CONFIG, type RuleConfig } from '../core/config';
 import { goalCellsFor, initialState, legalMoves } from '../core/rules';
 import { applyMove } from '../core/apply';
 import { getResult, type WinReason, type GameResult } from '../core/result';
-import { chooseMove, DEFAULT_AI_OPTIONS } from '../ai/ai';
+import { chooseMove } from '../ai/ai';
 import { getBotBrain } from '../bot/brain';
 import {
   type GameSettings,
+  type AiDifficulty,
   type HumanColorChoice,
   type OpponentMode,
+  AI_DIFFICULTY_PRESETS,
   opponentOf,
   resolveHumanSide,
 } from '../game/settings';
@@ -47,7 +49,7 @@ type Listener = () => void;
 
 export class GameController {
   private config: RuleConfig = { ...DEFAULT_CONFIG };
-  private settings: GameSettings = { mode: 'ai', humanColor: 'BLACK' };
+  private settings: GameSettings = { mode: 'ai', humanColor: 'BLACK', aiDifficulty: 'hard' };
   private humanSide: Player = 'BLACK';
   private aiSide: Player = 'WHITE';
   private onlineSide: Player | null = null;
@@ -61,6 +63,7 @@ export class GameController {
   private boardEl: HTMLElement | null = null;
   private snapshot: GameSnapshot;
   private learningRecorded = false;
+  private aiTurnId = 0;
 
   private online = new OnlineClient({
     onState: (state) => {
@@ -120,7 +123,10 @@ export class GameController {
     const state = this.current();
     const result = getResult(state, this.config);
     let turnLabel = `${PLAYER_KO[state.turn]} 차례`;
-    if (this.aiThinking) turnLabel += ' — 컴퓨터 생각 중…';
+    if (this.aiThinking) {
+      const difficulty = AI_DIFFICULTY_PRESETS[this.settings.aiDifficulty].label;
+      turnLabel += ` — 컴퓨터(${difficulty}) 생각 중…`;
+    }
     else if (this.isOnlineMode() && this.onlineWaiting) turnLabel += ' — 상대 대기 중…';
     else if (this.isOnlineMode() && this.onlineSide && !this.isMyTurn(state)) turnLabel += ' — 상대 차례';
 
@@ -159,6 +165,8 @@ export class GameController {
   }
 
   setMode(mode: OpponentMode) {
+    if (this.settings.mode === mode) return;
+    this.cancelAiTurn();
     this.settings.mode = mode;
     if (this.isOnlineMode()) {
       this.online.disconnect();
@@ -168,15 +176,24 @@ export class GameController {
     } else {
       this.online.disconnect();
       this.onlineSide = null;
-      this.applySidesFromSettings();
       this.newGame();
     }
     this.notify();
   }
 
   setHumanColor(color: HumanColorChoice) {
+    if (this.settings.humanColor === color) return;
     this.settings.humanColor = color;
-    this.applySidesFromSettings();
+    if (this.isAiMode()) this.newGame();
+    else {
+      this.applySidesFromSettings();
+      this.notify();
+    }
+  }
+
+  setAiDifficulty(difficulty: AiDifficulty) {
+    if (this.settings.aiDifficulty === difficulty) return;
+    this.settings.aiDifficulty = difficulty;
     if (this.isAiMode()) this.newGame();
     else this.notify();
   }
@@ -194,6 +211,7 @@ export class GameController {
   reset() {
     if (this.aiThinking) return;
     if (this.isOnlineMode()) {
+      this.cancelAiTurn();
       this.online.disconnect();
       this.onlineSide = null;
       this.onlineStatus = '입장코드를 생성하거나 코드를 입력해 참가하세요';
@@ -235,6 +253,7 @@ export class GameController {
   }
 
   destroy() {
+    this.cancelAiTurn();
     this.online.disconnect();
     this.listeners.clear();
   }
@@ -268,6 +287,7 @@ export class GameController {
   }
 
   private newGame() {
+    this.cancelAiTurn();
     this.applySidesFromSettings();
     this.states = [initialState(this.config)];
     this.selected = null;
@@ -292,10 +312,15 @@ export class GameController {
   }
 
   /** 힌트 실패·예외 시에도 합법 수를 반환 */
-  private pickAiMove(state: GameState, maxMs: number): Move | null {
+  private cancelAiTurn() {
+    this.aiTurnId++;
+    this.aiThinking = false;
+  }
+
+  private pickAiMove(state: GameState, maxMs: number, maxDepth: number): Move | null {
     const baseOpts = {
       maxMs,
-      maxDepth: DEFAULT_AI_OPTIONS.maxDepth,
+      maxDepth,
     };
     try {
       const brain = getBotBrain(this.config);
@@ -321,20 +346,24 @@ export class GameController {
       return;
     }
     this.aiThinking = true;
+    const aiTurnId = ++this.aiTurnId;
+    const preset = AI_DIFFICULTY_PRESETS[this.settings.aiDifficulty];
     this.notify();
-    const wallDeadline = Date.now() + 4000;
+    const wallDeadline = Date.now() + preset.maxMs + 500;
     window.setTimeout(() => {
+      if (aiTurnId !== this.aiTurnId) return;
       try {
         const cur = this.current();
         if (!this.isAiMode() || getResult(cur, this.config) || cur.turn !== this.aiSide) return;
         const budget = Math.max(
           100,
-          Math.min(DEFAULT_AI_OPTIONS.maxMs ?? 1800, wallDeadline - Date.now()),
+          Math.min(preset.maxMs, wallDeadline - Date.now()),
         );
-        const move = this.pickAiMove(cur, budget);
+        const move = this.pickAiMove(cur, budget, preset.maxDepth);
         if (move) this.states.push(applyMove(this.current(), move));
         this.recordLearningIfEnded();
       } finally {
+        if (aiTurnId !== this.aiTurnId) return;
         this.aiThinking = false;
         this.notify();
         const after = this.current();

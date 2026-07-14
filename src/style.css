@@ -63,6 +63,38 @@ h1 small {
   padding: 16px;
 }
 
+.play-mode-panel {
+  width: min(100%, 560px);
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  padding: 10px;
+  background: var(--panel);
+  border: 1px solid #3d3831;
+  border-radius: 12px;
+}
+
+.play-mode-panel label {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  color: var(--text-dim);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.play-mode-panel select {
+  width: 100%;
+  min-height: 38px;
+  padding: 6px 8px;
+  background: #3a352e;
+  color: var(--text);
+  border: 1px solid #4d463c;
+  border-radius: 8px;
+  font-size: 13px;
+}
+
 .turn-banner {
   display: flex;
   align-items: center;
@@ -430,6 +462,14 @@ button.action:hover {
   .board-wrap {
     width: 100%;
     align-items: center;
+  }
+
+  .play-mode-panel {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .play-mode-panel label:first-child {
+    grid-column: 1 / -1;
   }
 
   .side {

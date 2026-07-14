@@ -9,7 +9,12 @@ import {
   Top,
 } from '@toss/tds-mobile';
 import { GameController, PLAYER_KO, stoneHtml } from '../ui/gameController';
-import type { HumanColorChoice, OpponentMode } from '../game/settings';
+import {
+  AI_DIFFICULTY_PRESETS,
+  type AiDifficulty,
+  type HumanColorChoice,
+  type OpponentMode,
+} from '../game/settings';
 import '../ui/board.css';
 import './ait.css';
 
@@ -78,6 +83,7 @@ function MongjinApp() {
   const snap = useGameSnapshot();
   const boardRef = useRef<HTMLDivElement>(null);
   const [roomCode, setRoomCode] = useState('');
+  const difficulty = AI_DIFFICULTY_PRESETS[snap.settings.aiDifficulty];
 
   useEffect(() => {
     game.init();
@@ -113,6 +119,54 @@ function MongjinApp() {
         title={<Top.TitleParagraph size={22}>몽진</Top.TitleParagraph>}
         subtitleBottom={<Top.SubtitleParagraph>蒙塵 — 왕의 피난길</Top.SubtitleParagraph>}
       />
+
+      <section className="ait-mode-panel" aria-label="대전 설정">
+        <Paragraph typography="t6" fontWeight="semibold" color="adaptive-grey-600">
+          대전 모드
+        </Paragraph>
+        <SegmentedControl
+          alignment="fixed"
+          value={snap.settings.mode}
+          onChange={(value) => game.setMode(String(value) as OpponentMode)}
+        >
+          <SegmentedControl.Item value="ai">컴퓨터</SegmentedControl.Item>
+          <SegmentedControl.Item value="local">같이 두기</SegmentedControl.Item>
+          <SegmentedControl.Item value="online">온라인</SegmentedControl.Item>
+        </SegmentedControl>
+
+        {snap.settings.mode === 'ai' && (
+          <>
+            <Paragraph typography="t6" fontWeight="semibold" color="adaptive-grey-600">
+              봇 난이도
+            </Paragraph>
+            <SegmentedControl
+              alignment="fixed"
+              value={snap.settings.aiDifficulty}
+              onChange={(value) => game.setAiDifficulty(String(value) as AiDifficulty)}
+            >
+              <SegmentedControl.Item value="normal">보통</SegmentedControl.Item>
+              <SegmentedControl.Item value="hard">어려움</SegmentedControl.Item>
+              <SegmentedControl.Item value="expert">고수</SegmentedControl.Item>
+            </SegmentedControl>
+            <Paragraph typography="t7" color="adaptive-grey-600">
+              {difficulty.description}
+            </Paragraph>
+
+            <Paragraph typography="t6" fontWeight="semibold" color="adaptive-grey-600">
+              내 색
+            </Paragraph>
+            <SegmentedControl
+              alignment="fixed"
+              value={snap.settings.humanColor}
+              onChange={(value) => game.setHumanColor(String(value) as HumanColorChoice)}
+            >
+              <SegmentedControl.Item value="BLACK">흑</SegmentedControl.Item>
+              <SegmentedControl.Item value="WHITE">백</SegmentedControl.Item>
+              <SegmentedControl.Item value="random">랜덤</SegmentedControl.Item>
+            </SegmentedControl>
+          </>
+        )}
+      </section>
 
       <div className="ait-board-wrap">
         <div ref={boardRef} className="ait-board" />
@@ -152,69 +206,37 @@ function MongjinApp() {
         </Button>
       </div>
 
-      <section className="ait-panel">
-        <Paragraph typography="t6" fontWeight="semibold" color="adaptive-grey-600">
-          대전 방식
-        </Paragraph>
-        <SegmentedControl
-          alignment="fixed"
-          value={snap.settings.mode}
-          onChange={(value) => game.setMode(String(value) as OpponentMode)}
-        >
-          <SegmentedControl.Item value="ai">컴퓨터</SegmentedControl.Item>
-          <SegmentedControl.Item value="local">같이 두기</SegmentedControl.Item>
-          <SegmentedControl.Item value="online">온라인</SegmentedControl.Item>
-        </SegmentedControl>
-
-        {snap.settings.mode === 'ai' && (
-          <>
-            <Paragraph typography="t6" fontWeight="semibold" color="adaptive-grey-600">
-              내 색
+      {snap.settings.mode === 'online' && (
+        <section className="ait-panel ait-online-panel">
+          <Button size="medium" display="block" onClick={() => game.createRoom()}>
+            입장코드 생성
+          </Button>
+          <TextField
+            variant="line"
+            label="입장코드"
+            labelOption="sustain"
+            placeholder="6자리 코드"
+            value={roomCode}
+            onChange={(e) => setRoomCode(e.target.value.toUpperCase())}
+          />
+          <Button
+            size="medium"
+            variant="weak"
+            display="block"
+            onClick={() => game.joinRoom(roomCode)}
+          >
+            참가
+          </Button>
+          {snap.onlineStatus && (
+            <Paragraph
+              typography="t7"
+              color={snap.onlineError ? 'red500' : 'adaptive-grey-600'}
+            >
+              {snap.onlineStatus}
             </Paragraph>
-            <SegmentedControl
-              alignment="fixed"
-              value={snap.settings.humanColor}
-              onChange={(value) => game.setHumanColor(String(value) as HumanColorChoice)}
-            >
-              <SegmentedControl.Item value="BLACK">흑</SegmentedControl.Item>
-              <SegmentedControl.Item value="WHITE">백</SegmentedControl.Item>
-              <SegmentedControl.Item value="random">랜덤</SegmentedControl.Item>
-            </SegmentedControl>
-          </>
-        )}
-
-        {snap.settings.mode === 'online' && (
-          <>
-            <Button size="medium" display="block" onClick={() => game.createRoom()}>
-              입장코드 생성
-            </Button>
-            <TextField
-              variant="line"
-              label="입장코드"
-              labelOption="sustain"
-              placeholder="6자리 코드"
-              value={roomCode}
-              onChange={(e) => setRoomCode(e.target.value.toUpperCase())}
-            />
-            <Button
-              size="medium"
-              variant="weak"
-              display="block"
-              onClick={() => game.joinRoom(roomCode)}
-            >
-              참가
-            </Button>
-            {snap.onlineStatus && (
-              <Paragraph
-                typography="t7"
-                color={snap.onlineError ? 'red500' : 'adaptive-grey-600'}
-              >
-                {snap.onlineStatus}
-              </Paragraph>
-            )}
-          </>
-        )}
-      </section>
+          )}
+        </section>
+      )}
     </div>
   );
 }

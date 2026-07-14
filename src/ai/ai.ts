@@ -29,8 +29,8 @@ const LMR_QUIET_THRESHOLD = 4;
 
 /** 브라우저·GitHub Pages에서 쓰는 기본 AI 강도 */
 export const DEFAULT_AI_OPTIONS: AiOptions = {
-  maxMs: 1800,
-  maxDepth: 20,
+  maxMs: 2400,
+  maxDepth: 24,
 };
 
 export interface AiOptions {
@@ -563,6 +563,13 @@ function findBestNetCapture(state: GameState, moves: Move[], config: RuleConfig)
   return best;
 }
 
+/** 상대에게 바로 끝내는 수를 내주는 후보는, 피할 수 있는 한 루트 탐색에서 제외한다. */
+function allowsImmediateReplyWin(state: GameState, move: Move, config: RuleConfig): boolean {
+  const next = child(state, move);
+  const replies = legalMoves(next, config);
+  return findWinningMove(next, replies, config) !== null;
+}
+
 export function chooseMove(
   state: GameState,
   config: RuleConfig,
@@ -587,6 +594,11 @@ export function chooseMove(
 
   const immediate = instantWinMove(state, moves, config);
   if (immediate) return immediate;
+
+  // 시간 제한으로 1수 탐색만 끝난 경우에도 즉시 패배하는 블런더는 두지 않는다.
+  const safeMoves = moves.filter((move) => !allowsImmediateReplyWin(state, move, config));
+  const safetyRestricted = safeMoves.length > 0 && safeMoves.length < moves.length;
+  if (safetyRestricted) moves = safeMoves;
 
   let lastCompleted: Move[] = [moves[0]];
   let completedDepth = 0;
@@ -636,7 +648,10 @@ export function chooseMove(
     if (best >= WIN) break;
   }
 
-  const allLegal = legalMoves(state, config);
+  const safeMoveKeys = safetyRestricted ? new Set(moves.map(moveSig)) : null;
+  const allLegal = legalMoves(state, config).filter(
+    (move) => safeMoveKeys === null || safeMoveKeys.has(moveSig(move)),
+  );
   const finalWin = findWinningMove(state, allLegal, config);
   if (finalWin) return finalWin;
 
