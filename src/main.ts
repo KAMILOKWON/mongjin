@@ -31,6 +31,22 @@ app.innerHTML = `
           <option value="random">랜덤</option>
         </select>
       </label>
+      <div id="online-code-row" class="online-setting hidden">
+        <span class="setting-label">온라인 코드</span>
+        <button class="action" id="create-room" type="button">코드 생성</button>
+        <div id="room-code-display" class="room-code-display hidden">
+          <strong id="room-code-value"></strong>
+          <button class="action subtle" id="copy-code" type="button">복사</button>
+        </div>
+      </div>
+      <div id="online-join-row" class="online-setting hidden">
+        <span class="setting-label">코드 입력</span>
+        <div class="online-join">
+          <input id="room-code" type="text" maxlength="6" placeholder="6자리 코드" autocomplete="off" />
+          <button class="action" id="join-room" type="button">참가</button>
+        </div>
+      </div>
+      <div id="online-status" class="online-status online-status-wide hidden"></div>
     </section>
     <div id="board"></div>
   </div>
@@ -39,22 +55,6 @@ app.innerHTML = `
     <div class="buttons">
       <button class="action" id="undo">↩ 무르기</button>
       <button class="action" id="reset">새 게임</button>
-    </div>
-    <div id="online-panel" class="panel online-panel hidden">
-        <div class="online-actions">
-          <button class="action" id="create-room" type="button">입장코드 생성</button>
-        </div>
-        <div id="room-code-display" class="room-code-display hidden">
-          <span class="room-code-label">입장코드</span>
-          <strong id="room-code-value"></strong>
-          <button class="action subtle" id="copy-code" type="button">복사</button>
-        </div>
-        <div class="online-join">
-          <input id="room-code" type="text" maxlength="6" placeholder="입장코드 6자리" autocomplete="off" />
-          <button class="action" id="join-room" type="button">참가</button>
-        </div>
-        <p class="online-hint">같은 입장코드를 입력한 두 사람이 대전합니다</p>
-        <div id="online-status" class="online-status"></div>
     </div>
     <details class="panel rules-note">
       <summary>규칙 요약</summary>
@@ -77,11 +77,13 @@ const colorRowEl = document.querySelector<HTMLLabelElement>('#color-row')!;
 const humanColorEl = document.querySelector<HTMLSelectElement>('#human-color')!;
 const difficultyRowEl = document.querySelector<HTMLLabelElement>('#difficulty-row')!;
 const aiDifficultyEl = document.querySelector<HTMLSelectElement>('#ai-difficulty')!;
-const onlinePanelEl = document.querySelector<HTMLDivElement>('#online-panel')!;
+const onlineCodeRowEl = document.querySelector<HTMLDivElement>('#online-code-row')!;
+const onlineJoinRowEl = document.querySelector<HTMLDivElement>('#online-join-row')!;
 const onlineStatusEl = document.querySelector<HTMLDivElement>('#online-status')!;
 const roomCodeEl = document.querySelector<HTMLInputElement>('#room-code')!;
 const roomCodeDisplayEl = document.querySelector<HTMLDivElement>('#room-code-display')!;
 const roomCodeValueEl = document.querySelector<HTMLElement>('#room-code-value')!;
+const createRoomBtn = document.querySelector<HTMLButtonElement>('#create-room')!;
 const boardWrapEl = document.querySelector<HTMLDivElement>('.board-wrap')!;
 const undoBtn = document.querySelector<HTMLButtonElement>('#undo')!;
 
@@ -108,15 +110,17 @@ function renderStatus() {
 
   colorRowEl.classList.toggle('hidden', settings.mode !== 'ai');
   difficultyRowEl.classList.toggle('hidden', settings.mode !== 'ai');
-  onlinePanelEl.classList.toggle('hidden', settings.mode !== 'online');
+  onlineCodeRowEl.classList.toggle('hidden', settings.mode !== 'online');
+  onlineJoinRowEl.classList.toggle('hidden', settings.mode !== 'online');
+  onlineStatusEl.classList.toggle('hidden', settings.mode !== 'online');
   onlineStatusEl.textContent = snap.onlineStatus;
   onlineStatusEl.classList.toggle('error', snap.onlineError);
 
   const showCode = settings.mode === 'online' && !!snap.onlineRoomId;
   roomCodeDisplayEl.classList.toggle('hidden', !showCode);
+  createRoomBtn.classList.toggle('hidden', showCode);
   if (showCode && snap.onlineRoomId) {
     roomCodeValueEl.textContent = snap.onlineRoomId;
-    roomCodeEl.value = snap.onlineRoomId;
   }
 
   undoBtn.disabled = !snap.canUndo || snap.aiThinking;

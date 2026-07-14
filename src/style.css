@@ -74,11 +74,16 @@ h1 small {
   border-radius: 12px;
 }
 
-.play-mode-panel label {
+.play-mode-panel label,
+.online-setting {
   min-width: 0;
   display: flex;
   flex-direction: column;
   gap: 5px;
+}
+
+.play-mode-panel label,
+.online-setting .setting-label {
   color: var(--text-dim);
   font-size: 11px;
   font-weight: 700;
@@ -93,6 +98,54 @@ h1 small {
   border: 1px solid #4d463c;
   border-radius: 8px;
   font-size: 13px;
+}
+
+.play-mode-panel .online-setting > button.action,
+.play-mode-panel .room-code-display,
+.play-mode-panel .online-join {
+  min-height: 38px;
+}
+
+.play-mode-panel .online-setting > button.action {
+  flex: none;
+  padding: 6px 8px;
+}
+
+.play-mode-panel .online-join {
+  gap: 5px;
+}
+
+.play-mode-panel .online-join input {
+  padding: 6px 8px;
+  font-size: 13px;
+}
+
+.play-mode-panel .online-join button {
+  flex: 0 0 auto;
+  min-height: 38px;
+  padding: 6px 12px;
+}
+
+.play-mode-panel .room-code-display {
+  flex-wrap: nowrap;
+  justify-content: space-between;
+  padding: 4px 6px 4px 10px;
+}
+
+.play-mode-panel .room-code-display strong {
+  font-size: 18px;
+  letter-spacing: 2px;
+}
+
+.play-mode-panel .room-code-display .action.subtle {
+  flex: 0 0 auto;
+  min-height: 30px;
+  padding: 4px 8px;
+}
+
+.online-status-wide {
+  grid-column: 1 / -1;
+  margin-top: -2px;
 }
 
 .turn-banner {

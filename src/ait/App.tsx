@@ -83,6 +83,7 @@ function MongjinApp() {
   const snap = useGameSnapshot();
   const boardRef = useRef<HTMLDivElement>(null);
   const [roomCode, setRoomCode] = useState('');
+  const [copied, setCopied] = useState(false);
   const difficulty = AI_DIFFICULTY_PRESETS[snap.settings.aiDifficulty];
 
   useEffect(() => {
@@ -91,8 +92,18 @@ function MongjinApp() {
   }, []);
 
   useEffect(() => {
-    if (snap.onlineRoomId) setRoomCode(snap.onlineRoomId);
+    setCopied(false);
   }, [snap.onlineRoomId]);
+
+  async function copyOnlineCode() {
+    if (!snap.onlineRoomId) return;
+    try {
+      await navigator.clipboard.writeText(snap.onlineRoomId);
+      setCopied(true);
+    } catch {
+      setCopied(false);
+    }
+  }
 
   useLayoutEffect(() => {
     if (boardRef.current) game.attachBoard(boardRef.current);
@@ -120,22 +131,27 @@ function MongjinApp() {
         subtitleBottom={<Top.SubtitleParagraph>蒙塵 — 왕의 피난길</Top.SubtitleParagraph>}
       />
 
-      <section className="ait-mode-panel" aria-label="대전 설정">
-        <Paragraph typography="t6" fontWeight="semibold" color="adaptive-grey-600">
-          대전 모드
-        </Paragraph>
-        <SegmentedControl
-          alignment="fixed"
-          value={snap.settings.mode}
-          onChange={(value) => game.setMode(String(value) as OpponentMode)}
-        >
-          <SegmentedControl.Item value="ai">컴퓨터</SegmentedControl.Item>
-          <SegmentedControl.Item value="local">같이 두기</SegmentedControl.Item>
-          <SegmentedControl.Item value="online">온라인</SegmentedControl.Item>
-        </SegmentedControl>
+      <section
+        className={`ait-mode-panel${snap.settings.mode === 'online' ? ' ait-mode-panel-online' : ''}`}
+        aria-label="대전 설정"
+      >
+        <div className="ait-setting-group ait-mode-choice">
+          <Paragraph typography="t6" fontWeight="semibold" color="adaptive-grey-600">
+            대전 모드
+          </Paragraph>
+          <SegmentedControl
+            alignment="fixed"
+            value={snap.settings.mode}
+            onChange={(value) => game.setMode(String(value) as OpponentMode)}
+          >
+            <SegmentedControl.Item value="ai">컴퓨터</SegmentedControl.Item>
+            <SegmentedControl.Item value="local">같이 두기</SegmentedControl.Item>
+            <SegmentedControl.Item value="online">온라인</SegmentedControl.Item>
+          </SegmentedControl>
+        </div>
 
         {snap.settings.mode === 'ai' && (
-          <>
+          <div className="ait-ai-settings">
             <Paragraph typography="t6" fontWeight="semibold" color="adaptive-grey-600">
               봇 난이도
             </Paragraph>
@@ -164,6 +180,60 @@ function MongjinApp() {
               <SegmentedControl.Item value="WHITE">백</SegmentedControl.Item>
               <SegmentedControl.Item value="random">랜덤</SegmentedControl.Item>
             </SegmentedControl>
+          </div>
+        )}
+
+        {snap.settings.mode === 'online' && (
+          <>
+            <div className="ait-setting-group ait-online-code">
+              <Paragraph typography="t6" fontWeight="semibold" color="adaptive-grey-600">
+                온라인 코드
+              </Paragraph>
+              {snap.onlineRoomId ? (
+                <div className="ait-code-display">
+                  <strong>{snap.onlineRoomId}</strong>
+                  <Button size="medium" variant="weak" onClick={copyOnlineCode}>
+                    {copied ? '복사됨' : '복사'}
+                  </Button>
+                </div>
+              ) : (
+                <Button size="medium" display="block" onClick={() => game.createRoom()}>
+                  코드 생성
+                </Button>
+              )}
+            </div>
+
+            <div className="ait-setting-group ait-online-join">
+              <Paragraph typography="t6" fontWeight="semibold" color="adaptive-grey-600">
+                코드 입력
+              </Paragraph>
+              <TextField
+                variant="line"
+                label="입장코드"
+                labelOption="sustain"
+                placeholder="6자리 코드"
+                value={roomCode}
+                onChange={(e) => setRoomCode(e.target.value.toUpperCase())}
+              />
+              <Button
+                size="medium"
+                variant="weak"
+                display="block"
+                onClick={() => game.joinRoom(roomCode)}
+              >
+                참가
+              </Button>
+            </div>
+
+            {snap.onlineStatus && (
+              <Paragraph
+                typography="t7"
+                className="ait-online-status"
+                color={snap.onlineError ? 'red500' : 'adaptive-grey-600'}
+              >
+                {snap.onlineStatus}
+              </Paragraph>
+            )}
           </>
         )}
       </section>
@@ -205,38 +275,6 @@ function MongjinApp() {
           새 게임
         </Button>
       </div>
-
-      {snap.settings.mode === 'online' && (
-        <section className="ait-panel ait-online-panel">
-          <Button size="medium" display="block" onClick={() => game.createRoom()}>
-            입장코드 생성
-          </Button>
-          <TextField
-            variant="line"
-            label="입장코드"
-            labelOption="sustain"
-            placeholder="6자리 코드"
-            value={roomCode}
-            onChange={(e) => setRoomCode(e.target.value.toUpperCase())}
-          />
-          <Button
-            size="medium"
-            variant="weak"
-            display="block"
-            onClick={() => game.joinRoom(roomCode)}
-          >
-            참가
-          </Button>
-          {snap.onlineStatus && (
-            <Paragraph
-              typography="t7"
-              color={snap.onlineError ? 'red500' : 'adaptive-grey-600'}
-            >
-              {snap.onlineStatus}
-            </Paragraph>
-          )}
-        </section>
-      )}
     </div>
   );
 }

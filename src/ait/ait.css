@@ -39,6 +39,49 @@ body {
   margin: 0;
 }
 
+.ait-setting-group,
+.ait-ai-settings {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+
+.ait-mode-panel-online {
+  display: grid;
+  grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.2fr);
+  align-items: start;
+  column-gap: 10px;
+}
+
+.ait-mode-panel-online .ait-mode-choice,
+.ait-online-status {
+  grid-column: 1 / -1;
+}
+
+.ait-code-display {
+  min-height: 52px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  padding: 4px 4px 4px 12px;
+  background: var(--adaptiveLayeredBackground, #fff);
+  border-radius: 12px;
+}
+
+.ait-code-display strong {
+  min-width: 0;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 18px;
+  letter-spacing: 2px;
+  color: var(--adaptiveGrey900, #191f28);
+}
+
+.ait-online-status {
+  margin-top: 0;
+}
+
 .ait-board {
   display: grid;
   box-sizing: border-box;
@@ -62,12 +105,6 @@ body {
   padding: 0 16px 8px;
 }
 
-.ait-online-panel {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-}
-
 .ait-shell .hand-stones {
   display: flex;
   gap: 3px;
@@ -89,4 +126,14 @@ body {
 .ait-shell .stone.white {
   background: radial-gradient(circle at 32% 30%, #fff, #cfc8ba 75%);
   border: 1px solid #999;
+}
+
+@media (min-width: 720px) {
+  .ait-mode-panel-online {
+    grid-template-columns: minmax(0, 1.3fr) minmax(0, 0.8fr) minmax(0, 1.2fr);
+  }
+
+  .ait-mode-panel-online .ait-mode-choice {
+    grid-column: auto;
+  }
 }
