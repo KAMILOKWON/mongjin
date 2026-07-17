@@ -20,7 +20,8 @@
   },
   "dependencies": {
     "@capacitor/core": "^8.4.0",
-    "@capacitor/ios": "^8.4.0"
+    "@capacitor/ios": "^8.4.0",
+    "@phosphor-icons/web": "^2.1.2"
   },
   "devDependencies": {
     "@apps-in-toss/web-framework": "^2.7.0",

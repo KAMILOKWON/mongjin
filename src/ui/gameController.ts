@@ -407,7 +407,7 @@ export class GameController {
       GameController.BOARD_PADDING +
       GameController.BOARD_GAP * (n - 1);
     const inner = this.availableBoardWidth() - chrome;
-    return Math.max(24, Math.min(52, Math.floor(inner / n)));
+    return Math.max(24, Math.min(64, Math.floor(inner / n)));
   }
 
   private boardPixelWidth(n: number, cellSize: number): number {
@@ -530,8 +530,9 @@ export class GameController {
         const piece = state.board[r][c];
         if (piece) {
           const el = document.createElement('span');
-          el.className = `piece ${piece.player.toLowerCase()}`;
-          el.textContent = piece.type === 'KING' ? '王' : '';
+          el.className = `piece ${piece.player.toLowerCase()}${piece.type === 'KING' ? ' king' : ''}`;
+          el.setAttribute('role', 'img');
+          el.setAttribute('aria-label', `${PLAYER_KO[piece.player]} ${piece.type === 'KING' ? '왕' : '호위'}`);
           cell.appendChild(el);
           if (moveTargets.has(key)) cell.classList.add('capture');
         } else if (moveTargets.has(key)) {
