@@ -4,7 +4,6 @@ import { GameController, PLAYER_KO, stoneHtml } from './ui/gameController';
 import { initAppsInToss } from './ait';
 import woodTextureUrl from '../assets/ui/board-light-ash.png';
 import whiteGuardUrl from '../assets/ui/stone-white-guard.png';
-import whiteKingUrl from '../assets/ui/stone-white-king.png';
 import blackGuardUrl from '../assets/ui/stone-black-guard.png';
 import blackKingUrl from '../assets/ui/stone-black-king.png';
 
@@ -17,9 +16,9 @@ const previewCells = Array.from({ length: 81 }, (_, index) => {
   const goalClass = (r === 0 || r === 8) && c >= 3 && c <= 5 ? ' preview-goal' : '';
   let piece = '';
   if (r === 0 && c === 4) {
-    piece = `<img class="preview-piece" src="${whiteKingUrl}" alt="백 왕" />`;
+    piece = `<img class="preview-piece preview-piece-white" src="${blackKingUrl}" alt="백 왕" />`;
   } else if (r === 8 && c === 4) {
-    piece = `<img class="preview-piece" src="${blackKingUrl}" alt="흑 왕" />`;
+    piece = `<img class="preview-piece preview-piece-black" src="${blackKingUrl}" alt="흑 왕" />`;
   }
   return `<div class="preview-cell${goalClass}" aria-hidden="true">${piece}</div>`;
 }).join('');
@@ -35,20 +34,16 @@ function guardTray(player: 'white' | 'black', label: string) {
 app.style.setProperty('--board-texture', `url("${woodTextureUrl}")`);
 app.style.setProperty('--stone-white', `url("${whiteGuardUrl}")`);
 app.style.setProperty('--stone-black', `url("${blackGuardUrl}")`);
-app.style.setProperty('--king-white', `url("${whiteKingUrl}")`);
+app.style.setProperty('--king-white', `url("${blackKingUrl}")`);
 app.style.setProperty('--king-black', `url("${blackKingUrl}")`);
 
 app.innerHTML = `
   <main class="home-screen" id="home-screen">
     <header class="home-brand">
       <div>
-        <p class="eyebrow">KOREAN ABSTRACT STRATEGY</p>
         <h1>몽진</h1>
         <p class="brand-subtitle">왕의 피난길</p>
       </div>
-      <button class="icon-button" id="home-settings" type="button" aria-label="대전 설정">
-        <i class="ph ph-gear" aria-hidden="true"></i>
-      </button>
     </header>
 
     <section class="home-actions" aria-label="게임 시작">
@@ -268,7 +263,6 @@ function startGame(mode: OpponentMode, difficulty?: AiDifficulty, color?: HumanC
 
 document.querySelector('#quick-play')!.addEventListener('click', () => startGame('ai', 'hard', 'BLACK'));
 document.querySelector('#computer-play')!.addEventListener('click', () => setupDialog.showModal());
-document.querySelector('#home-settings')!.addEventListener('click', () => setupDialog.showModal());
 document.querySelector('#online-play')!.addEventListener('click', () => startGame('online'));
 document.querySelector('#back-home')!.addEventListener('click', showHome);
 

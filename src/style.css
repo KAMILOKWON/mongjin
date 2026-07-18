@@ -43,7 +43,6 @@
 .ph-arrows-clockwise::before { content: "\e094"; }
 .ph-book-open-text::before { content: "\e8f2"; }
 .ph-desktop::before { content: "\e560"; }
-.ph-gear::before { content: "\e270"; }
 .ph-globe-hemisphere-east::before { content: "\e28a"; }
 .ph-play::before { content: "\e3d0"; }
 .ph-x::before { content: "\e4f6"; }
@@ -327,7 +326,15 @@ p {
   width: 76%;
   height: 76%;
   object-fit: contain;
+}
+
+.preview-piece-black {
   filter: drop-shadow(0 4px 4px rgba(31, 42, 51, 0.25));
+}
+
+.preview-piece-white {
+  filter: invert(1) sepia(0.12) saturate(0.72) brightness(1.08) contrast(0.9)
+    drop-shadow(0 4px 4px rgba(31, 42, 51, 0.22));
 }
 
 .preview-trays {
@@ -746,6 +753,8 @@ input {
 
 .cell .piece.king.white {
   background-image: var(--king-white);
+  filter: invert(1) sepia(0.12) saturate(0.72) brightness(1.08) contrast(0.9)
+    drop-shadow(0 3px 3px rgba(31, 42, 51, 0.22));
 }
 
 .cell .dot {
