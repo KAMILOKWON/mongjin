@@ -6,6 +6,10 @@ import woodTextureUrl from '../assets/ui/board-light-ash.png';
 import whiteGuardUrl from '../assets/ui/stone-white-guard.png';
 import blackGuardUrl from '../assets/ui/stone-black-guard.png';
 import blackKingUrl from '../assets/ui/stone-black-king.png';
+import tutorialGoalUrl from '../assets/tutorial/tutorial-goal.jpg';
+import tutorialPlaceUrl from '../assets/tutorial/tutorial-place.jpg';
+import tutorialMoveUrl from '../assets/tutorial/tutorial-move.jpg';
+import tutorialProtectUrl from '../assets/tutorial/tutorial-protect.jpg';
 
 const game = new GameController();
 const app = document.querySelector<HTMLDivElement>('#app')!;
@@ -168,7 +172,7 @@ app.innerHTML = `
         <div><p class="eyebrow">HOW TO PLAY</p><h2 id="tutorial-title">왕을 피난시키세요</h2></div>
         <button class="icon-button" id="tutorial-close" type="button" aria-label="닫기"><i class="ph ph-x" aria-hidden="true"></i></button>
       </div>
-      <div class="tutorial-visual" id="tutorial-visual" aria-hidden="true"></div>
+      <div class="tutorial-visual" id="tutorial-visual"></div>
       <p class="tutorial-copy" id="tutorial-copy"></p>
       <div class="tutorial-progress" id="tutorial-progress" aria-label="튜토리얼 진행 상태"></div>
       <div class="tutorial-actions">
@@ -298,26 +302,26 @@ const tutorialSteps = [
   {
     title: '왕을 피난시키세요',
     copy: '내 왕을 상대 진영 끝줄의 가운데 세 칸 중 하나로 먼저 이동시키면 승리합니다.',
-    icon: 'ph-crown-simple',
-    accent: 'goal',
+    image: tutorialGoalUrl,
+    alt: '흑 왕이 상대편 끝줄의 가운데 목적지로 이동하는 경로',
   },
   {
     title: '호위를 배치하세요',
     copy: '매 턴 호위 하나를 내 말과 상하좌우로 맞닿은 빈 칸에 놓을 수 있습니다. 호위는 각 진영에 8개입니다.',
-    icon: 'ph-circles-three-plus',
-    accent: 'place',
+    image: tutorialPlaceUrl,
+    alt: '왕과 호위에 상하좌우로 맞닿은 칸에 새 호위를 배치하는 모습',
   },
   {
     title: '두거나, 움직이세요',
     copy: '한 턴에는 호위를 새로 두거나 말 하나를 움직입니다. 왕은 8방향, 호위는 상하좌우로 한 칸 이동합니다.',
-    icon: 'ph-arrows-out-cardinal',
-    accent: 'move',
+    image: tutorialMoveUrl,
+    alt: '왕은 여덟 방향, 호위는 상하좌우 네 방향으로 움직이는 방법',
   },
   {
     title: '왕을 끝까지 지키세요',
     copy: '호위는 상대 호위와 왕을 잡을 수 있습니다. 왕이 잡히면 즉시 패배하므로 혼자 돌진하지 마세요.',
-    icon: 'ph-shield-check',
-    accent: 'protect',
+    image: tutorialProtectUrl,
+    alt: '세 호위가 왕을 둘러싸고 상대 호위의 접근을 막는 모습',
   },
 ] as const;
 
@@ -333,8 +337,7 @@ function renderTutorial() {
   const step = tutorialSteps[tutorialStep];
   tutorialTitle.textContent = step.title;
   tutorialCopy.textContent = step.copy;
-  tutorialVisual.className = `tutorial-visual tutorial-${step.accent}`;
-  tutorialVisual.innerHTML = `<i class="ph ${step.icon}" aria-hidden="true"></i><span>${tutorialStep + 1}</span>`;
+  tutorialVisual.innerHTML = `<img src="${step.image}" alt="${step.alt}" decoding="async" /><span aria-hidden="true">${tutorialStep + 1}</span>`;
   tutorialProgress.innerHTML = tutorialSteps.map((_, index) =>
     `<span class="${index === tutorialStep ? 'active' : ''}">${index + 1}</span>`,
   ).join('');

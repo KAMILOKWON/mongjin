@@ -863,41 +863,35 @@ input {
 
 .tutorial-visual {
   position: relative;
-  display: grid;
-  min-height: 190px;
-  place-items: center;
+  height: clamp(190px, 26dvh, 240px);
   overflow: hidden;
   border: 1px solid #cbd5dc;
   border-radius: 15px;
-  color: var(--blue);
   background-color: #eaf0f3;
-  background-image: var(--board-texture);
-  background-blend-mode: soft-light;
 }
 
-.tutorial-visual i {
-  font-size: 78px;
+.tutorial-visual img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
 }
 
 .tutorial-visual > span {
   position: absolute;
   top: 14px;
   right: 16px;
-  color: rgba(49, 95, 137, 0.42);
+  display: grid;
+  width: 25px;
+  height: 25px;
+  place-items: center;
+  border: 1px solid rgba(49, 95, 137, 0.28);
+  border-radius: 50%;
+  color: var(--blue);
+  background: rgba(251, 250, 247, 0.92);
   font-size: 11px;
   font-weight: 850;
-}
-
-.tutorial-place {
-  color: #5d7180;
-}
-
-.tutorial-move {
-  color: #3e6686;
-}
-
-.tutorial-protect {
-  color: #445c70;
+  box-shadow: 0 2px 8px rgba(31, 42, 51, 0.12);
 }
 
 .tutorial-copy {
