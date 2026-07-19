@@ -20,6 +20,4 @@ export interface GameState {
   turn: Player;
   guardsInHand: Record<Player, number>;
   history: Move[];
-  /** 동형 국면 반복 검사용: positionKey → 등장 횟수 */
-  positionCounts: Record<string, number>;
 }

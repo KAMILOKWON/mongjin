@@ -22,7 +22,6 @@ const REASON_KO: Record<WinReason, string> = {
   goal: '왕이 목적지에 도달',
   capture: '상대 왕을 잡음',
   surround: '상대 왕을 포위',
-  repetition: '상대가 동형 국면 3회 반복',
   'no-moves': '상대가 둘 수 없음',
 };
 

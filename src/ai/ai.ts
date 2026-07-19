@@ -57,7 +57,6 @@ interface SearchCtx {
   tt: Map<string, TTEntry>;
   history: Map<string, number>;
   killers: (Move | null)[][];
-  repCounts: Map<string, number>;  // 실제 게임 positionCounts + 탐색 경로 누적
 }
 
 function moveSig(m: Move): string {
@@ -69,10 +68,9 @@ function movesEqual(a: Move, b: Move): boolean {
   return moveSig(a) === moveSig(b);
 }
 
-function createSearchCtx(config: RuleConfig, deadline: number, rootState: GameState): SearchCtx {
+function createSearchCtx(config: RuleConfig, deadline: number): SearchCtx {
   const killers: (Move | null)[][] = [];
   for (let i = 0; i < MAX_KILLER_DEPTH; i++) killers.push([null, null]);
-  const repCounts = new Map<string, number>(Object.entries(rootState.positionCounts));
   return {
     config,
     deadline,
@@ -81,7 +79,6 @@ function createSearchCtx(config: RuleConfig, deadline: number, rootState: GameSt
     tt: new Map(),
     history: new Map(),
     killers,
-    repCounts,
   };
 }
 
@@ -101,7 +98,6 @@ function child(state: GameState, move: Move): GameState {
     turn: opponent(state.turn),
     guardsInHand,
     history: [],
-    positionCounts: {},
   };
 }
 
@@ -456,13 +452,8 @@ function negamax(
 
   const key = positionKey(state);
 
-  // 동형 3회 반복: 이 국면을 만든 직전 이동자가 패배 → 현재 플레이어 승리
-  const repCount = ctx.repCounts.get(key) ?? 0;
-  if (repCount >= 3) return WIN + depth;
-
   const tt = ttProbe(ctx, key, depth, alpha, beta);
-  // repCount > 0인 경로에선 TT 스코어가 경로 의존적이므로 컷오프는 무시
-  if (repCount === 0 && tt.cutoff !== null) return tt.cutoff;
+  if (tt.cutoff !== null) return tt.cutoff;
 
   const winner = getTerminalWinner(state, ctx.config);
   if (winner) return winner === state.turn ? WIN + depth : -(WIN + depth);
@@ -505,11 +496,7 @@ function negamax(
       reduction = 1;
     }
 
-    // 자식 상태 미리 계산 (PVS 재탐색과 repCounts 공유)
     const childState = child(state, m);
-    const childKey = positionKey(childState);
-    const prevRep = ctx.repCounts.get(childKey) ?? 0;
-    ctx.repCounts.set(childKey, prevRep + 1);
 
     let v: number;
     if (i === 0) {
@@ -520,8 +507,6 @@ function negamax(
         v = -negamax(childState, ctx, depth - 1, -beta, -alpha, hints, botSide);
       }
     }
-
-    ctx.repCounts.set(childKey, prevRep);
 
     if (ctx.aborted) break;
     if (v > best) {
@@ -540,7 +525,7 @@ function negamax(
     }
   }
 
-  if (!ctx.aborted && repCount === 0) {
+  if (!ctx.aborted) {
     ttStore(ctx, key, depth, best, flag, bestMove);
   }
   return best;
@@ -579,7 +564,7 @@ export function chooseMove(
   const maxDepth = opts.maxDepth ?? DEFAULT_AI_OPTIONS.maxDepth!;
   const hints = opts.hints;
   const botSide = opts.botSide;
-  const ctx = createSearchCtx(config, performance.now() + maxMs, state);
+  const ctx = createSearchCtx(config, performance.now() + maxMs);
   let moves = orderMoves(
     state,
     legalMoves(state, config),
@@ -619,11 +604,7 @@ export function chooseMove(
 
     for (const m of moves) {
       const childState = child(state, m);
-      const childKey = positionKey(childState);
-      const prevRep = ctx.repCounts.get(childKey) ?? 0;
-      ctx.repCounts.set(childKey, prevRep + 1);
       const v = -negamax(childState, ctx, depth - 1, -beta, -alpha, hints, botSide);
-      ctx.repCounts.set(childKey, prevRep);
       if (ctx.aborted) {
         depthComplete = false;
         break;

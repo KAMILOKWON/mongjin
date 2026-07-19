@@ -64,15 +64,12 @@ export function initialState(config: RuleConfig): GameState {
   const mid = Math.floor(n / 2);
   board[homeRow('BLACK', n)][mid] = { player: 'BLACK', type: 'KING' };
   board[homeRow('WHITE', n)][mid] = { player: 'WHITE', type: 'KING' };
-  const state: GameState = {
+  return {
     board,
     turn: 'BLACK',
     guardsInHand: { BLACK: config.guardCount, WHITE: config.guardCount },
     history: [],
-    positionCounts: {},
   };
-  state.positionCounts[positionKey(state)] = 1;
-  return state;
 }
 
 export function positionKey(state: GameState): string {

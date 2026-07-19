@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { GameState, Piece, Player } from '../core/types';
 import { DEFAULT_CONFIG } from '../core/config';
-import { initialState, legalMoves, positionKey } from '../core/rules';
+import { initialState, legalMoves } from '../core/rules';
 import { applyMove } from '../core/apply';
 import { getResult } from '../core/result';
 import { chooseMove } from './ai';
@@ -17,9 +17,7 @@ function makeState(
     Array.from({ length: 9 }, () => null),
   );
   for (const [r, c, player, type] of pieces) board[r][c] = { player, type };
-  const state: GameState = { board, turn, guardsInHand: { ...hands }, history: [], positionCounts: {} };
-  state.positionCounts[positionKey(state)] = 1;
-  return state;
+  return { board, turn, guardsInHand: { ...hands }, history: [] };
 }
 
 describe('AI (미니맥스)', () => {

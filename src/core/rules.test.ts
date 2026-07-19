@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { GameState, Move, Piece, Player } from './types';
 import { DEFAULT_CONFIG, type RuleConfig } from './config';
-import { initialState, legalMoves, positionKey } from './rules';
+import { initialState, legalMoves } from './rules';
 import { applyMove } from './apply';
 import { getResult } from './result';
 
@@ -22,15 +22,12 @@ function makeState(
   for (const [r, c, player, type] of pieces) {
     board[r][c] = { player, type };
   }
-  const state: GameState = {
+  return {
     board,
     turn,
     guardsInHand: { ...hands },
     history: [],
-    positionCounts: {},
   };
-  state.positionCounts[positionKey(state)] = 1;
-  return state;
 }
 
 function moveSet(moves: Move[]): Set<string> {
@@ -289,7 +286,7 @@ describe('승패 판정', () => {
     expect(getResult(s, { ...CFG, kingSurroundLoss: false })).toBeNull();
   });
 
-  it('동형 국면 3회 반복 시 반복을 만든 쪽이 패배', () => {
+  it('동형 국면이 3회 반복되어도 대국을 계속한다', () => {
     let s = makeState(
       [
         [8, 4, 'BLACK', 'KING'],
@@ -304,13 +301,13 @@ describe('승패 판정', () => {
       { kind: 'MOVE', from: { r: 8, c: 3 }, to: { r: 8, c: 4 } },
       { kind: 'MOVE', from: { r: 0, c: 3 }, to: { r: 0, c: 4 } },
     ];
-    // 2바퀴 돌면 초기 국면이 3번째 등장 — 마지막 수는 백
+    // 2바퀴 돌면 초기 국면이 3번째 등장한다.
     for (let lap = 0; lap < 2; lap++) {
       for (const m of cycle) {
         expect(getResult(s, CFG)).toBeNull();
         s = applyMove(s, m);
       }
     }
-    expect(getResult(s, CFG)).toEqual({ winner: 'BLACK', reason: 'repetition' });
+    expect(getResult(s, CFG)).toBeNull();
   });
 });

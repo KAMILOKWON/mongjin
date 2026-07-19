@@ -1,8 +1,8 @@
 import type { GameState, Player } from './types';
 import type { RuleConfig } from './config';
-import { ORTHO, findKing, inBoard, isGoalCell, legalMoves, opponent, positionKey } from './rules';
+import { ORTHO, findKing, inBoard, isGoalCell, legalMoves, opponent } from './rules';
 
-export type WinReason = 'goal' | 'capture' | 'surround' | 'repetition' | 'no-moves';
+export type WinReason = 'goal' | 'capture' | 'surround' | 'no-moves';
 
 export interface GameResult {
   winner: Player;
@@ -41,12 +41,7 @@ export function getResult(state: GameState, config: RuleConfig): GameResult | nu
     }
   }
 
-  // 3. 동형 국면 3회 반복: 반복을 만든 쪽(직전에 둔 쪽)이 패배
-  if ((state.positionCounts[positionKey(state)] ?? 0) >= 3) {
-    return { winner: state.turn, reason: 'repetition' };
-  }
-
-  // 4. 둘 수 있는 합법 수가 없으면 패배
+  // 3. 둘 수 있는 합법 수가 없으면 패배
   if (legalMoves(state, config).length === 0) {
     return { winner: opponent(state.turn), reason: 'no-moves' };
   }
