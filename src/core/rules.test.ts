@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { GameState, Move, Piece, Player } from './types';
 import { DEFAULT_CONFIG, type RuleConfig } from './config';
-import { initialState, legalMoves } from './rules';
+import { initialState, legalMoves, positionKey } from './rules';
 import { applyMove } from './apply';
 import { getResult } from './result';
 
@@ -22,12 +22,15 @@ function makeState(
   for (const [r, c, player, type] of pieces) {
     board[r][c] = { player, type };
   }
-  return {
+  const state: GameState = {
     board,
     turn,
     guardsInHand: { ...hands },
     history: [],
+    positionCounts: {},
   };
+  state.positionCounts[positionKey(state)] = 1;
+  return state;
 }
 
 function moveSet(moves: Move[]): Set<string> {
@@ -308,6 +311,7 @@ describe('승패 판정', () => {
         s = applyMove(s, m);
       }
     }
+    expect(s.positionCounts[positionKey(s)]).toBe(3);
     expect(getResult(s, CFG)).toBeNull();
   });
 });

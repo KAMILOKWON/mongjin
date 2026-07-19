@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { GameState, Piece, Player } from '../core/types';
 import { DEFAULT_CONFIG } from '../core/config';
-import { initialState, legalMoves } from '../core/rules';
+import { initialState, legalMoves, positionKey } from '../core/rules';
 import { applyMove } from '../core/apply';
 import { getResult } from '../core/result';
 import { chooseMove } from './ai';
@@ -17,7 +17,15 @@ function makeState(
     Array.from({ length: 9 }, () => null),
   );
   for (const [r, c, player, type] of pieces) board[r][c] = { player, type };
-  return { board, turn, guardsInHand: { ...hands }, history: [] };
+  const state: GameState = {
+    board,
+    turn,
+    guardsInHand: { ...hands },
+    history: [],
+    positionCounts: {},
+  };
+  state.positionCounts[positionKey(state)] = 1;
+  return state;
 }
 
 describe('AI (미니맥스)', () => {
@@ -27,6 +35,26 @@ describe('AI (미니맥스)', () => {
     expect(m).not.toBeNull();
     const legal = legalMoves(s, CFG).some((x) => JSON.stringify(x) === JSON.stringify(m));
     expect(legal).toBe(true);
+  });
+
+  it('다른 합법 수가 있으면 세 번째 동형 국면을 만드는 수를 피한다', () => {
+    const s = makeState(
+      [
+        [8, 4, 'BLACK', 'KING'],
+        [0, 4, 'WHITE', 'KING'],
+      ],
+      'BLACK',
+      { BLACK: 0, WHITE: 0 },
+    );
+    const moves = legalMoves(s, CFG);
+    const allowed = moves[0]!;
+    for (const move of moves.slice(1)) {
+      const next = applyMove(s, move);
+      s.positionCounts[positionKey(next)] = 2;
+    }
+
+    const chosen = chooseMove(s, CFG, { maxMs: 100, maxDepth: 4 });
+    expect(chosen).toEqual(allowed);
   });
 
   it('한 수 승리(목적지 진입)를 놓치지 않는다', () => {

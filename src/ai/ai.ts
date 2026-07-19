@@ -98,6 +98,7 @@ function child(state: GameState, move: Move): GameState {
     turn: opponent(state.turn),
     guardsInHand,
     history: [],
+    positionCounts: {},
   };
 }
 
@@ -565,9 +566,16 @@ export function chooseMove(
   const hints = opts.hints;
   const botSide = opts.botSide;
   const ctx = createSearchCtx(config, performance.now() + maxMs);
+  const legal = legalMoves(state, config);
+  const repetitionSafe = legal.filter((move) => {
+    const key = positionKey(child(state, move));
+    return (state.positionCounts[key] ?? 0) < 2;
+  });
+  // 가능한 경우 AI가 동일 국면의 세 번째 등장을 만드는 수를 두지 않는다.
+  const candidates = repetitionSafe.length > 0 ? repetitionSafe : legal;
   let moves = orderMoves(
     state,
-    legalMoves(state, config),
+    candidates,
     config,
     ctx,
     maxDepth,
@@ -630,7 +638,7 @@ export function chooseMove(
   }
 
   const safeMoveKeys = safetyRestricted ? new Set(moves.map(moveSig)) : null;
-  const allLegal = legalMoves(state, config).filter(
+  const allLegal = candidates.filter(
     (move) => safeMoveKeys === null || safeMoveKeys.has(moveSig(move)),
   );
   const finalWin = findWinningMove(state, allLegal, config);

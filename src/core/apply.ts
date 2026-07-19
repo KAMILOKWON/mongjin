@@ -1,5 +1,5 @@
 import type { GameState, Move } from './types';
-import { opponent } from './rules';
+import { opponent, positionKey } from './rules';
 
 /** 합법 수라고 가정하고 적용한다. 검증은 legalMoves 쪽 책임. */
 export function applyMove(state: GameState, move: Move): GameState {
@@ -15,10 +15,14 @@ export function applyMove(state: GameState, move: Move): GameState {
     board[move.to.r][move.to.c] = piece; // 상대 호위가 있으면 대체 잡기
   }
 
-  return {
+  const next: GameState = {
     board,
     turn: opponent(state.turn),
     guardsInHand,
     history: [...state.history, move],
+    positionCounts: { ...state.positionCounts },
   };
+  const key = positionKey(next);
+  next.positionCounts[key] = (next.positionCounts[key] ?? 0) + 1;
+  return next;
 }

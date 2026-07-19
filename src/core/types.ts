@@ -20,4 +20,6 @@ export interface GameState {
   turn: Player;
   guardsInHand: Record<Player, number>;
   history: Move[];
+  /** AI의 반복 회피용: positionKey → 등장 횟수 (승패 판정에는 사용하지 않음) */
+  positionCounts: Record<string, number>;
 }
