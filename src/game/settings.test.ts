@@ -30,6 +30,15 @@ describe('settings', () => {
     expect(AI_DIFFICULTY_PRESETS.allMight.maxDepth).toBeGreaterThan(
       AI_DIFFICULTY_PRESETS.expert.maxDepth,
     );
+    expect(AI_DIFFICULTY_PRESETS.hard.maxNodes).toBeGreaterThan(
+      AI_DIFFICULTY_PRESETS.normal.maxNodes,
+    );
+    expect(AI_DIFFICULTY_PRESETS.expert.maxNodes).toBeGreaterThan(
+      AI_DIFFICULTY_PRESETS.hard.maxNodes,
+    );
+    expect(AI_DIFFICULTY_PRESETS.allMight.maxNodes).toBeGreaterThan(
+      AI_DIFFICULTY_PRESETS.expert.maxNodes,
+    );
     expect(AI_DIFFICULTY_PRESETS.allMight.hintScale ?? 1).toBeGreaterThan(1);
     expect(AI_DIFFICULTY_PRESETS.normal.rootNoise).toBeGreaterThan(
       AI_DIFFICULTY_PRESETS.hard.rootNoise!,
@@ -47,5 +56,11 @@ describe('settings', () => {
     expect(AI_DIFFICULTY_PRESETS.normal.elite ?? false).toBe(false);
     expect(AI_DIFFICULTY_PRESETS.hard.elite ?? false).toBe(false);
     expect(AI_DIFFICULTY_PRESETS.expert.elite ?? false).toBe(false);
+  });
+
+  it('올마이트도 1.5초 안에 응수하도록 제한한다', () => {
+    expect(AI_DIFFICULTY_PRESETS.allMight.maxMs).toBeLessThanOrEqual(1_500);
+    expect(AI_DIFFICULTY_PRESETS.allMight.maxDepth).toBe(7);
+    expect(AI_DIFFICULTY_PRESETS.allMight.maxNodes).toBe(30_000);
   });
 });

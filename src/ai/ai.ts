@@ -1,4 +1,4 @@
-import type { GameState, Move, Player } from '../core/types';
+import type { Coord, GameState, Move, Player } from '../core/types';
 import type { RuleConfig } from '../core/config';
 import type { BotHints } from '../bot/brain';
 import {
@@ -29,8 +29,8 @@ const LMR_QUIET_THRESHOLD = 4;
 
 /** 브라우저·GitHub Pages에서 쓰는 기본 AI 강도 */
 export const DEFAULT_AI_OPTIONS: AiOptions = {
-  maxMs: 2400,
-  maxDepth: 24,
+  maxMs: 250,
+  maxDepth: 5,
 };
 
 export interface AiOptions {
@@ -198,13 +198,29 @@ function buildDangerMask(state: GameState, p: Player, config: RuleConfig, n: num
   return danger;
 }
 
-function bfsKingDist(state: GameState, p: Player, config: RuleConfig): number {
+const GOAL_MASKS = new Map<string, Uint8Array>();
+
+function goalMaskFor(p: Player, config: RuleConfig, n: number): Uint8Array {
+  const key = `${n}:${config.goalCells}:${p}`;
+  const cached = GOAL_MASKS.get(key);
+  if (cached) return cached;
+  const mask = new Uint8Array(n * n);
+  for (const g of goalCellsFor(p, config)) mask[g.r * n + g.c] = 1;
+  GOAL_MASKS.set(key, mask);
+  return mask;
+}
+
+function bfsKingDistPrepared(
+  state: GameState,
+  p: Player,
+  config: RuleConfig,
+  k: Coord | null,
+  danger: Uint8Array,
+): number {
   const n = state.board.length;
-  const k = findKing(state, p);
   if (!k) return BLOCKED_DIST + 15;
-  if (isGoalCell(p, k, config)) return 0;
-  const goalSet = new Set(goalCellsFor(p, config).map((g) => g.r * n + g.c));
-  const danger = buildDangerMask(state, p, config, n);
+  const goalMask = goalMaskFor(p, config, n);
+  if (goalMask[k.r * n + k.c]) return 0;
 
   const dist = new Int16Array(n * n).fill(-1);
   const queue: number[] = [k.r * n + k.c];
@@ -220,7 +236,7 @@ function bfsKingDist(state: GameState, p: Player, config: RuleConfig): number {
       if (!inBoard(n, nr, nc)) continue;
       const idx = nr * n + nc;
       if (dist[idx] !== -1 || state.board[nr][nc]) continue;
-      if (goalSet.has(idx)) return d + 1;
+      if (goalMask[idx]) return d + 1;
       if (danger[idx]) continue;
       dist[idx] = d + 1;
       queue.push(idx);
@@ -229,26 +245,72 @@ function bfsKingDist(state: GameState, p: Player, config: RuleConfig): number {
   return BLOCKED_DIST;
 }
 
-function placementDelay(state: GameState, move: Move, config: RuleConfig): number {
+function bfsKingDist(state: GameState, p: Player, config: RuleConfig): number {
+  const n = state.board.length;
+  const k = findKing(state, p);
+  const danger = buildDangerMask(state, p, config, n);
+  return bfsKingDistPrepared(state, p, config, k, danger);
+}
+
+function placementDelay(
+  state: GameState,
+  move: Move,
+  config: RuleConfig,
+  before: number,
+): number {
   if (move.kind !== 'PLACE') return 0;
   const opp = opponent(state.turn);
-  const before = bfsKingDist(state, opp, config);
   const after = bfsKingDist(child(state, move), opp, config);
   return after - before;
 }
 
-function guardTotal(state: GameState, p: Player): number {
-  let n = state.guardsInHand[p];
-  for (const row of state.board) {
-    for (const piece of row) {
-      if (piece && piece.player === p && piece.type === 'GUARD') n++;
-    }
-  }
-  return n;
+interface EvaluationScan {
+  kings: Record<Player, Coord | null>;
+  guardTotals: Record<Player, number>;
+  dangers: Record<Player, Uint8Array>;
 }
 
-function kingThreatened(state: GameState, p: Player): boolean {
-  const k = findKing(state, p);
+/** 정적 평가에 필요한 왕·호위·위험 정보를 보드 한 번의 순회로 모은다. */
+function scanForEvaluation(state: GameState, config: RuleConfig): EvaluationScan {
+  const n = state.board.length;
+  const kings: Record<Player, Coord | null> = { BLACK: null, WHITE: null };
+  const guardTotals: Record<Player, number> = {
+    BLACK: state.guardsInHand.BLACK,
+    WHITE: state.guardsInHand.WHITE,
+  };
+  const dangers: Record<Player, Uint8Array> = {
+    BLACK: new Uint8Array(n * n),
+    WHITE: new Uint8Array(n * n),
+  };
+
+  for (let r = 0; r < n; r++) {
+    for (let c = 0; c < n; c++) {
+      const piece = state.board[r][c];
+      if (!piece) continue;
+      if (piece.type === 'KING') {
+        kings[piece.player] = { r, c };
+        continue;
+      }
+      guardTotals[piece.player]++;
+      if (!config.kingCapture) continue;
+      const threatenedPlayer = opponent(piece.player);
+      const danger = dangers[threatenedPlayer];
+      for (const [dr, dc] of ORTHO) {
+        const nr = r + dr;
+        const nc = c + dc;
+        if (inBoard(n, nr, nc)) danger[nr * n + nc] = 1;
+      }
+    }
+  }
+
+  return { kings, guardTotals, dangers };
+}
+
+function kingThreatenedAt(
+  state: GameState,
+  p: Player,
+  k: Coord | null,
+): boolean {
   if (!k) return false;
   const n = state.board.length;
   for (const [dr, dc] of ORTHO) {
@@ -261,8 +323,11 @@ function kingThreatened(state: GameState, p: Player): boolean {
   return false;
 }
 
-function escortCount(state: GameState, p: Player): number {
-  const k = findKing(state, p);
+function kingThreatened(state: GameState, p: Player): boolean {
+  return kingThreatenedAt(state, p, findKing(state, p));
+}
+
+function escortCountAt(state: GameState, p: Player, k: Coord | null): number {
   if (!k) return 0;
   const n = state.board.length;
   let count = 0;
@@ -276,11 +341,17 @@ function escortCount(state: GameState, p: Player): number {
   return count;
 }
 
-function interceptGap(state: GameState, defender: Player, invader: Player): number {
-  const dK = findKing(state, defender);
-  const iK = findKing(state, invader);
+function escortCount(state: GameState, p: Player): number {
+  return escortCountAt(state, p, findKing(state, p));
+}
+
+function interceptGapAt(
+  n: number,
+  invader: Player,
+  dK: Coord | null,
+  iK: Coord | null,
+): number {
   if (!dK || !iK) return 0;
-  const n = state.board.length;
   const gR = goalRow(invader, n);
   const step = Math.sign(gR - iK.r);
   const tr = Math.min(Math.max(iK.r + 2 * step, Math.min(iK.r, gR)), Math.max(iK.r, gR));
@@ -288,8 +359,11 @@ function interceptGap(state: GameState, defender: Player, invader: Player): numb
 }
 
 /** 왕의 직교 탈출 칸 수 (포위 패배 판정과 동일 기준, 0이면 이미 포위) */
-function orthoEscapeCount(state: GameState, p: Player): number {
-  const k = findKing(state, p);
+function orthoEscapeCountAt(
+  state: GameState,
+  p: Player,
+  k: Coord | null,
+): number {
   if (!k) return 0;
   const n = state.board.length;
   let count = 0;
@@ -312,11 +386,14 @@ function evaluate(
 ): number {
   const me = state.turn;
   const opp = opponent(me);
-  const myD = bfsKingDist(state, me, config);
-  const oppD = bfsKingDist(state, opp, config);
+  const scan = scanForEvaluation(state, config);
+  const myKing = scan.kings[me];
+  const oppKing = scan.kings[opp];
+  const myD = bfsKingDistPrepared(state, me, config, myKing, scan.dangers[me]);
+  const oppD = bfsKingDistPrepared(state, opp, config, oppKing, scan.dangers[opp]);
 
-  const myTotal = guardTotal(state, me);
-  const oppTotal = guardTotal(state, opp);
+  const myTotal = scan.guardTotals[me];
+  const oppTotal = scan.guardTotals[opp];
   let score = 7 * (myTotal - oppTotal);
 
   // 손에 든 호위에 유연성 보너스: 배치 행위 자체의 턴 비용 반영
@@ -329,14 +406,20 @@ function evaluate(
   score -= 5 * excessDeploy;
 
   if (config.kingCapture) {
-    if (kingThreatened(state, opp)) score += 5000;
-    if (kingThreatened(state, me)) score -= 60;
-    score += 5 * (Math.min(escortCount(state, me), 3) - Math.min(escortCount(state, opp), 3));
+    if (kingThreatenedAt(state, opp, oppKing)) score += 5000;
+    if (kingThreatenedAt(state, me, myKing)) score -= 60;
+    score += 5 * (
+      Math.min(escortCountAt(state, me, myKing), 3) -
+      Math.min(escortCountAt(state, opp, oppKing), 3)
+    );
   }
 
   // 올마이트 전용 포위 압력: 교착에서 상대 왕의 탈출 칸을 좁히는 쪽으로 수렴시킨다
   if (elite && config.kingSurroundLoss) {
-    score += 6 * (orthoEscapeCount(state, me) - orthoEscapeCount(state, opp));
+    score += 6 * (
+      orthoEscapeCountAt(state, me, myKing) -
+      orthoEscapeCountAt(state, opp, oppKing)
+    );
   }
 
   const meArrive = 2 * myD - 1;
@@ -347,7 +430,9 @@ function evaluate(
     if (oppD <= 3) score -= 18 * (4 - oppD);
   } else {
     score += -300 + 28 * Math.min(oppD, 12) - 3 * myD;
-    if (config.kingCapture) score -= 12 * interceptGap(state, me, opp);
+    if (config.kingCapture) {
+      score -= 12 * interceptGapAt(state.board.length, opp, myKing, oppKing);
+    }
   }
 
   if (hints && botSide) {
@@ -374,6 +459,10 @@ function orderMoves(
   const oppKing = findKing(state, opp);
   const myKing = findKing(state, me);
   const myEsc = escortCount(state, me);
+  // PLACE 수마다 같은 배치 전 거리를 재계산하지 않는다.
+  const placementBaseDist = moves.some((m) => m.kind === 'PLACE')
+    ? bfsKingDist(state, opp, config)
+    : 0;
   const near = (r: number, c: number) =>
     oppKing ? 8 - Math.max(Math.abs(r - oppKing.r), Math.abs(c - oppKing.c)) : 0;
 
@@ -404,7 +493,7 @@ function orderMoves(
       }
     } else {
       // PLACE: 전략적 가치 기반 차등 평가
-      const delay = placementDelay(state, m, config);
+      const delay = placementDelay(state, m, config, placementBaseDist);
       // 체크성 위협: 상대 왕 인접(체비쇼프 ≤ 1)
       const adjOppKing = oppKing !== null &&
         Math.max(Math.abs(m.to.r - oppKing.r), Math.abs(m.to.c - oppKing.c)) <= 1;

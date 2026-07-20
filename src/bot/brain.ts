@@ -17,6 +17,7 @@ import {
 import { OpeningBook } from './openingBook';
 import { loadMemory, saveMemory } from './storage';
 import { moveKey } from './moveKey';
+import { positionKey } from '../core/rules';
 
 /** 미니맥스에 전달하는 가벼운 힌트 (전략서 → 수 정렬·평가 보정만, 검색은 항상 수행) */
 export interface BotHints {
@@ -61,14 +62,30 @@ export class BotBrain {
     const bookWeights = this.openingBook.moveWeights(state, this.config);
     const bonuses = buildStrategyBonuses(state, this.config, botSide, strategies, bookWeights);
     const s = Number.isFinite(scale) && scale > 0 ? scale : 1;
+    // 한 번의 탐색에서 같은 국면·수가 반복 평가되므로
+    // 전략서 계산을 재사용한다. 캐시는 착수당 새로 생성된다.
+    const moveCache = new Map<string, number>();
+    const evalCache = new Map<string, number>();
 
     return {
       moveBonus: (st, m) => {
+        const key = `${positionKey(st)}|${moveKey(m)}`;
+        const cached = moveCache.get(key);
+        if (cached !== undefined) return cached;
         let b = moveStrategyBonus(st, m, this.config, botSide, bonuses);
         b += tendencyBonus(moveKey(m), this.memory);
-        return b * s;
+        const value = b * s;
+        moveCache.set(key, value);
+        return value;
       },
-      evalBonus: (st) => evalStrategyBonus(st, this.config, botSide, strategies) * s,
+      evalBonus: (st) => {
+        const key = positionKey(st);
+        const cached = evalCache.get(key);
+        if (cached !== undefined) return cached;
+        const value = evalStrategyBonus(st, this.config, botSide, strategies) * s;
+        evalCache.set(key, value);
+        return value;
+      },
     };
   }
 

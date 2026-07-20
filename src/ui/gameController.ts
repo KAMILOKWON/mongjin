@@ -321,6 +321,7 @@ export class GameController {
     const baseOpts = {
       maxMs,
       maxDepth,
+      maxNodes: preset.maxNodes,
       elite: preset.elite ?? false,
       rng: (preset.rootNoise ?? 0) > 0 ? Math.random : undefined,
       rootNoise: preset.rootNoise ?? 0,
