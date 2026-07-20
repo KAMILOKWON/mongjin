@@ -3,7 +3,14 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { DEFAULT_CONFIG } from '../../src/core/config';
-import { playAiVsAi } from './play';
+import { initialState } from '../../src/core/rules';
+import {
+  forcedOpeningMove,
+  playAiVsAi,
+  SELFPLAY_AI_OPTIONS,
+  SELFPLAY_STRONG_AI_OPTIONS,
+  selfPlayOptionsFor,
+} from './play';
 import { extractStrategies } from '../learning/extractStrategies';
 import { parseGame } from '../mgn/format';
 import generated from '../strategies/generated.json';
@@ -17,6 +24,33 @@ function loadAllSelfPlayGames() {
 }
 
 describe('셀프플레이', () => {
+  it('strong 프리셋이 fast보다 깊게 탐색한다', () => {
+    expect(SELFPLAY_STRONG_AI_OPTIONS.maxMs).toBeGreaterThan(SELFPLAY_AI_OPTIONS.maxMs!);
+    expect(SELFPLAY_STRONG_AI_OPTIONS.maxDepth).toBeGreaterThan(SELFPLAY_AI_OPTIONS.maxDepth!);
+    expect(selfPlayOptionsFor('strong').maxMs).toBe(SELFPLAY_STRONG_AI_OPTIONS.maxMs);
+    expect(selfPlayOptionsFor('fast').maxMs).toBe(SELFPLAY_AI_OPTIONS.maxMs);
+  });
+
+  it('게임 인덱스가 다르면 초반 수가 갈라진다', () => {
+    const state = initialState(DEFAULT_CONFIG);
+    const a = forcedOpeningMove(state, DEFAULT_CONFIG, 0);
+    const b = forcedOpeningMove(state, DEFAULT_CONFIG, 1);
+    expect(a).not.toBeNull();
+    expect(b).not.toBeNull();
+    const a0 = a!;
+    const b0 = b!;
+    const sameFirst =
+      a0.kind === b0.kind &&
+      a0.to.r === b0.to.r &&
+      a0.to.c === b0.to.c &&
+      (a0.kind === 'PLACE' ||
+        (b0.kind === 'MOVE' &&
+          a0.kind === 'MOVE' &&
+          a0.from.r === b0.from.r &&
+          a0.from.c === b0.from.c));
+    expect(sameFirst).toBe(false);
+  });
+
   it(
     'AI vs AI 1판이 정상 종료된다',
     () => {

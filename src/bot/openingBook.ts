@@ -26,7 +26,7 @@ export class OpeningBook {
       }
       if (patternMoves.length < 2) continue;
 
-      const weight = Math.round(s.confidence * 160);
+      const weight = Math.round(s.confidence * 200);
       for (let i = 0; i < patternMoves.length; i++) {
         const prefix = historyKey(patternMoves.slice(0, i));
         const next = patternMoves[i]!;

@@ -6,10 +6,6 @@ import { moveKey } from './moveKey';
 
 const CENTER_FILES = new Set([3, 4, 5]); // d, e, f (0-indexed c)
 
-function isOpening(state: GameState): boolean {
-  return state.history.length < 20;
-}
-
 function escortCount(state: GameState, p: Player): number {
   const k = findKing(state, p);
   if (!k) return 0;
@@ -36,6 +32,18 @@ function kingAdvance(state: GameState, p: Player, config: RuleConfig): number {
   return Math.abs(k.r - g);
 }
 
+function isOpening(state: GameState, config: RuleConfig): boolean {
+  // AI 탐색 노드는 성능을 위해 history를 복사하지 않으므로,
+  // 수수 대신 보드에 배치된 호위 수와 왕의 진행도로 오프닝을 판정한다.
+  const inHand = state.guardsInHand.BLACK + state.guardsInHand.WHITE;
+  const deployed = config.guardCount * 2 - inHand;
+  return (
+    deployed <= 6 &&
+    kingAdvance(state, 'BLACK', config) >= config.boardSize - 3 &&
+    kingAdvance(state, 'WHITE', config) >= config.boardSize - 3
+  );
+}
+
 function isEndgame(state: GameState, config: RuleConfig): boolean {
   for (const p of ['BLACK', 'WHITE'] as Player[]) {
     if (kingAdvance(state, p, config) <= 3) return true;
@@ -56,7 +64,7 @@ export function buildStrategyBonuses(
   if (me !== botSide) return bonuses;
 
   const opp = me === 'BLACK' ? 'WHITE' : 'BLACK';
-  const opening = isOpening(state);
+  const opening = isOpening(state, config);
   const endgame = isEndgame(state, config);
 
   const myDist = kingAdvance(state, me, config);
@@ -199,11 +207,13 @@ export function evalStrategyBonus(
   botSide: Player,
   strategies: StrategyEntry[],
 ): number {
-  const me = state.turn;
-  if (me !== botSide) return 0;
+  // 봇 자신의 관점에서 항상 같은 값을 반환한다.
+  // 네거맥스에서는 호출측이 현재 차례에 맞게 부호를 바꾸어야
+  // 짝수/홀수 탐색 깊이에 따라 힌트가 사라지는 문제가 없다.
+  const me = botSide;
 
   let score = 0;
-  const opening = isOpening(state);
+  const opening = isOpening(state, config);
   const endgame = isEndgame(state, config);
 
   for (const s of strategies) {
