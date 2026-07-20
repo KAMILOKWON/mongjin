@@ -56,7 +56,12 @@ function playMatch(
     if (result) return result.winner;
     const move =
       state.turn === aiSide
-        ? chooseMove(state, CFG, { maxMs: 200, maxDepth: 8 })!
+        ? chooseMove(state, CFG, {
+            maxMs: 5_000,
+            maxDepth: 8,
+            // 시간만 제한하면 CI 부하에 따라 탐색량과 승패가 달라진다.
+            maxNodes: 6_000,
+          })!
         : bot(state, rand);
     state = applyMove(state, move);
   }
