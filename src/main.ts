@@ -153,7 +153,7 @@ app.innerHTML = `
           <option value="normal">보통 · 빠르게 둬요</option>
           <option value="hard" selected>어려움 · 수비와 반격을 읽어요</option>
           <option value="expert">고수 · 깊게 탐색해 도전해요</option>
-          <option value="allMight">올마이트 · 극한 탐색으로 도전해요</option>
+          <option value="allMight">올마이트 · 최고 수를 1.5초 안에 읽어요</option>
         </select>
       </label>
       <label>내 진영

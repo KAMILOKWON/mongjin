@@ -4,7 +4,7 @@
  * 사용:
  *   npm run bot:bench                     # 빠른 비교 20판
  *   npm run bot:bench -- 40               # 40판
- *   npm run bot:bench -- 20 --scale 0.1   # quick 노드 예산 비율 조정 (기본 0.02)
+ *   npm run bot:bench -- 20 --scale 0.5   # 제품 노드 예산 비율 조정 (기본 0.25)
  *   npm run bot:bench -- 20 --max-plies 240
  *   npm run bot:bench -- 8 --full         # 실제 프리셋 예산 (느림)
  *   npm run bot:bench -- 20 hard expert   # 대결 조합 지정 (A vs B, B의 승률 표시)
@@ -34,7 +34,7 @@ function mulberry32(seed: number): () => number {
   };
 }
 
-const DEFAULT_SCALE = 0.02;
+const DEFAULT_SCALE = 0.25;
 const DEFAULT_MAX_PLIES = 120;
 
 function parseArgs(argv: string[]): {
@@ -135,6 +135,7 @@ function optsFor(
     return {
       maxMs: p.maxMs,
       maxDepth: p.maxDepth,
+      maxNodes: p.maxNodes,
       hintScale: p.hintScale ?? 1,
       elite: p.elite ?? false,
       rootNoise: p.rootNoise ?? 0,
@@ -144,8 +145,8 @@ function optsFor(
   // maxMs는 노드 상한에 문제가 있을 때만 작동하는 안전장치다.
   return {
     maxMs: 30_000,
-    maxNodes: Math.max(512, Math.round(p.maxMs * scale * 30)),
-    maxDepth: Math.max(6, Math.round(p.maxDepth * scale * 2.2)),
+    maxNodes: Math.max(512, Math.round(p.maxNodes * scale)),
+    maxDepth: p.maxDepth,
     hintScale: p.hintScale ?? 1,
     elite: p.elite ?? false,
     rootNoise: p.rootNoise ?? 0,

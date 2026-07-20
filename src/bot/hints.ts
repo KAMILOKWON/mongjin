@@ -215,46 +215,49 @@ export function evalStrategyBonus(
   let score = 0;
   const opening = isOpening(state, config);
   const endgame = isEndgame(state, config);
+  const opp = me === 'BLACK' ? 'WHITE' : 'BLACK';
+
+  let centerCount = 0;
+  if (opening) {
+    for (const c of CENTER_FILES) {
+      if (c >= config.boardSize) continue;
+      for (let r = 0; r < config.boardSize; r++) {
+        const p = state.board[r][c];
+        if (p?.player === me && p.type === 'GUARD') centerCount++;
+      }
+    }
+  }
+
+  const punishApplies =
+    escortCount(state, opp) <= 1 && kingAdvance(state, opp, config) >= 2;
+
+  let endgameGoalGuardCount = 0;
+  if (endgame) {
+    const oppGoalR = goalRow(opp, config.boardSize);
+    for (let dr = 1; dr <= 2; dr++) {
+      const r = oppGoalR === 0 ? oppGoalR + dr : oppGoalR - dr;
+      if (r < 0 || r >= config.boardSize) continue;
+      for (let c = 0; c < config.boardSize; c++) {
+        const p = state.board[r]?.[c];
+        if (p?.player === me && p.type === 'GUARD') endgameGoalGuardCount++;
+      }
+    }
+  }
 
   for (const s of strategies) {
     if (!opening && s.phase === 'opening') continue;
     const w = s.confidence;
 
     if (s.tags.includes('center-control') && opening) {
-      const n = config.boardSize;
-      let centerCount = 0;
-      for (const c of CENTER_FILES) {
-        if (c >= n) continue;
-        for (let r = 0; r < n; r++) {
-          const p = state.board[r][c];
-          if (p?.player === me && p.type === 'GUARD') centerCount++;
-        }
-      }
       score += 8 * w * Math.min(centerCount, 2);
     }
 
-    if (s.tags.includes('punish')) {
-      const opp = me === 'BLACK' ? 'WHITE' : 'BLACK';
-      if (escortCount(state, opp) <= 1 && kingAdvance(state, opp, config) >= 2) {
-        score += 120 * w;
-      }
+    if (s.tags.includes('punish') && punishApplies) {
+      score += 120 * w;
     }
 
     if (s.tags.includes('endgame-goal-row') && endgame) {
-      // Bonus for guards controlling opponent's goal approach rows
-      const opp = me === 'BLACK' ? 'WHITE' : 'BLACK';
-      const oppGoalR = goalRow(opp, config.boardSize);
-      const n = config.boardSize;
-      let count = 0;
-      for (let dr = 1; dr <= 2; dr++) {
-        const r = oppGoalR === 0 ? oppGoalR + dr : oppGoalR - dr;
-        if (r < 0 || r >= n) continue;
-        for (let c = 0; c < n; c++) {
-          const p = state.board[r]?.[c];
-          if (p?.player === me && p.type === 'GUARD') count++;
-        }
-      }
-      score += 12 * w * Math.min(count, 3);
+      score += 12 * w * Math.min(endgameGoalGuardCount, 3);
     }
   }
 
