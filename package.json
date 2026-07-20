@@ -9,6 +9,7 @@
     "preview": "vite preview",
     "test": "vitest run",
     "bot:selfplay": "npx tsx scripts/bot-selfplay.ts",
+    "bot:bench": "npx tsx scripts/bot-bench.ts",
     "server:dev": "npm run dev --prefix server",
     "server:start": "npm start --prefix server",
     "ait:install": "node scripts/ait-install.mjs",

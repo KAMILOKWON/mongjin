@@ -99,6 +99,22 @@ describe('AI (미니맥스)', () => {
     expect(performance.now() - t0).toBeLessThan(900);
   });
 
+  it('벤치용 노드 상한을 지킨다', () => {
+    const s = initialState(CFG);
+    let stats: { nodes: number; aborted: boolean } | null = null;
+    chooseMove(s, CFG, {
+      maxMs: 5_000,
+      maxDepth: 32,
+      maxNodes: 512,
+      onSearchComplete: (out) => {
+        stats = out;
+      },
+    });
+    expect(stats).not.toBeNull();
+    expect(stats!.nodes).toBe(512);
+    expect(stats!.aborted).toBe(true);
+  });
+
   it('방치된 호위 잡기를 놓치지 않는다', () => {
     const s = makeState(
       [

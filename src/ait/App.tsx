@@ -163,6 +163,7 @@ function MongjinApp() {
               <SegmentedControl.Item value="normal">보통</SegmentedControl.Item>
               <SegmentedControl.Item value="hard">어려움</SegmentedControl.Item>
               <SegmentedControl.Item value="expert">고수</SegmentedControl.Item>
+              <SegmentedControl.Item value="allMight">올마이트</SegmentedControl.Item>
             </SegmentedControl>
             <Paragraph typography="t7" color="adaptive-grey-600">
               {difficulty.description}

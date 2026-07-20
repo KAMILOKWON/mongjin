@@ -24,5 +24,28 @@ describe('settings', () => {
     expect(AI_DIFFICULTY_PRESETS.expert.maxDepth).toBeGreaterThan(
       AI_DIFFICULTY_PRESETS.hard.maxDepth,
     );
+    expect(AI_DIFFICULTY_PRESETS.allMight.maxMs).toBeGreaterThan(
+      AI_DIFFICULTY_PRESETS.expert.maxMs,
+    );
+    expect(AI_DIFFICULTY_PRESETS.allMight.maxDepth).toBeGreaterThan(
+      AI_DIFFICULTY_PRESETS.expert.maxDepth,
+    );
+    expect(AI_DIFFICULTY_PRESETS.allMight.hintScale ?? 1).toBeGreaterThan(1);
+    expect(AI_DIFFICULTY_PRESETS.normal.rootNoise).toBeGreaterThan(
+      AI_DIFFICULTY_PRESETS.hard.rootNoise!,
+    );
+    expect(AI_DIFFICULTY_PRESETS.hard.rootNoise).toBeGreaterThan(
+      AI_DIFFICULTY_PRESETS.expert.rootNoise!,
+    );
+    expect(AI_DIFFICULTY_PRESETS.expert.rootNoise).toBeGreaterThan(
+      AI_DIFFICULTY_PRESETS.allMight.rootNoise!,
+    );
+  });
+
+  it('elite 탐색은 올마이트 전용이다', () => {
+    expect(AI_DIFFICULTY_PRESETS.allMight.elite).toBe(true);
+    expect(AI_DIFFICULTY_PRESETS.normal.elite ?? false).toBe(false);
+    expect(AI_DIFFICULTY_PRESETS.hard.elite ?? false).toBe(false);
+    expect(AI_DIFFICULTY_PRESETS.expert.elite ?? false).toBe(false);
   });
 });

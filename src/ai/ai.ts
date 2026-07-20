@@ -23,7 +23,7 @@ const WIN = 10000;
 const BLOCKED_DIST = 30;
 const HISTORY_MAX = 10_000;
 const QUIESCENCE_MAX = 5;
-const MAX_KILLER_DEPTH = 32;
+const MAX_KILLER_DEPTH = 64;
 const LMR_MIN_DEPTH = 3;
 const LMR_QUIET_THRESHOLD = 4;
 
@@ -36,8 +36,25 @@ export const DEFAULT_AI_OPTIONS: AiOptions = {
 export interface AiOptions {
   maxMs?: number;
   maxDepth?: number;
+  /** 재현 가능한 벤치용 노드 상한. 제품에서는 시간 상한을 사용한다. */
+  maxNodes?: number;
   hints?: BotHints;
   botSide?: Player;
+  /** 동점·근접 최선수 무작위 선택 (셀프플레이 다양성) */
+  rng?: () => number;
+  /** 루트 점수에 더하는 대칭 평가 오차 폭(난이도·셀프플레이용). */
+  rootNoise?: number;
+  /** 올마이트 전용: 보수적 LMR·반복 억제·포위 압력을 적용한다. */
+  elite?: boolean;
+  /** 진단·벤치용 탐색 통계 콜백. */
+  onSearchComplete?: (stats: AiSearchStats) => void;
+}
+
+export interface AiSearchStats {
+  nodes: number;
+  completedDepth: number;
+  elapsedMs: number;
+  aborted: boolean;
 }
 
 type TTFlag = 'exact' | 'lower' | 'upper';
@@ -52,11 +69,16 @@ interface TTEntry {
 interface SearchCtx {
   config: RuleConfig;
   deadline: number;
+  nodeLimit: number;
   nodes: number;
   aborted: boolean;
   tt: Map<string, TTEntry>;
   history: Map<string, number>;
   killers: (Move | null)[][];
+  /** elite 모드: 보수적 LMR·반복 억제·포위 압력 */
+  elite: boolean;
+  /** 전술 퀴에센스 한계 */
+  quiescenceMax: number;
 }
 
 function moveSig(m: Move): string {
@@ -68,17 +90,27 @@ function movesEqual(a: Move, b: Move): boolean {
   return moveSig(a) === moveSig(b);
 }
 
-function createSearchCtx(config: RuleConfig, deadline: number): SearchCtx {
+function createSearchCtx(
+  config: RuleConfig,
+  deadline: number,
+  elite = false,
+  nodeLimit = Number.POSITIVE_INFINITY,
+): SearchCtx {
   const killers: (Move | null)[][] = [];
   for (let i = 0; i < MAX_KILLER_DEPTH; i++) killers.push([null, null]);
   return {
     config,
     deadline,
+    nodeLimit,
     nodes: 0,
     aborted: false,
     tt: new Map(),
     history: new Map(),
     killers,
+    elite,
+    // 퀴에센스를 과도하게 늘리면 체크 분기가 폭발해 본 탐색이
+    // 오히려 얕아진다. elite도 같은 전술 한계를 쓴다.
+    quiescenceMax: QUIESCENCE_MAX,
   };
 }
 
@@ -255,7 +287,29 @@ function interceptGap(state: GameState, defender: Player, invader: Player): numb
   return Math.max(Math.abs(dK.r - tr), Math.abs(dK.c - iK.c));
 }
 
-function evaluate(state: GameState, config: RuleConfig, hints?: BotHints, botSide?: Player): number {
+/** 왕의 직교 탈출 칸 수 (포위 패배 판정과 동일 기준, 0이면 이미 포위) */
+function orthoEscapeCount(state: GameState, p: Player): number {
+  const k = findKing(state, p);
+  if (!k) return 0;
+  const n = state.board.length;
+  let count = 0;
+  for (const [dr, dc] of ORTHO) {
+    const r = k.r + dr;
+    const c = k.c + dc;
+    if (!inBoard(n, r, c)) continue;
+    const piece = state.board[r][c];
+    if (!piece || piece.player === p) count++;
+  }
+  return count;
+}
+
+function evaluate(
+  state: GameState,
+  config: RuleConfig,
+  hints?: BotHints,
+  botSide?: Player,
+  elite = false,
+): number {
   const me = state.turn;
   const opp = opponent(me);
   const myD = bfsKingDist(state, me, config);
@@ -280,17 +334,25 @@ function evaluate(state: GameState, config: RuleConfig, hints?: BotHints, botSid
     score += 5 * (Math.min(escortCount(state, me), 3) - Math.min(escortCount(state, opp), 3));
   }
 
+  // 올마이트 전용 포위 압력: 교착에서 상대 왕의 탈출 칸을 좁히는 쪽으로 수렴시킨다
+  if (elite && config.kingSurroundLoss) {
+    score += 6 * (orthoEscapeCount(state, me) - orthoEscapeCount(state, opp));
+  }
+
   const meArrive = 2 * myD - 1;
   const oppArrive = 2 * oppD;
   if (meArrive < oppArrive) {
     score += 300 + 12 * Math.min(oppArrive - meArrive, 10) - 6 * myD;
+    // 앞서더라도 상대가 가까우면 차단 가치를 남긴다 (단독 돌진 과신 완화)
+    if (oppD <= 3) score -= 18 * (4 - oppD);
   } else {
-    score += -300 + 25 * Math.min(oppD, 12) - 3 * myD;
-    if (config.kingCapture) score -= 8 * interceptGap(state, me, opp);
+    score += -300 + 28 * Math.min(oppD, 12) - 3 * myD;
+    if (config.kingCapture) score -= 12 * interceptGap(state, me, opp);
   }
 
-  if (hints && botSide && me === botSide) {
-    score += hints.evalBonus(state);
+  if (hints && botSide) {
+    const botBonus = hints.evalBonus(state);
+    score += me === botSide ? botBonus : -botBonus;
   }
   return score;
 }
@@ -366,7 +428,8 @@ function orderMoves(
 }
 
 function tick(ctx: SearchCtx): boolean {
-  if ((++ctx.nodes & 127) === 0 && performance.now() > ctx.deadline) {
+  ctx.nodes++;
+  if (ctx.nodes >= ctx.nodeLimit || ((ctx.nodes & 127) === 0 && performance.now() > ctx.deadline)) {
     ctx.aborted = true;
     return true;
   }
@@ -414,19 +477,38 @@ function quiescence(
   hints?: BotHints,
   botSide?: Player,
 ): number {
-  if (tick(ctx)) return evaluate(state, ctx.config, hints, botSide);
+  if (tick(ctx)) return evaluate(state, ctx.config, hints, botSide, ctx.elite);
 
   const winner = getTerminalWinner(state, ctx.config);
   if (winner) return winner === state.turn ? WIN : -WIN;
 
-  const standPat = evaluate(state, ctx.config, hints, botSide);
-  if (standPat >= beta) return beta;
-  if (alpha < standPat) alpha = standPat;
-  if (qDepth <= 0) return alpha;
+  const standPat = evaluate(state, ctx.config, hints, botSide, ctx.elite);
+  const inCheck = kingThreatened(state, state.turn);
+  if (qDepth <= 0) return standPat;
 
-  const tactical = legalMoves(state, ctx.config).filter((m) =>
-    isCaptureOrGoal(state, m, ctx.config),
-  );
+  // 왕이 다음 수에 잡히는 국면에서는 현재 평가로 멈출 수 없다.
+  // 즉시 패배를 피하는 수가 있으면 그 수들을 모두 읽어 수평선 블런더를 막는다.
+  if (!inCheck) {
+    if (standPat >= beta) return beta;
+    if (alpha < standPat) alpha = standPat;
+  }
+
+  const legal = legalMoves(state, ctx.config);
+  let tactical: Move[];
+  if (inCheck) {
+    const evasions = legal.filter((m) => {
+      const next = child(state, m);
+      return findWinningMove(next, legalMoves(next, ctx.config), ctx.config) === null;
+    });
+    tactical = evasions.length > 0 ? evasions : legal;
+  } else {
+    tactical = legal.filter((m) => {
+      if (isCaptureOrGoal(state, m, ctx.config)) return true;
+      const next = child(state, m);
+      // 상대 왕을 바로 잡을 수 있게 만드는 체크성 수도 전술 탐색에 포함한다.
+      return kingThreatened(next, next.turn);
+    });
+  }
   if (!tactical.length) return alpha;
 
   const ordered = orderMoves(state, tactical, ctx.config, ctx, 0, hints, botSide, null);
@@ -449,7 +531,7 @@ function negamax(
   hints?: BotHints,
   botSide?: Player,
 ): number {
-  if (tick(ctx)) return evaluate(state, ctx.config, hints, botSide);
+  if (tick(ctx)) return evaluate(state, ctx.config, hints, botSide, ctx.elite);
 
   const key = positionKey(state);
 
@@ -458,7 +540,7 @@ function negamax(
 
   const winner = getTerminalWinner(state, ctx.config);
   if (winner) return winner === state.turn ? WIN + depth : -(WIN + depth);
-  if (depth <= 0) return quiescence(state, ctx, alpha, beta, QUIESCENCE_MAX, hints, botSide);
+  if (depth <= 0) return quiescence(state, ctx, alpha, beta, ctx.quiescenceMax, hints, botSide);
 
   const moves = orderMoves(
     state,
@@ -485,11 +567,12 @@ function negamax(
       ((!!killerRow[0] && movesEqual(m, killerRow[0])) ||
         (!!killerRow[1] && movesEqual(m, killerRow[1])));
 
-    // LMR: 조용한 이동(PLACE 제외)에서만 깊이 축약
+    // LMR: elite도 매우 늦은 조용한 수는 축약해 실제 완료 깊이를 확보한다.
+    // 다만 일반 모드보다 깊고 늦게 적용해 전술 누락 가능성을 낮춘다.
     let reduction = 0;
     if (
-      depth >= LMR_MIN_DEPTH &&
-      i >= LMR_QUIET_THRESHOLD &&
+      depth >= (ctx.elite ? LMR_MIN_DEPTH + 2 : LMR_MIN_DEPTH) &&
+      i >= (ctx.elite ? LMR_QUIET_THRESHOLD + 4 : LMR_QUIET_THRESHOLD) &&
       !capture &&
       !isKillerMove &&
       m.kind !== 'PLACE'
@@ -561,17 +644,36 @@ export function chooseMove(
   config: RuleConfig,
   opts: AiOptions = {},
 ): Move | null {
+  const startedAt = performance.now();
   const maxMs = opts.maxMs ?? DEFAULT_AI_OPTIONS.maxMs!;
   const maxDepth = opts.maxDepth ?? DEFAULT_AI_OPTIONS.maxDepth!;
   const hints = opts.hints;
   const botSide = opts.botSide;
-  const ctx = createSearchCtx(config, performance.now() + maxMs);
+  const rng = opts.rng;
+  const rootNoise = opts.rootNoise ?? 0;
+  const ctx = createSearchCtx(
+    config,
+    startedAt + maxMs,
+    opts.elite ?? false,
+    opts.maxNodes ?? Number.POSITIVE_INFINITY,
+  );
+  const finish = (move: Move | null, completedDepth: number): Move | null => {
+    opts.onSearchComplete?.({
+      nodes: ctx.nodes,
+      completedDepth,
+      elapsedMs: performance.now() - startedAt,
+      aborted: ctx.aborted,
+    });
+    return move;
+  };
   const legal = legalMoves(state, config);
+  // elite(올마이트)는 2회 등장 위치도 회피해, 2회 반복 구간을 오가는 셔플 교착을 끊는다.
+  const repetitionLimit = opts.elite ? 1 : 2;
   const repetitionSafe = legal.filter((move) => {
     const key = positionKey(child(state, move));
-    return (state.positionCounts[key] ?? 0) < 2;
+    return (state.positionCounts[key] ?? 0) < repetitionLimit;
   });
-  // 가능한 경우 AI가 동일 국면의 세 번째 등장을 만드는 수를 두지 않는다.
+  // 가능한 경우 AI가 동일 국면의 반복 등장을 만드는 수를 두지 않는다.
   const candidates = repetitionSafe.length > 0 ? repetitionSafe : legal;
   let moves = orderMoves(
     state,
@@ -583,10 +685,10 @@ export function chooseMove(
     botSide,
     null,
   );
-  if (!moves.length) return null;
+  if (!moves.length) return finish(null, 0);
 
   const immediate = instantWinMove(state, moves, config);
-  if (immediate) return immediate;
+  if (immediate) return finish(immediate, 0);
 
   // 시간 제한으로 1수 탐색만 끝난 경우에도 즉시 패배하는 블런더는 두지 않는다.
   const safeMoves = moves.filter((move) => !allowsImmediateReplyWin(state, move, config));
@@ -617,12 +719,14 @@ export function chooseMove(
         depthComplete = false;
         break;
       }
-      if (v > best) {
-        best = v;
+      const ranked =
+        rootNoise > 0 && rng ? v + (rng() * 2 - 1) * rootNoise : v;
+      if (ranked > best) {
+        best = ranked;
         iterBest.length = 0;
         iterBest.push(m);
         if (v > alpha) alpha = v;
-      } else if (v === best) {
+      } else if (ranked === best) {
         iterBest.push(m);
       }
     }
@@ -642,9 +746,12 @@ export function chooseMove(
     (move) => safeMoveKeys === null || safeMoveKeys.has(moveSig(move)),
   );
   const finalWin = findWinningMove(state, allLegal, config);
-  if (finalWin) return finalWin;
+  if (finalWin) return finish(finalWin, completedDepth);
 
-  let chosen = lastCompleted[0]!;
+  let chosen =
+    rng && lastCompleted.length > 1
+      ? lastCompleted[Math.floor(rng() * lastCompleted.length)]!
+      : lastCompleted[0]!;
   const netCapture = findBestNetCapture(state, allLegal, config);
   if (
     netCapture &&
@@ -656,8 +763,8 @@ export function chooseMove(
 
   if (completedDepth <= 1) {
     const fallback = pickObviousMove(state, allLegal, config);
-    if (fallback) return fallback;
+    if (fallback) return finish(fallback, completedDepth);
   }
 
-  return chosen;
+  return finish(chosen, completedDepth);
 }

@@ -317,13 +317,18 @@ export class GameController {
   }
 
   private pickAiMove(state: GameState, maxMs: number, maxDepth: number): Move | null {
+    const preset = AI_DIFFICULTY_PRESETS[this.settings.aiDifficulty];
     const baseOpts = {
       maxMs,
       maxDepth,
+      elite: preset.elite ?? false,
+      rng: (preset.rootNoise ?? 0) > 0 ? Math.random : undefined,
+      rootNoise: preset.rootNoise ?? 0,
     };
     try {
       const brain = getBotBrain(this.config);
-      const hints = brain.hintsFor(state, this.aiSide);
+      const hintScale = preset.hintScale ?? 1;
+      const hints = brain.hintsFor(state, this.aiSide, hintScale);
       const move = chooseMove(state, this.config, { ...baseOpts, hints, botSide: this.aiSide });
       if (move) return move;
     } catch {

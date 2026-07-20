@@ -53,18 +53,22 @@ export class BotBrain {
     this.openingBook = OpeningBook.fromStrategies(this.book.exportJson(), config);
   }
 
-  hintsFor(state: GameState, botSide: 'BLACK' | 'WHITE'): BotHints {
+  /**
+   * @param scale 전략 힌트 강도. 올마이트는 1보다 크게 줘서 북·모티프를 더 강하게 반영한다.
+   */
+  hintsFor(state: GameState, botSide: 'BLACK' | 'WHITE', scale = 1): BotHints {
     const strategies = this.book.exportJson();
     const bookWeights = this.openingBook.moveWeights(state, this.config);
     const bonuses = buildStrategyBonuses(state, this.config, botSide, strategies, bookWeights);
+    const s = Number.isFinite(scale) && scale > 0 ? scale : 1;
 
     return {
-      moveBonus: (s, m) => {
-        let b = moveStrategyBonus(s, m, this.config, botSide, bonuses);
+      moveBonus: (st, m) => {
+        let b = moveStrategyBonus(st, m, this.config, botSide, bonuses);
         b += tendencyBonus(moveKey(m), this.memory);
-        return b;
+        return b * s;
       },
-      evalBonus: (s) => evalStrategyBonus(s, this.config, botSide, strategies),
+      evalBonus: (st) => evalStrategyBonus(st, this.config, botSide, strategies) * s,
     };
   }
 
