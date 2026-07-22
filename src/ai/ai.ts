@@ -345,11 +345,16 @@ function goalBlockerPressure(guards: Coord[], target: Coord | null, n: number): 
   if (!target || guards.length === 0) return 0;
   const pressures = guards.map((guard) => {
     const d = Math.abs(guard.r - target.r) + Math.abs(guard.c - target.c);
-    return Math.max(0, n * 2 - d) * 250;
+    return Math.max(0, n * 2 - d) * 40;
   });
   pressures.sort((a, b) => b - a);
   // 한 기물만 보내지 않고 실제 포위에 필요한 병력까지 전진시킨다.
-  return pressures.slice(0, 4).reduce<number>((sum, value) => sum + value, 0);
+  // 휴리스틱이 실제 승리 점수(WIN)를 넘으면 알파-베타가 추격을 승리로
+  // 오인할 수 있다. 추격 전체 보너스를 WIN의 1/4 이하로 제한한다.
+  return Math.min(
+    WIN / 4,
+    pressures.slice(0, 4).reduce<number>((sum, value) => sum + value, 0),
+  );
 }
 
 function kingThreatenedAt(
@@ -912,7 +917,9 @@ export function chooseMove(
   const rootNoise = opts.rootNoise ?? 0;
   const possibleTarget = opponent(state.turn);
   const shouldPursue =
-    config.kingCapture && stationaryKingTurns(state, possibleTarget, config) >= 3;
+    !(opts.elite ?? false) &&
+    config.kingCapture &&
+    stationaryKingTurns(state, possibleTarget, config) >= 3;
   const ctx = createSearchCtx(
     config,
     startedAt + maxMs,
