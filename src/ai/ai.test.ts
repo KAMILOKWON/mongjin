@@ -176,6 +176,34 @@ describe('AI (미니맥스)', () => {
     });
   });
 
+  it('올마이트는 정지 감지 후처리로 탐색 최선수를 덮어쓰지 않는다', () => {
+    let s = initialState(CFG);
+    const setup: Move[] = [
+      { kind: 'PLACE', to: { r: 7, c: 4 } },
+      { kind: 'PLACE', to: { r: 1, c: 4 } },
+      { kind: 'MOVE', from: { r: 7, c: 4 }, to: { r: 7, c: 3 } },
+      { kind: 'MOVE', from: { r: 1, c: 4 }, to: { r: 2, c: 4 } },
+      { kind: 'MOVE', from: { r: 7, c: 3 }, to: { r: 7, c: 4 } },
+    ];
+    for (const move of setup) s = applyMove(s, move);
+
+    const eliteOpts = {
+      maxMs: 5_000,
+      maxDepth: 5,
+      maxNodes: 5_000,
+      elite: true,
+    };
+    const withStationaryHistory = chooseMove(s, CFG, eliteOpts);
+    const withoutHistory = chooseMove({ ...s, history: [] }, CFG, eliteOpts);
+
+    expect(withStationaryHistory).toEqual(withoutHistory);
+    expect(withStationaryHistory).not.toEqual({
+      kind: 'MOVE',
+      from: { r: 2, c: 4 },
+      to: { r: 3, c: 4 },
+    });
+  });
+
   it('왕 인접 잡기 한 수 승리를 놓치지 않는다', () => {
     const s = makeState(
       [
