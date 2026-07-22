@@ -13,6 +13,7 @@ import {
   goalCellsFor,
   goalRow,
   inBoard,
+  initialState,
   isGoalCell,
   legalMoves,
   opponent,
@@ -79,6 +80,9 @@ interface SearchCtx {
   elite: boolean;
   /** 전술 퀴에센스 한계 */
   quiescenceMax: number;
+  /** 상대 왕이 실제로 여러 차례 정지했을 때만 활성화하는 추격 주체·대상 */
+  pursuitSide: Player | null;
+  pursuitTarget: Player | null;
 }
 
 function moveSig(m: Move): string {
@@ -95,6 +99,8 @@ function createSearchCtx(
   deadline: number,
   elite = false,
   nodeLimit = Number.POSITIVE_INFINITY,
+  pursuitSide: Player | null = null,
+  pursuitTarget: Player | null = null,
 ): SearchCtx {
   const killers: (Move | null)[][] = [];
   for (let i = 0; i < MAX_KILLER_DEPTH; i++) killers.push([null, null]);
@@ -111,6 +117,8 @@ function createSearchCtx(
     // 퀴에센스를 과도하게 늘리면 체크 분기가 폭발해 본 탐색이
     // 오히려 얕아진다. elite도 같은 전술 한계를 쓴다.
     quiescenceMax: QUIESCENCE_MAX,
+    pursuitSide,
+    pursuitTarget,
   };
 }
 
@@ -267,6 +275,7 @@ function placementDelay(
 interface EvaluationScan {
   kings: Record<Player, Coord | null>;
   guardTotals: Record<Player, number>;
+  guards: Record<Player, Coord[]>;
   dangers: Record<Player, Uint8Array>;
 }
 
@@ -278,6 +287,7 @@ function scanForEvaluation(state: GameState, config: RuleConfig): EvaluationScan
     BLACK: state.guardsInHand.BLACK,
     WHITE: state.guardsInHand.WHITE,
   };
+  const guards: Record<Player, Coord[]> = { BLACK: [], WHITE: [] };
   const dangers: Record<Player, Uint8Array> = {
     BLACK: new Uint8Array(n * n),
     WHITE: new Uint8Array(n * n),
@@ -292,6 +302,7 @@ function scanForEvaluation(state: GameState, config: RuleConfig): EvaluationScan
         continue;
       }
       guardTotals[piece.player]++;
+      guards[piece.player].push({ r, c });
       if (!config.kingCapture) continue;
       const threatenedPlayer = opponent(piece.player);
       const danger = dangers[threatenedPlayer];
@@ -303,7 +314,42 @@ function scanForEvaluation(state: GameState, config: RuleConfig): EvaluationScan
     }
   }
 
-  return { kings, guardTotals, dangers };
+  return { kings, guardTotals, guards, dangers };
+}
+
+/**
+ * 상대 왕을 실제로 추격하는 호위의 압박도.
+ *
+ * 예전 평가는 왕이 이미 공격받는 순간만 크게 보상해서, 호위가 한두 칸
+ * 떨어진 국면에서는 추격을 시작할 이유가 거의 없었다. 가까운 호위 여러
+ * 개를 함께 보상해 한 기물의 무모한 돌진보다 포위망을 좁히도록 만든다.
+ */
+function kingHuntPressure(guards: Coord[], target: Coord | null): number {
+  if (!target || guards.length === 0) return 0;
+  const pressures = guards.map((guard) => {
+    const d = Math.abs(guard.r - target.r) + Math.abs(guard.c - target.c);
+    if (d <= 1) return 220;
+    if (d === 2) return 100;
+    if (d === 3) return 44;
+    if (d === 4) return 18;
+    if (d === 5) return 6;
+    return 0;
+  });
+  pressures.sort((a, b) => b - a);
+  // 포위에 실질적으로 참여할 수 있는 가까운 호위 넷만 센다.
+  return pressures.slice(0, 4).reduce<number>((sum, value) => sum + value, 0);
+}
+
+/** 정지한 상대 왕을 향해 멀리 있는 호위도 전장 끝까지 추격하게 한다. */
+function goalBlockerPressure(guards: Coord[], target: Coord | null, n: number): number {
+  if (!target || guards.length === 0) return 0;
+  const pressures = guards.map((guard) => {
+    const d = Math.abs(guard.r - target.r) + Math.abs(guard.c - target.c);
+    return Math.max(0, n * 2 - d) * 250;
+  });
+  pressures.sort((a, b) => b - a);
+  // 한 기물만 보내지 않고 실제 포위에 필요한 병력까지 전진시킨다.
+  return pressures.slice(0, 4).reduce<number>((sum, value) => sum + value, 0);
 }
 
 function kingThreatenedAt(
@@ -383,6 +429,8 @@ function evaluate(
   hints?: BotHints,
   botSide?: Player,
   elite = false,
+  pursuitSide: Player | null = null,
+  pursuitTarget: Player | null = null,
 ): number {
   const me = state.turn;
   const opp = opponent(me);
@@ -407,7 +455,19 @@ function evaluate(
 
   if (config.kingCapture) {
     if (kingThreatenedAt(state, opp, oppKing)) score += 5000;
-    if (kingThreatenedAt(state, me, myKing)) score -= 60;
+    if (kingThreatenedAt(state, me, myKing)) score -= 220;
+    score +=
+      kingHuntPressure(scan.guards[me], oppKing) -
+      kingHuntPressure(scan.guards[opp], myKing);
+    if (pursuitSide && pursuitTarget) {
+      const targetKing = scan.kings[pursuitTarget];
+      const pursuit = goalBlockerPressure(
+        scan.guards[pursuitSide],
+        targetKing,
+        state.board.length,
+      );
+      score += me === pursuitSide ? pursuit : -pursuit;
+    }
     score += 5 * (
       Math.min(escortCountAt(state, me, myKing), 3) -
       Math.min(escortCountAt(state, opp, oppKing), 3)
@@ -490,6 +550,18 @@ function orderMoves(
         if (isGoalCell(me, m.to, config)) s += 10000;
       } else {
         s += near(m.to.r, m.to.c);
+        if (oppKing && config.kingCapture) {
+          const before = Math.abs(m.from.r - oppKing.r) + Math.abs(m.from.c - oppKing.c);
+          const after = Math.abs(m.to.r - oppKing.r) + Math.abs(m.to.c - oppKing.c);
+          // 얕은 탐색에서도 상대 왕 쪽으로 포위망을 좁히는 수를 먼저 읽는다.
+          s += (before - after) * 24;
+          if (after === 1) s += 2_000;
+          else if (after === 2) s += 90;
+          else if (after === 3) s += 35;
+          if (ctx.pursuitSide === me && ctx.pursuitTarget === opp) {
+            s += (before - after) * 300;
+          }
+        }
       }
     } else {
       // PLACE: 전략적 가치 기반 차등 평가
@@ -504,6 +576,15 @@ function orderMoves(
 
       s += near(m.to.r, m.to.c);
       if (delay > 0) s += delay * 40;
+      if (
+        oppKing &&
+        config.kingCapture &&
+        ctx.pursuitSide === me &&
+        ctx.pursuitTarget === opp
+      ) {
+        const d = Math.abs(m.to.r - oppKing.r) + Math.abs(m.to.c - oppKing.c);
+        s += Math.max(0, n * 2 - d) * 30;
+      }
       // 유용한 배치는 +5, 무의미한 배치는 -25 패널티
       s += useful ? 5 : -25;
     }
@@ -566,12 +647,30 @@ function quiescence(
   hints?: BotHints,
   botSide?: Player,
 ): number {
-  if (tick(ctx)) return evaluate(state, ctx.config, hints, botSide, ctx.elite);
+  if (tick(ctx)) {
+    return evaluate(
+      state,
+      ctx.config,
+      hints,
+      botSide,
+      ctx.elite,
+      ctx.pursuitSide,
+      ctx.pursuitTarget,
+    );
+  }
 
   const winner = getTerminalWinner(state, ctx.config);
   if (winner) return winner === state.turn ? WIN : -WIN;
 
-  const standPat = evaluate(state, ctx.config, hints, botSide, ctx.elite);
+  const standPat = evaluate(
+    state,
+    ctx.config,
+    hints,
+    botSide,
+    ctx.elite,
+    ctx.pursuitSide,
+    ctx.pursuitTarget,
+  );
   const inCheck = kingThreatened(state, state.turn);
   if (qDepth <= 0) return standPat;
 
@@ -620,7 +719,17 @@ function negamax(
   hints?: BotHints,
   botSide?: Player,
 ): number {
-  if (tick(ctx)) return evaluate(state, ctx.config, hints, botSide, ctx.elite);
+  if (tick(ctx)) {
+    return evaluate(
+      state,
+      ctx.config,
+      hints,
+      botSide,
+      ctx.elite,
+      ctx.pursuitSide,
+      ctx.pursuitTarget,
+    );
+  }
 
   const key = positionKey(state);
 
@@ -728,6 +837,67 @@ function allowsImmediateReplyWin(state: GameState, move: Move, config: RuleConfi
   return findWinningMove(next, replies, config) !== null;
 }
 
+/** 기보를 재생해 해당 진영의 왕이 연속 몇 차례 움직이지 않았는지 센다. */
+function stationaryKingTurns(state: GameState, player: Player, config: RuleConfig): number {
+  if (state.history.length === 0) return 0;
+  let replay = initialState(config);
+  let stationaryTurns = 0;
+  try {
+    for (const move of state.history) {
+      if (replay.turn === player) {
+        const movedKing =
+          move.kind === 'MOVE' && replay.board[move.from.r][move.from.c]?.type === 'KING';
+        stationaryTurns = movedKing ? 0 : stationaryTurns + 1;
+      }
+      replay = child(replay, move);
+    }
+  } catch {
+    return 0;
+  }
+  return stationaryTurns;
+}
+
+/** 정지한 왕을 향해 거리를 실제로 줄이는 안전한 호위 수를 고른다. */
+function findPursuitMove(
+  state: GameState,
+  moves: Move[],
+  targetPlayer: Player,
+): Move | null {
+  const target = findKing(state, targetPlayer);
+  if (!target) return null;
+
+  let bestMove: Move | null = null;
+  let bestScore = -Infinity;
+  let hasAdvancingGuard = false;
+  for (const move of moves) {
+    if (move.kind !== 'MOVE') continue;
+    const piece = state.board[move.from.r][move.from.c];
+    if (piece?.type !== 'GUARD') continue;
+    const before = Math.abs(move.from.r - target.r) + Math.abs(move.from.c - target.c);
+    const after = Math.abs(move.to.r - target.r) + Math.abs(move.to.c - target.c);
+    if (after >= before) continue;
+    hasAdvancingGuard = true;
+    const score = (before - after) * 1_000 - after;
+    if (score > bestScore) {
+      bestScore = score;
+      bestMove = move;
+    }
+  }
+  if (hasAdvancingGuard) return bestMove;
+
+  // 전진 가능한 호위가 없으면 가장 앞쪽에 새 호위를 배치해 추격로를 만든다.
+  for (const move of moves) {
+    if (move.kind !== 'PLACE') continue;
+    const d = Math.abs(move.to.r - target.r) + Math.abs(move.to.c - target.c);
+    const score = -d;
+    if (score > bestScore) {
+      bestScore = score;
+      bestMove = move;
+    }
+  }
+  return bestMove;
+}
+
 export function chooseMove(
   state: GameState,
   config: RuleConfig,
@@ -740,11 +910,16 @@ export function chooseMove(
   const botSide = opts.botSide;
   const rng = opts.rng;
   const rootNoise = opts.rootNoise ?? 0;
+  const possibleTarget = opponent(state.turn);
+  const shouldPursue =
+    config.kingCapture && stationaryKingTurns(state, possibleTarget, config) >= 3;
   const ctx = createSearchCtx(
     config,
     startedAt + maxMs,
     opts.elite ?? false,
     opts.maxNodes ?? Number.POSITIVE_INFINITY,
+    shouldPursue ? state.turn : null,
+    shouldPursue ? possibleTarget : null,
   );
   const finish = (move: Move | null, completedDepth: number): Move | null => {
     opts.onSearchComplete?.({
@@ -848,6 +1023,11 @@ export function chooseMove(
     captureSwing(state, netCapture, config) >= 3
   ) {
     chosen = netCapture;
+  }
+
+  if (shouldPursue && !isCapture(state, chosen)) {
+    const pursuit = findPursuitMove(state, allLegal, possibleTarget);
+    if (pursuit) chosen = pursuit;
   }
 
   if (completedDepth <= 1) {
