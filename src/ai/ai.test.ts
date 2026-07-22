@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { GameState, Piece, Player } from '../core/types';
+import type { GameState, Move, Piece, Player } from '../core/types';
 import { DEFAULT_CONFIG } from '../core/config';
 import { initialState, legalMoves, positionKey } from '../core/rules';
 import { applyMove } from '../core/apply';
@@ -129,6 +129,51 @@ describe('AI (미니맥스)', () => {
     const m = chooseMove(s, CFG, { maxMs: 100, maxDepth: 4 })!;
     expect(m.kind).toBe('MOVE');
     expect(m.to).toEqual({ r: 4, c: 4 });
+  });
+
+  it('상대 왕이 가만히 있으면 호위로 거리를 좁혀 공격한다', () => {
+    // 백 왕이 목적지 쪽으로 움직이지 않는 상황. 흑 호위는 한 칸 전진하면
+    // 다음 수에 왕을 잡을 수 있으므로 자기 왕의 단순 전진보다 추격을 택해야 한다.
+    const s = makeState(
+      [
+        [8, 8, 'BLACK', 'KING'],
+        [3, 4, 'WHITE', 'KING'],
+        [5, 4, 'BLACK', 'GUARD'],
+      ],
+      'BLACK',
+      { BLACK: 0, WHITE: 0 },
+    );
+    const m = chooseMove(s, CFG, { maxMs: 500, maxDepth: 4, maxNodes: 2_000 });
+    expect(m).toEqual({
+      kind: 'MOVE',
+      from: { r: 5, c: 4 },
+      to: { r: 4, c: 4 },
+    });
+  });
+
+  it('상대 왕이 3차례 정지하면 어려움 예산에서도 장거리 추격을 시작한다', () => {
+    let s = initialState(CFG);
+    const setup: Move[] = [
+      { kind: 'PLACE', to: { r: 7, c: 4 } },
+      { kind: 'PLACE', to: { r: 1, c: 4 } },
+      { kind: 'MOVE', from: { r: 7, c: 4 }, to: { r: 7, c: 3 } },
+      { kind: 'MOVE', from: { r: 1, c: 4 }, to: { r: 2, c: 4 } },
+      { kind: 'MOVE', from: { r: 7, c: 3 }, to: { r: 7, c: 4 } },
+    ];
+    for (const move of setup) s = applyMove(s, move);
+
+    const m = chooseMove(s, CFG, {
+      maxMs: 350,
+      maxDepth: 5,
+      maxNodes: 5_000,
+      rootNoise: 35,
+      rng: () => 0.9,
+    });
+    expect(m).toEqual({
+      kind: 'MOVE',
+      from: { r: 2, c: 4 },
+      to: { r: 3, c: 4 },
+    });
   });
 
   it('왕 인접 잡기 한 수 승리를 놓치지 않는다', () => {

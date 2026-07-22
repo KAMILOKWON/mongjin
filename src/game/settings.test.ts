@@ -39,6 +39,9 @@ describe('settings', () => {
     expect(AI_DIFFICULTY_PRESETS.allMight.maxNodes).toBeGreaterThan(
       AI_DIFFICULTY_PRESETS.expert.maxNodes,
     );
+    expect(AI_DIFFICULTY_PRESETS.normal.maxNodes).toBeGreaterThanOrEqual(2_000);
+    expect(AI_DIFFICULTY_PRESETS.hard.maxNodes).toBeGreaterThanOrEqual(5_000);
+    expect(AI_DIFFICULTY_PRESETS.expert.maxNodes).toBeGreaterThanOrEqual(14_000);
     expect(AI_DIFFICULTY_PRESETS.allMight.hintScale ?? 1).toBeGreaterThan(1);
     expect(AI_DIFFICULTY_PRESETS.normal.rootNoise).toBeGreaterThan(
       AI_DIFFICULTY_PRESETS.hard.rootNoise!,
