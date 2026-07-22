@@ -14,7 +14,12 @@ import {
   opponentOf,
   resolveHumanSide,
 } from '../game/settings';
-import { OnlineClient } from '../net/online';
+import {
+  OnlineClient,
+  type OnlineMatchReason,
+  type OpponentProfile,
+  type PlayerProfile,
+} from '../net/online';
 import { exportGameMgn } from '../../bot/learning/gameRecord';
 
 const PLAYER_KO: Record<Player, string> = { BLACK: '흑', WHITE: '백' };
@@ -36,6 +41,9 @@ export interface GameSnapshot {
   onlineError: boolean;
   aiThinking: boolean;
   onlineWaiting: boolean;
+  onlineMatchKind: 'random' | 'friend' | null;
+  onlineOpponent: OpponentProfile | null;
+  profile: PlayerProfile | null;
   canUndo: boolean;
   isMyTurn: boolean;
   turnLabel: string;
@@ -56,6 +64,9 @@ export class GameController {
   private selected: Coord | null = null;
   private aiThinking = false;
   private onlineWaiting = false;
+  private onlineMatchKind: 'random' | 'friend' | null = null;
+  private onlineOpponent: OpponentProfile | null = null;
+  private profile: PlayerProfile | null = null;
   private onlineStatus = '';
   private onlineError = false;
   private listeners = new Set<Listener>();
@@ -72,10 +83,35 @@ export class GameController {
       this.notify();
     },
     onJoined: (roomId, side) => {
+      this.onlineMatchKind = 'friend';
+      this.onlineOpponent = null;
       this.onlineSide = side;
       this.onlineWaiting = side === 'BLACK';
       this.onlineStatus = `입장코드 ${roomId} — ${PLAYER_KO[side]}`;
       this.onlineError = false;
+      this.notify();
+    },
+    onMatchFound: (_roomId, side, opponent) => {
+      this.onlineSide = side;
+      this.onlineWaiting = false;
+      this.onlineMatchKind = 'random';
+      this.onlineOpponent = opponent;
+      this.onlineStatus = `${opponent.name} 님과 매칭됐어요 — ${PLAYER_KO[side]}`;
+      this.onlineError = false;
+      this.notify();
+    },
+    onMatchResult: (winner, reason) => {
+      const reasonLabel: Record<OnlineMatchReason, string> = {
+        ...REASON_KO,
+        forfeit: '상대가 대국을 떠남',
+      };
+      this.onlineStatus = `${PLAYER_KO[winner]} 승리 · ${reasonLabel[reason]}`;
+      this.onlineError = false;
+      this.onlineWaiting = false;
+      this.notify();
+    },
+    onProfile: (profile) => {
+      this.profile = profile;
       this.notify();
     },
     onOpponentLeft: () => {
@@ -155,6 +191,9 @@ export class GameController {
       onlineError: this.onlineError,
       aiThinking: this.aiThinking,
       onlineWaiting: this.onlineWaiting,
+      onlineMatchKind: this.onlineMatchKind,
+      onlineOpponent: this.onlineOpponent,
+      profile: this.profile,
       canUndo: this.canUndo(),
       isMyTurn: this.isMyTurn(state),
       turnLabel,
@@ -170,11 +209,15 @@ export class GameController {
     if (this.isOnlineMode()) {
       this.online.disconnect();
       this.onlineSide = null;
+      this.onlineMatchKind = null;
+      this.onlineOpponent = null;
       this.onlineStatus = '입장코드를 생성하거나 코드를 입력해 참가하세요';
       this.onlineError = false;
     } else {
       this.online.disconnect();
       this.onlineSide = null;
+      this.onlineMatchKind = null;
+      this.onlineOpponent = null;
       this.newGame();
     }
     this.notify();
@@ -213,7 +256,9 @@ export class GameController {
       this.cancelAiTurn();
       this.online.disconnect();
       this.onlineSide = null;
-      this.onlineStatus = '입장코드를 생성하거나 코드를 입력해 참가하세요';
+      this.onlineMatchKind = null;
+      this.onlineOpponent = null;
+      this.onlineStatus = '대전이 종료됐어요';
       this.onlineError = false;
       this.states = [initialState(this.config)];
       this.selected = null;
@@ -224,6 +269,7 @@ export class GameController {
   }
 
   async createRoom() {
+    this.onlineMatchKind = 'friend';
     try {
       await this.online.createRoom();
     } catch {
@@ -232,6 +278,7 @@ export class GameController {
   }
 
   async joinRoom(code: string) {
+    this.onlineMatchKind = 'friend';
     if (!code.trim()) {
       this.onlineStatus = '입장코드를 입력하세요';
       this.onlineError = true;
@@ -245,10 +292,53 @@ export class GameController {
     }
   }
 
+  async startRandomMatch() {
+    if (!this.isOnlineMode()) this.setMode('online');
+    this.onlineMatchKind = 'random';
+    this.onlineOpponent = null;
+    this.onlineSide = null;
+    this.onlineWaiting = true;
+    this.onlineStatus = '랜덤 상대를 찾는 중…';
+    this.onlineError = false;
+    this.states = [initialState(this.config)];
+    this.selected = null;
+    this.notify();
+    try {
+      await this.online.startMatchmaking();
+    } catch {
+      this.onlineWaiting = false;
+      this.notify();
+    }
+  }
+
+  cancelRandomMatch() {
+    this.online.cancelMatchmaking();
+    this.onlineWaiting = false;
+    this.onlineStatus = '랜덤 매칭을 취소했어요';
+    this.notify();
+  }
+
+  async refreshProfile() {
+    try {
+      await this.online.getProfile();
+    } catch {
+      /* 연결 오류는 온라인 상태 메시지로 표시 */
+    }
+  }
+
+  async updateProfileName(name: string) {
+    try {
+      await this.online.updateProfile(name);
+    } catch {
+      /* 연결 오류는 온라인 상태 메시지로 표시 */
+    }
+  }
+
   init() {
     this.applySidesFromSettings();
     this.notify();
     this.maybeAiTurn();
+    void this.refreshProfile();
   }
 
   destroy() {

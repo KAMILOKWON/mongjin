@@ -48,12 +48,16 @@ app.innerHTML = `
         <h1>몽진</h1>
         <p class="brand-subtitle">왕의 피난길</p>
       </div>
+      <button class="profile-pill" id="profile-open" type="button" aria-label="내 프로필 열기">
+        <span id="home-profile-name">프로필</span>
+        <small id="home-profile-rank">전적 불러오는 중</small>
+      </button>
     </header>
 
     <section class="home-actions" aria-label="게임 시작">
       <button class="menu-button menu-button-primary" id="quick-play" type="button">
         <i class="ph ph-play" aria-hidden="true"></i>
-        <span><strong>빠른 대국</strong><small>흑 · 어려움</small></span>
+        <span><strong>랜덤 대전</strong><small>실시간 플레이어와 자동 매칭</small></span>
       </button>
       <button class="menu-button" id="computer-play" type="button">
         <i class="ph ph-desktop" aria-hidden="true"></i>
@@ -61,7 +65,7 @@ app.innerHTML = `
       </button>
       <button class="menu-button" id="online-play" type="button">
         <i class="ph ph-globe-hemisphere-east" aria-hidden="true"></i>
-        <span><strong>온라인 대전</strong><small>입장코드로 친구와 대국</small></span>
+        <span><strong>친구 대전</strong><small>입장코드로 친구와 대국</small></span>
       </button>
       <button class="menu-button menu-button-tutorial" id="tutorial-open" type="button">
         <i class="ph ph-book-open-text" aria-hidden="true"></i>
@@ -127,6 +131,12 @@ app.innerHTML = `
         <div id="online-status" class="online-status" aria-live="polite"></div>
       </section>
 
+      <section id="random-panel" class="random-panel hidden">
+        <div class="random-opponent" id="random-opponent">상대를 찾고 있어요</div>
+        <div id="random-status" class="online-status" aria-live="polite"></div>
+        <button class="secondary-button" id="cancel-matchmaking" type="button">매칭 취소</button>
+      </section>
+
       <div class="game-actions">
         <button class="secondary-button" id="undo" type="button"><i class="ph ph-arrow-counter-clockwise" aria-hidden="true"></i> 무르기</button>
         <button class="secondary-button" id="reset" type="button"><i class="ph ph-arrows-clockwise" aria-hidden="true"></i> 새 게임</button>
@@ -168,6 +178,33 @@ app.innerHTML = `
     </form>
   </dialog>
 
+  <dialog class="app-dialog profile-dialog" id="profile-dialog">
+    <section class="dialog-card" aria-labelledby="profile-title">
+      <div class="dialog-heading">
+        <div><p class="eyebrow">PLAYER PROFILE</p><h2 id="profile-title">내 프로필</h2></div>
+        <button class="icon-button" id="profile-close" type="button" aria-label="닫기"><i class="ph ph-x" aria-hidden="true"></i></button>
+      </div>
+      <label>닉네임
+        <div class="profile-name-edit">
+          <input id="profile-name" type="text" minlength="2" maxlength="12" autocomplete="nickname" placeholder="2~12자" />
+          <button class="secondary-button" id="profile-save" type="button">저장</button>
+        </div>
+      </label>
+      <div class="profile-rank-card">
+        <span>전체 순위</span>
+        <strong id="profile-rank">-위</strong>
+        <small id="profile-rating">레이팅 -</small>
+      </div>
+      <div class="profile-stats" aria-label="랜덤 대전 전적">
+        <div><span>승</span><strong id="profile-wins">0</strong></div>
+        <div><span>패</span><strong id="profile-losses">0</strong></div>
+        <div><span>승률</span><strong id="profile-win-rate">0%</strong></div>
+      </div>
+      <p class="profile-note">랜덤 대전 결과만 공식 전적에 반영돼요.</p>
+      <div id="profile-status" class="online-status" aria-live="polite"></div>
+    </section>
+  </dialog>
+
   <dialog class="app-dialog tutorial-dialog" id="tutorial-dialog">
     <section class="dialog-card tutorial-card" aria-labelledby="tutorial-title">
       <div class="dialog-heading">
@@ -194,6 +231,9 @@ const aiSettingsEl = document.querySelector<HTMLElement>('#ai-settings')!;
 const humanColorEl = document.querySelector<HTMLSelectElement>('#human-color')!;
 const aiDifficultyEl = document.querySelector<HTMLSelectElement>('#ai-difficulty')!;
 const onlinePanelEl = document.querySelector<HTMLElement>('#online-panel')!;
+const randomPanelEl = document.querySelector<HTMLElement>('#random-panel')!;
+const randomOpponentEl = document.querySelector<HTMLElement>('#random-opponent')!;
+const randomStatusEl = document.querySelector<HTMLElement>('#random-status')!;
 const onlineStatusEl = document.querySelector<HTMLDivElement>('#online-status')!;
 const roomCodeEl = document.querySelector<HTMLInputElement>('#room-code')!;
 const roomCodeDisplayEl = document.querySelector<HTMLDivElement>('#room-code-display')!;
@@ -204,6 +244,10 @@ const setupDialog = document.querySelector<HTMLDialogElement>('#setup-dialog')!;
 const setupDifficultyEl = document.querySelector<HTMLSelectElement>('#setup-difficulty')!;
 const setupColorEl = document.querySelector<HTMLSelectElement>('#setup-color')!;
 const tutorialDialog = document.querySelector<HTMLDialogElement>('#tutorial-dialog')!;
+const profileDialog = document.querySelector<HTMLDialogElement>('#profile-dialog')!;
+const profileNameEl = document.querySelector<HTMLInputElement>('#profile-name')!;
+const profileStatusEl = document.querySelector<HTMLElement>('#profile-status')!;
+let pendingProfileName: string | null = null;
 
 const modeLabels: Record<OpponentMode, string> = {
   ai: '컴퓨터 대전',
@@ -224,11 +268,19 @@ function renderStatus() {
     ? `<div class="result-banner">${snap.resultLabel}</div>${handRow('BLACK')}${handRow('WHITE')}`
     : `<div class="turn-banner"><span class="turn-stone ${state.turn.toLowerCase()}"></span><span>${snap.turnLabel}</span></div>${handRow('BLACK')}${handRow('WHITE')}`;
 
-  modeChipEl.textContent = modeLabels[settings.mode];
+  modeChipEl.textContent = settings.mode === 'online' && snap.onlineMatchKind === 'random'
+    ? '랜덤 대전'
+    : modeLabels[settings.mode];
   aiSettingsEl.classList.toggle('hidden', settings.mode !== 'ai');
-  onlinePanelEl.classList.toggle('hidden', settings.mode !== 'online');
+  onlinePanelEl.classList.toggle('hidden', settings.mode !== 'online' || snap.onlineMatchKind === 'random');
+  randomPanelEl.classList.toggle('hidden', settings.mode !== 'online' || snap.onlineMatchKind !== 'random');
   onlineStatusEl.textContent = snap.onlineStatus;
   onlineStatusEl.classList.toggle('error', snap.onlineError);
+  randomStatusEl.textContent = snap.onlineStatus;
+  randomStatusEl.classList.toggle('error', snap.onlineError);
+  randomOpponentEl.textContent = snap.onlineOpponent
+    ? `${snap.onlineOpponent.name} · 레이팅 ${snap.onlineOpponent.rating}`
+    : '상대를 찾고 있어요';
 
   const showCode = settings.mode === 'online' && !!snap.onlineRoomId;
   roomCodeDisplayEl.classList.toggle('hidden', !showCode);
@@ -236,6 +288,29 @@ function renderStatus() {
   if (showCode && snap.onlineRoomId) roomCodeValueEl.textContent = snap.onlineRoomId;
 
   undoBtn.disabled = !snap.canUndo || snap.aiThinking;
+  const profile = snap.profile;
+  if (profile) {
+    document.querySelector<HTMLElement>('#home-profile-name')!.textContent = profile.name;
+    document.querySelector<HTMLElement>('#home-profile-rank')!.textContent =
+      `${profile.rank}위 · ${profile.wins}승 ${profile.losses}패`;
+    document.querySelector<HTMLElement>('#profile-rank')!.textContent = `${profile.rank}위`;
+    document.querySelector<HTMLElement>('#profile-rating')!.textContent =
+      `레이팅 ${profile.rating} · 전체 ${profile.totalPlayers}명`;
+    document.querySelector<HTMLElement>('#profile-wins')!.textContent = String(profile.wins);
+    document.querySelector<HTMLElement>('#profile-losses')!.textContent = String(profile.losses);
+    document.querySelector<HTMLElement>('#profile-win-rate')!.textContent = `${profile.winRate}%`;
+    if (document.activeElement !== profileNameEl) profileNameEl.value = profile.name;
+    if (pendingProfileName && profile.name === pendingProfileName) {
+      pendingProfileName = null;
+      profileStatusEl.textContent = '저장했어요';
+      profileStatusEl.classList.remove('error');
+    }
+  }
+  if (pendingProfileName && snap.onlineError) {
+    pendingProfileName = null;
+    profileStatusEl.textContent = snap.onlineStatus;
+    profileStatusEl.classList.add('error');
+  }
   requestAnimationFrame(() => game.refreshBoardLayout());
 }
 
@@ -247,6 +322,8 @@ function showGame() {
 }
 
 function showHome() {
+  const snap = game.getSnapshot();
+  if (snap.settings.mode === 'online') game.reset();
   gameScreen.classList.add('hidden');
   homeScreen.classList.remove('hidden');
   document.body.classList.remove('playing');
@@ -267,7 +344,10 @@ function startGame(mode: OpponentMode, difficulty?: AiDifficulty, color?: HumanC
   showGame();
 }
 
-document.querySelector('#quick-play')!.addEventListener('click', () => startGame('ai', 'hard', 'BLACK'));
+document.querySelector('#quick-play')!.addEventListener('click', () => {
+  startGame('online');
+  void game.startRandomMatch();
+});
 document.querySelector('#computer-play')!.addEventListener('click', () => setupDialog.showModal());
 document.querySelector('#online-play')!.addEventListener('click', () => startGame('online'));
 document.querySelector('#back-home')!.addEventListener('click', showHome);
@@ -298,6 +378,29 @@ document.querySelector('#copy-code')!.addEventListener('click', async () => {
     onlineStatusEl.textContent = '코드를 직접 선택해 복사해 주세요';
     onlineStatusEl.classList.add('error');
   }
+});
+document.querySelector('#cancel-matchmaking')!.addEventListener('click', () => {
+  game.cancelRandomMatch();
+  showHome();
+});
+
+document.querySelector('#profile-open')!.addEventListener('click', () => {
+  profileStatusEl.textContent = '';
+  void game.refreshProfile();
+  profileDialog.showModal();
+});
+document.querySelector('#profile-close')!.addEventListener('click', () => profileDialog.close());
+document.querySelector('#profile-save')!.addEventListener('click', async () => {
+  const name = profileNameEl.value.trim();
+  if (name.length < 2 || name.length > 12) {
+    profileStatusEl.textContent = '닉네임은 2~12자로 입력해 주세요';
+    profileStatusEl.classList.add('error');
+    return;
+  }
+  profileStatusEl.textContent = '저장 중…';
+  profileStatusEl.classList.remove('error');
+  pendingProfileName = name;
+  await game.updateProfileName(name);
 });
 
 const tutorialSteps = [
