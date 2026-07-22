@@ -82,8 +82,7 @@ function HandRow({ player }: { player: 'BLACK' | 'WHITE' }) {
 function MongjinApp() {
   const snap = useGameSnapshot();
   const boardRef = useRef<HTMLDivElement>(null);
-  const [roomCode, setRoomCode] = useState('');
-  const [copied, setCopied] = useState(false);
+  const [profileName, setProfileName] = useState('');
   const difficulty = AI_DIFFICULTY_PRESETS[snap.settings.aiDifficulty];
 
   useEffect(() => {
@@ -92,18 +91,8 @@ function MongjinApp() {
   }, []);
 
   useEffect(() => {
-    setCopied(false);
-  }, [snap.onlineRoomId]);
-
-  async function copyOnlineCode() {
-    if (!snap.onlineRoomId) return;
-    try {
-      await navigator.clipboard.writeText(snap.onlineRoomId);
-      setCopied(true);
-    } catch {
-      setCopied(false);
-    }
-  }
+    if (snap.profile && !profileName) setProfileName(snap.profile.name);
+  }, [snap.profile, profileName]);
 
   useLayoutEffect(() => {
     if (boardRef.current) game.attachBoard(boardRef.current);
@@ -146,7 +135,7 @@ function MongjinApp() {
           >
             <SegmentedControl.Item value="ai">컴퓨터</SegmentedControl.Item>
             <SegmentedControl.Item value="local">같이 두기</SegmentedControl.Item>
-            <SegmentedControl.Item value="online">온라인</SegmentedControl.Item>
+            <SegmentedControl.Item value="online">랜덤 대전</SegmentedControl.Item>
           </SegmentedControl>
         </div>
 
@@ -186,45 +175,46 @@ function MongjinApp() {
 
         {snap.settings.mode === 'online' && (
           <>
-            <div className="ait-setting-group ait-online-code">
+            <div className="ait-profile-card">
               <Paragraph typography="t6" fontWeight="semibold" color="adaptive-grey-600">
-                온라인 코드
+                내 프로필
               </Paragraph>
-              {snap.onlineRoomId ? (
-                <div className="ait-code-display">
-                  <strong>{snap.onlineRoomId}</strong>
-                  <Button size="medium" variant="weak" onClick={copyOnlineCode}>
-                    {copied ? '복사됨' : '복사'}
-                  </Button>
-                </div>
-              ) : (
-                <Button size="medium" display="block" onClick={() => game.createRoom()}>
-                  코드 생성
-                </Button>
-              )}
+              <strong>{snap.profile?.name ?? '불러오는 중…'}</strong>
+              <span>
+                {snap.profile
+                  ? `${snap.profile.wins}승 ${snap.profile.losses}패 · 승률 ${snap.profile.winRate}% · 전체 ${snap.profile.rank}위`
+                  : '전적을 불러오고 있어요'}
+              </span>
             </div>
 
-            <div className="ait-setting-group ait-online-join">
-              <Paragraph typography="t6" fontWeight="semibold" color="adaptive-grey-600">
-                코드 입력
-              </Paragraph>
+            <div className="ait-setting-group ait-profile-edit">
               <TextField
                 variant="line"
-                label="입장코드"
+                label="닉네임"
                 labelOption="sustain"
-                placeholder="6자리 코드"
-                value={roomCode}
-                onChange={(e) => setRoomCode(e.target.value.toUpperCase())}
+                placeholder="2~12자"
+                value={profileName}
+                onChange={(e) => setProfileName(e.target.value)}
               />
               <Button
                 size="medium"
                 variant="weak"
                 display="block"
-                onClick={() => game.joinRoom(roomCode)}
+                onClick={() => game.updateProfileName(profileName)}
               >
-                참가
+                닉네임 저장
               </Button>
             </div>
+
+            <Button
+              size="large"
+              display="block"
+              className="ait-match-button"
+              disabled={!!snap.onlineSide}
+              onClick={() => snap.onlineWaiting ? game.cancelRandomMatch() : game.startRandomMatch()}
+            >
+              {snap.onlineWaiting ? '매칭 취소' : snap.onlineSide ? '대국 진행 중' : '랜덤 상대 찾기'}
+            </Button>
 
             {snap.onlineStatus && (
               <Paragraph

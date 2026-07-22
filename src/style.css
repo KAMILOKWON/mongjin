@@ -131,6 +131,46 @@ button {
   border-right: 1px solid var(--line);
 }
 
+.profile-pill {
+  display: flex;
+  max-width: 132px;
+  flex: 0 1 auto;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 3px;
+  padding: 9px 11px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  color: var(--ink);
+  background: var(--surface-strong);
+  text-align: right;
+  cursor: pointer;
+}
+
+.profile-pill:hover {
+  border-color: #aebbc4;
+  box-shadow: var(--shadow-sm);
+}
+
+.profile-pill span,
+.profile-pill small {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.profile-pill span {
+  font-size: 12px;
+  font-weight: 850;
+}
+
+.profile-pill small {
+  color: var(--ink-soft);
+  font-size: 9px;
+  font-weight: 700;
+}
+
 .eyebrow {
   margin: 0 0 12px;
   color: #81909d;
@@ -455,7 +495,8 @@ p {
 
 .status-card,
 .settings-card,
-.online-panel {
+.online-panel,
+.random-panel {
   padding: 16px;
   border: 1px solid var(--line);
   border-radius: 14px;
@@ -578,6 +619,23 @@ input {
   display: flex;
   flex-direction: column;
   gap: 10px;
+}
+
+.random-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.random-opponent {
+  padding: 12px;
+  border: 1px solid #c9d5dd;
+  border-radius: 10px;
+  color: var(--blue);
+  background: #eef4f7;
+  font-size: 13px;
+  font-weight: 850;
+  line-height: 1.4;
 }
 
 .online-join {
@@ -857,6 +915,79 @@ input {
   font-size: 12px;
 }
 
+.profile-name-edit {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 8px;
+}
+
+.profile-rank-card {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: center;
+  gap: 3px 12px;
+  padding: 18px;
+  border-radius: 14px;
+  color: #fff;
+  background: var(--blue);
+}
+
+.profile-rank-card span {
+  font-size: 12px;
+  font-weight: 750;
+  opacity: 0.78;
+}
+
+.profile-rank-card strong {
+  grid-row: 1 / 3;
+  grid-column: 2;
+  font-size: 32px;
+  letter-spacing: -0.05em;
+}
+
+.profile-rank-card small {
+  font-size: 11px;
+  font-weight: 650;
+  opacity: 0.72;
+}
+
+.profile-stats {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+}
+
+.profile-stats div {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 5px;
+  padding: 15px 10px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: #fff;
+  text-align: center;
+}
+
+.profile-stats span {
+  color: var(--ink-soft);
+  font-size: 10px;
+  font-weight: 750;
+}
+
+.profile-stats strong {
+  font-size: 22px;
+  letter-spacing: -0.04em;
+}
+
+.profile-note {
+  margin: -6px 0 0;
+  color: var(--ink-soft);
+  font-size: 11px;
+  line-height: 1.5;
+  text-align: center;
+}
+
 .tutorial-card {
   gap: 16px;
 }
@@ -960,6 +1091,10 @@ input {
   .home-brand {
     padding: 28px 24px 18px;
     border-right: 0;
+  }
+
+  .profile-pill {
+    max-width: 145px;
   }
 
   .home-brand h1 {

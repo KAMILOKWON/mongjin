@@ -6,3 +6,4 @@ ios/DerivedData/
 .DS_Store
 ._*
 *.local
+server/data/
