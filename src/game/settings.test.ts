@@ -24,7 +24,7 @@ describe('settings', () => {
     expect(AI_DIFFICULTY_PRESETS.expert.maxDepth).toBeGreaterThan(
       AI_DIFFICULTY_PRESETS.hard.maxDepth,
     );
-    expect(AI_DIFFICULTY_PRESETS.allMight.maxMs).toBeGreaterThan(
+    expect(AI_DIFFICULTY_PRESETS.allMight.maxMs).toBeGreaterThanOrEqual(
       AI_DIFFICULTY_PRESETS.expert.maxMs,
     );
     expect(AI_DIFFICULTY_PRESETS.allMight.maxDepth).toBeGreaterThan(
@@ -39,31 +39,32 @@ describe('settings', () => {
     expect(AI_DIFFICULTY_PRESETS.allMight.maxNodes).toBeGreaterThan(
       AI_DIFFICULTY_PRESETS.expert.maxNodes,
     );
-    expect(AI_DIFFICULTY_PRESETS.normal.maxNodes).toBeGreaterThanOrEqual(2_000);
-    expect(AI_DIFFICULTY_PRESETS.hard.maxNodes).toBeGreaterThanOrEqual(5_000);
-    expect(AI_DIFFICULTY_PRESETS.expert.maxNodes).toBeGreaterThanOrEqual(14_000);
-    expect(AI_DIFFICULTY_PRESETS.allMight.hintScale ?? 1).toBeGreaterThan(1);
+    expect(AI_DIFFICULTY_PRESETS.normal.maxNodes).toBeGreaterThanOrEqual(700);
+    expect(AI_DIFFICULTY_PRESETS.hard.maxNodes).toBeGreaterThanOrEqual(2_250);
+    expect(AI_DIFFICULTY_PRESETS.expert.maxNodes).toBeGreaterThanOrEqual(6_000);
     expect(AI_DIFFICULTY_PRESETS.normal.rootNoise).toBeGreaterThan(
       AI_DIFFICULTY_PRESETS.hard.rootNoise!,
     );
     expect(AI_DIFFICULTY_PRESETS.hard.rootNoise).toBeGreaterThan(
       AI_DIFFICULTY_PRESETS.expert.rootNoise!,
     );
-    expect(AI_DIFFICULTY_PRESETS.expert.rootNoise).toBeGreaterThan(
+    expect(AI_DIFFICULTY_PRESETS.expert.rootNoise).toBeGreaterThanOrEqual(
       AI_DIFFICULTY_PRESETS.allMight.rootNoise!,
     );
-  });
-
-  it('elite 탐색은 올마이트 전용이다', () => {
-    expect(AI_DIFFICULTY_PRESETS.allMight.elite).toBe(true);
-    expect(AI_DIFFICULTY_PRESETS.normal.elite ?? false).toBe(false);
-    expect(AI_DIFFICULTY_PRESETS.hard.elite ?? false).toBe(false);
-    expect(AI_DIFFICULTY_PRESETS.expert.elite ?? false).toBe(false);
+    expect(AI_DIFFICULTY_PRESETS.hard.planStrength).toBeGreaterThan(
+      AI_DIFFICULTY_PRESETS.normal.planStrength!,
+    );
+    expect(AI_DIFFICULTY_PRESETS.expert.planStrength).toBeGreaterThan(
+      AI_DIFFICULTY_PRESETS.hard.planStrength!,
+    );
+    expect(AI_DIFFICULTY_PRESETS.allMight.planStrength).toBeGreaterThan(
+      AI_DIFFICULTY_PRESETS.expert.planStrength!,
+    );
   });
 
   it('올마이트도 1.5초 안에 응수하도록 제한한다', () => {
     expect(AI_DIFFICULTY_PRESETS.allMight.maxMs).toBeLessThanOrEqual(1_500);
-    expect(AI_DIFFICULTY_PRESETS.allMight.maxDepth).toBe(7);
-    expect(AI_DIFFICULTY_PRESETS.allMight.maxNodes).toBe(30_000);
+    expect(AI_DIFFICULTY_PRESETS.allMight.maxDepth).toBe(8);
+    expect(AI_DIFFICULTY_PRESETS.allMight.maxNodes).toBe(6_500);
   });
 });

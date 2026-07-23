@@ -44,7 +44,9 @@ export interface AiOptions {
   rng?: () => number;
   /** 루트 점수에 더하는 대칭 평가 오차 폭(난이도·셀프플레이용). */
   rootNoise?: number;
-  /** 올마이트 전용: 보수적 LMR·반복 억제·포위 압력을 적용한다. */
+  /** 승리 계획(안전한 왕 전진·호위·마무리)의 루트 선택 반영 강도. */
+  planStrength?: number;
+  /** 선택적 보수적 LMR·반복 억제·포위 압력을 적용한다. */
   elite?: boolean;
   /** 진단·벤치용 탐색 통계 콜백. */
   onSearchComplete?: (stats: AiSearchStats) => void;
@@ -267,7 +269,6 @@ function placementDelay(
 interface EvaluationScan {
   kings: Record<Player, Coord | null>;
   guardTotals: Record<Player, number>;
-  guards: Record<Player, Coord[]>;
   dangers: Record<Player, Uint8Array>;
 }
 
@@ -279,7 +280,6 @@ function scanForEvaluation(state: GameState, config: RuleConfig): EvaluationScan
     BLACK: state.guardsInHand.BLACK,
     WHITE: state.guardsInHand.WHITE,
   };
-  const guards: Record<Player, Coord[]> = { BLACK: [], WHITE: [] };
   const dangers: Record<Player, Uint8Array> = {
     BLACK: new Uint8Array(n * n),
     WHITE: new Uint8Array(n * n),
@@ -294,7 +294,6 @@ function scanForEvaluation(state: GameState, config: RuleConfig): EvaluationScan
         continue;
       }
       guardTotals[piece.player]++;
-      guards[piece.player].push({ r, c });
       if (!config.kingCapture) continue;
       const threatenedPlayer = opponent(piece.player);
       const danger = dangers[threatenedPlayer];
@@ -306,30 +305,7 @@ function scanForEvaluation(state: GameState, config: RuleConfig): EvaluationScan
     }
   }
 
-  return { kings, guardTotals, guards, dangers };
-}
-
-/**
- * 상대 왕을 실제로 추격하는 호위의 압박도.
- *
- * 예전 평가는 왕이 이미 공격받는 순간만 크게 보상해서, 호위가 한두 칸
- * 떨어진 국면에서는 추격을 시작할 이유가 거의 없었다. 가까운 호위 여러
- * 개를 함께 보상해 한 기물의 무모한 돌진보다 포위망을 좁히도록 만든다.
- */
-function kingHuntPressure(guards: Coord[], target: Coord | null): number {
-  if (!target || guards.length === 0) return 0;
-  const pressures = guards.map((guard) => {
-    const d = Math.abs(guard.r - target.r) + Math.abs(guard.c - target.c);
-    if (d <= 1) return 220;
-    if (d === 2) return 100;
-    if (d === 3) return 44;
-    if (d === 4) return 18;
-    if (d === 5) return 6;
-    return 0;
-  });
-  pressures.sort((a, b) => b - a);
-  // 포위에 실질적으로 참여할 수 있는 가까운 호위 넷만 센다.
-  return pressures.slice(0, 4).reduce<number>((sum, value) => sum + value, 0);
+  return { kings, guardTotals, dangers };
 }
 
 function kingThreatenedAt(
@@ -384,6 +360,12 @@ function interceptGapAt(
   return Math.max(Math.abs(dK.r - tr), Math.abs(dK.c - iK.c));
 }
 
+/** 시작 행에서 목표 행 쪽으로 실제 전진한 칸 수. */
+function forwardProgress(p: Player, king: Coord | null, n: number): number {
+  if (!king) return 0;
+  return p === 'BLACK' ? n - 1 - king.r : king.r;
+}
+
 /** 왕의 직교 탈출 칸 수 (포위 패배 판정과 동일 기준, 0이면 이미 포위) */
 function orthoEscapeCountAt(
   state: GameState,
@@ -434,16 +416,13 @@ function evaluate(
   if (config.kingCapture) {
     if (kingThreatenedAt(state, opp, oppKing)) score += 5000;
     if (kingThreatenedAt(state, me, myKing)) score -= 220;
-    score +=
-      kingHuntPressure(scan.guards[me], oppKing) -
-      kingHuntPressure(scan.guards[opp], myKing);
     score += 5 * (
       Math.min(escortCountAt(state, me, myKing), 3) -
       Math.min(escortCountAt(state, opp, oppKing), 3)
     );
   }
 
-  // 올마이트 전용 포위 압력: 교착에서 상대 왕의 탈출 칸을 좁히는 쪽으로 수렴시킨다
+  // 선택적 포위 압력: 교착에서 상대 왕의 탈출 칸을 좁히는 쪽으로 수렴시킨다
   if (elite && config.kingSurroundLoss) {
     score += 6 * (
       orthoEscapeCountAt(state, me, myKing) -
@@ -451,17 +430,32 @@ function evaluate(
     );
   }
 
-  const meArrive = 2 * myD - 1;
-  const oppArrive = 2 * oppD;
-  if (meArrive < oppArrive) {
-    score += 300 + 12 * Math.min(oppArrive - meArrive, 10) - 6 * myD;
-    // 앞서더라도 상대가 가까우면 차단 가치를 남긴다 (단독 돌진 과신 완화)
-    if (oppD <= 3) score -= 18 * (4 - oppD);
-  } else {
-    score += -300 + 28 * Math.min(oppD, 12) - 3 * myD;
-    if (config.kingCapture) {
-      score -= 12 * interceptGapAt(state.board.length, opp, myKing, oppKing);
-    }
+  // 승리 계획을 연속적인 점수로 평가한다. 예전의 앞섬/뒤처짐 이분법은
+  // 뒤처졌을 때 상대만 막는 편이 유리해져 왕이 영원히 전진하지 않는
+  // 교착을 만들었다. 이제 내 안전 경로 단축과 상대 경로 지연이 언제나
+  // 함께 가치가 있고, 앞서면 왕 전진의 가치가 더 커진다.
+  const routeCap = state.board.length + 3;
+  const myRoute = Math.min(myD, routeCap);
+  const oppRoute = Math.min(oppD, routeCap);
+  const raceLead = oppRoute - myRoute;
+  score += 52 * raceLead;
+  score += 14 * (routeCap - myRoute);
+  score -= 10 * (routeCap - oppRoute);
+
+  // 안전 경로(BFS)만 보면 먼 미래의 차단을 피하려고 왕이 시작 행으로
+  // 되돌아가는 국면이 생긴다. 실제 전진도를 별도로 보상해 계획의 최종
+  // 목표가 언제나 상대 목적지 도달임을 고정한다.
+  const myProgress = forwardProgress(me, myKing, state.board.length);
+  const oppProgress = forwardProgress(opp, oppKing, state.board.length);
+  score += 64 * (myProgress - oppProgress);
+
+  if (raceLead >= 1) {
+    // 앞설 때는 차단만 반복하지 않고 실제 목표행 도달로 전환한다.
+    score += 18 * (routeCap - myRoute);
+  } else if (config.kingCapture) {
+    // 뒤처졌을 때는 상대의 진로를 가로막되, 이 항은 왕 전진 점수보다
+    // 작아서 방어 후 반드시 자기 승리 계획으로 돌아온다.
+    score -= 8 * interceptGapAt(state.board.length, opp, myKing, oppKing);
   }
 
   if (hints && botSide) {
@@ -519,15 +513,6 @@ function orderMoves(
         if (isGoalCell(me, m.to, config)) s += 10000;
       } else {
         s += near(m.to.r, m.to.c);
-        if (oppKing && config.kingCapture) {
-          const before = Math.abs(m.from.r - oppKing.r) + Math.abs(m.from.c - oppKing.c);
-          const after = Math.abs(m.to.r - oppKing.r) + Math.abs(m.to.c - oppKing.c);
-          // 얕은 탐색에서도 상대 왕 쪽으로 포위망을 좁히는 수를 먼저 읽는다.
-          s += (before - after) * 24;
-          if (after === 1) s += 2_000;
-          else if (after === 2) s += 90;
-          else if (after === 3) s += 35;
-        }
       }
     } else {
       // PLACE: 전략적 가치 기반 차등 평가
@@ -788,6 +773,54 @@ function allowsImmediateReplyWin(state: GameState, move: Move, config: RuleConfi
   return findWinningMove(next, replies, config) !== null;
 }
 
+/**
+ * 검색 점수가 비슷할 때 승리로 수렴시키는 루트 계획 점수.
+ *
+ * 전술 탐색 결과에만 더하므로 실제 승패 점수(WIN)를 뒤집지 않으며,
+ * 즉시 패배 수는 이 단계 전에 이미 후보에서 제거된다.
+ */
+function rootPlanBonus(
+  state: GameState,
+  move: Move,
+  config: RuleConfig,
+  strength: number,
+): number {
+  if (strength <= 0) return 0;
+  const me = state.turn;
+  const opp = opponent(me);
+  const myKing = findKing(state, me);
+  const oppKing = findKing(state, opp);
+  let score = 0;
+
+  if (move.kind === 'MOVE') {
+    const piece = state.board[move.from.r][move.from.c];
+    if (piece?.type === 'KING') {
+      const goalR = goalRow(me, state.board.length);
+      const advance =
+        Math.abs(move.from.r - goalR) - Math.abs(move.to.r - goalR);
+      score += advance > 0 ? 90 * advance : advance < 0 ? 110 * advance : -8;
+      if (isGoalCell(me, move.to, config)) score += WIN;
+    } else if (piece?.type === 'GUARD') {
+      const target = state.board[move.to.r][move.to.c];
+      if (target) score += target.type === 'KING' ? WIN : 80;
+      if (oppKing) {
+        const before = Math.abs(move.from.r - oppKing.r) + Math.abs(move.from.c - oppKing.c);
+        const after = Math.abs(move.to.r - oppKing.r) + Math.abs(move.to.c - oppKing.c);
+        // 실제 한 수 위협을 만드는 추격만 계획에 포함한다.
+        if (after === 1 && before > after) score += 70;
+      }
+    }
+  } else if (myKing) {
+    const adjacent =
+      Math.max(Math.abs(move.to.r - myKing.r), Math.abs(move.to.c - myKing.c)) <= 1;
+    const escorts = escortCountAt(state, me, myKing);
+    if (adjacent && escorts < 2) score += 45 * (2 - escorts);
+    else score -= 8;
+  }
+
+  return score * strength;
+}
+
 export function chooseMove(
   state: GameState,
   config: RuleConfig,
@@ -800,6 +833,7 @@ export function chooseMove(
   const botSide = opts.botSide;
   const rng = opts.rng;
   const rootNoise = opts.rootNoise ?? 0;
+  const planStrength = opts.planStrength ?? 1;
   const ctx = createSearchCtx(
     config,
     startedAt + maxMs,
@@ -854,6 +888,7 @@ export function chooseMove(
     const rootTT = ctx.tt.get(rootKey);
 
     let best = -Infinity;
+    let bestSearchScore = -Infinity;
     let alpha = -Infinity;
     const beta = Infinity;
     const iterBest: Move[] = [];
@@ -868,10 +903,11 @@ export function chooseMove(
         depthComplete = false;
         break;
       }
-      const ranked =
-        rootNoise > 0 && rng ? v + (rng() * 2 - 1) * rootNoise : v;
+      const noise = rootNoise > 0 && rng ? (rng() * 2 - 1) * rootNoise : 0;
+      const ranked = v + noise + rootPlanBonus(state, m, config, planStrength);
       if (ranked > best) {
         best = ranked;
+        bestSearchScore = v;
         iterBest.length = 0;
         iterBest.push(m);
         if (v > alpha) alpha = v;
@@ -885,9 +921,12 @@ export function chooseMove(
       completedDepth = depth;
       const bestMove = iterBest[0]!;
       moves = [bestMove, ...moves.filter((m) => !movesEqual(m, bestMove))];
-      ttStore(ctx, rootKey, depth, best, 'exact', bestMove);
+      // 루트 계획·난이도 오차는 수 선택에만 쓰고 전치표에는 순수 탐색
+      // 점수를 저장한다. 반복 국면에서 계획 보너스가 전술 점수로 재사용되면
+      // 탐색 창이 오염될 수 있다.
+      ttStore(ctx, rootKey, depth, bestSearchScore, 'exact', bestMove);
     }
-    if (best >= WIN) break;
+    if (bestSearchScore >= WIN) break;
   }
 
   const safeMoveKeys = safetyRestricted ? new Set(moves.map(moveSig)) : null;

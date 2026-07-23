@@ -4,7 +4,8 @@ import { DEFAULT_CONFIG } from '../core/config';
 import { findKing, goalCellsFor, initialState, legalMoves } from '../core/rules';
 import { applyMove } from '../core/apply';
 import { getResult } from '../core/result';
-import { chooseMove } from './ai';
+import { chooseMove, type AiOptions } from './ai';
+import { AI_DIFFICULTY_PRESETS } from '../game/settings';
 
 const CFG = { ...DEFAULT_CONFIG };
 
@@ -44,11 +45,23 @@ function randomBot(state: GameState, rand: () => number): Move {
   return moves[Math.floor(rand() * moves.length)];
 }
 
+/** 왕을 전진시키지 않는 수비 전용 상대 — AI가 승리 계획을 완주하는지 검증한다. */
+function passiveBot(state: GameState, rand: () => number): Move {
+  const moves = legalMoves(state, CFG);
+  const nonKing = moves.filter((move) => {
+    if (move.kind === 'PLACE') return true;
+    return state.board[move.from.r][move.from.c]?.type !== 'KING';
+  });
+  const pool = nonKing.length > 0 ? nonKing : moves;
+  return pool[Math.floor(rand() * pool.length)]!;
+}
+
 function playMatch(
   aiSide: Player,
   bot: (s: GameState, rand: () => number) => Move,
   rand: () => number,
   maxPlies = 400,
+  aiOpts: AiOptions = { maxMs: 5_000, maxDepth: 8, maxNodes: 6_000 },
 ): Player | 'cap' {
   let state = initialState(CFG);
   for (let ply = 0; ply < maxPlies; ply++) {
@@ -57,10 +70,7 @@ function playMatch(
     const move =
       state.turn === aiSide
         ? chooseMove(state, CFG, {
-            maxMs: 5_000,
-            maxDepth: 8,
-            // 시간만 제한하면 CI 부하에 따라 탐색량과 승패가 달라진다.
-            maxNodes: 6_000,
+            ...aiOpts,
           })!
         : bot(state, rand);
     state = applyMove(state, move);
@@ -69,6 +79,25 @@ function playMatch(
 }
 
 describe('AI 강함 회귀 테스트', () => {
+  it(
+    '보통 AI도 양 진영에서 수동적인 상대를 상대로 승리 계획을 완주한다',
+    () => {
+      const preset = AI_DIFFICULTY_PRESETS.normal;
+      const aiOpts: AiOptions = {
+        maxMs: 5_000,
+        maxDepth: preset.maxDepth,
+        maxNodes: preset.maxNodes,
+        rootNoise: preset.rootNoise,
+        planStrength: preset.planStrength,
+        rng: mulberry32(101),
+      };
+      expect(playMatch('BLACK', passiveBot, mulberry32(201), 160, aiOpts)).toBe('BLACK');
+      aiOpts.rng = mulberry32(102);
+      expect(playMatch('WHITE', passiveBot, mulberry32(202), 160, aiOpts)).toBe('WHITE');
+    },
+    30_000,
+  );
+
   it(
     '백 AI는 "왕 단독 돌진" 전략을 3판 중 2판 이상 응징한다',
     () => {

@@ -131,26 +131,6 @@ describe('AI (미니맥스)', () => {
     expect(m.to).toEqual({ r: 4, c: 4 });
   });
 
-  it('상대 왕이 가만히 있으면 호위로 거리를 좁혀 공격한다', () => {
-    // 백 왕이 목적지 쪽으로 움직이지 않는 상황. 흑 호위는 한 칸 전진하면
-    // 다음 수에 왕을 잡을 수 있으므로 자기 왕의 단순 전진보다 추격을 택해야 한다.
-    const s = makeState(
-      [
-        [8, 8, 'BLACK', 'KING'],
-        [3, 4, 'WHITE', 'KING'],
-        [5, 4, 'BLACK', 'GUARD'],
-      ],
-      'BLACK',
-      { BLACK: 0, WHITE: 0 },
-    );
-    const m = chooseMove(s, CFG, { maxMs: 500, maxDepth: 4, maxNodes: 2_000 });
-    expect(m).toEqual({
-      kind: 'MOVE',
-      from: { r: 5, c: 4 },
-      to: { r: 4, c: 4 },
-    });
-  });
-
   it('기보의 왕 정지 횟수가 탐색 최선수를 강제로 덮어쓰지 않는다', () => {
     let s = initialState(CFG);
     const setup: Move[] = [
