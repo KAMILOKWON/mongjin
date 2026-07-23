@@ -37,6 +37,44 @@ describe('AI (미니맥스)', () => {
     expect(legal).toBe(true);
   });
 
+  it('진로가 열려 있으면 최소 호위를 강제하지 않고 왕을 전진시킨다', () => {
+    const s = initialState(CFG);
+    const m = chooseMove(s, CFG, {
+      maxMs: 500,
+      maxDepth: 4,
+      maxNodes: 700,
+      planStrength: 1,
+    });
+    expect(m?.kind).toBe('MOVE');
+    if (m?.kind === 'MOVE') {
+      expect(s.board[m.from.r][m.from.c]?.type).toBe('KING');
+      expect(m.to.r).toBeLessThan(m.from.r);
+    }
+  });
+
+  it('안전한 왕 진로가 막히면 후퇴 대신 호위를 배치한다', () => {
+    const s = makeState(
+      [
+        [4, 4, 'BLACK', 'KING'],
+        [0, 4, 'WHITE', 'KING'],
+        [2, 2, 'WHITE', 'GUARD'],
+        [2, 3, 'WHITE', 'GUARD'],
+        [2, 4, 'WHITE', 'GUARD'],
+        [2, 5, 'WHITE', 'GUARD'],
+        [2, 6, 'WHITE', 'GUARD'],
+      ],
+      'BLACK',
+      { BLACK: 2, WHITE: 0 },
+    );
+    const m = chooseMove(s, CFG, {
+      maxMs: 1_000,
+      maxDepth: 5,
+      maxNodes: 2_250,
+      planStrength: 1.15,
+    });
+    expect(m?.kind).toBe('PLACE');
+  });
+
   it('다른 합법 수가 있으면 세 번째 동형 국면을 만드는 수를 피한다', () => {
     const s = makeState(
       [
