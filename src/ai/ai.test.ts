@@ -151,7 +151,7 @@ describe('AI (미니맥스)', () => {
     });
   });
 
-  it('상대 왕이 3차례 정지하면 어려움 예산에서도 장거리 추격을 시작한다', () => {
+  it('기보의 왕 정지 횟수가 탐색 최선수를 강제로 덮어쓰지 않는다', () => {
     let s = initialState(CFG);
     const setup: Move[] = [
       { kind: 'PLACE', to: { r: 7, c: 4 } },
@@ -162,39 +162,13 @@ describe('AI (미니맥스)', () => {
     ];
     for (const move of setup) s = applyMove(s, move);
 
-    const m = chooseMove(s, CFG, {
-      maxMs: 350,
-      maxDepth: 5,
-      maxNodes: 5_000,
-      rootNoise: 35,
-      rng: () => 0.9,
-    });
-    expect(m).toEqual({
-      kind: 'MOVE',
-      from: { r: 2, c: 4 },
-      to: { r: 3, c: 4 },
-    });
-  });
-
-  it('올마이트는 정지 감지 후처리로 탐색 최선수를 덮어쓰지 않는다', () => {
-    let s = initialState(CFG);
-    const setup: Move[] = [
-      { kind: 'PLACE', to: { r: 7, c: 4 } },
-      { kind: 'PLACE', to: { r: 1, c: 4 } },
-      { kind: 'MOVE', from: { r: 7, c: 4 }, to: { r: 7, c: 3 } },
-      { kind: 'MOVE', from: { r: 1, c: 4 }, to: { r: 2, c: 4 } },
-      { kind: 'MOVE', from: { r: 7, c: 3 }, to: { r: 7, c: 4 } },
-    ];
-    for (const move of setup) s = applyMove(s, move);
-
-    const eliteOpts = {
+    const hardOpts = {
       maxMs: 5_000,
       maxDepth: 5,
       maxNodes: 5_000,
-      elite: true,
     };
-    const withStationaryHistory = chooseMove(s, CFG, eliteOpts);
-    const withoutHistory = chooseMove({ ...s, history: [] }, CFG, eliteOpts);
+    const withStationaryHistory = chooseMove(s, CFG, hardOpts);
+    const withoutHistory = chooseMove({ ...s, history: [] }, CFG, hardOpts);
 
     expect(withStationaryHistory).toEqual(withoutHistory);
     expect(withStationaryHistory).not.toEqual({

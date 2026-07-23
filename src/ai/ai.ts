@@ -13,7 +13,6 @@ import {
   goalCellsFor,
   goalRow,
   inBoard,
-  initialState,
   isGoalCell,
   legalMoves,
   opponent,
@@ -80,9 +79,6 @@ interface SearchCtx {
   elite: boolean;
   /** 전술 퀴에센스 한계 */
   quiescenceMax: number;
-  /** 상대 왕이 실제로 여러 차례 정지했을 때만 활성화하는 추격 주체·대상 */
-  pursuitSide: Player | null;
-  pursuitTarget: Player | null;
 }
 
 function moveSig(m: Move): string {
@@ -99,8 +95,6 @@ function createSearchCtx(
   deadline: number,
   elite = false,
   nodeLimit = Number.POSITIVE_INFINITY,
-  pursuitSide: Player | null = null,
-  pursuitTarget: Player | null = null,
 ): SearchCtx {
   const killers: (Move | null)[][] = [];
   for (let i = 0; i < MAX_KILLER_DEPTH; i++) killers.push([null, null]);
@@ -117,8 +111,6 @@ function createSearchCtx(
     // 퀴에센스를 과도하게 늘리면 체크 분기가 폭발해 본 탐색이
     // 오히려 얕아진다. elite도 같은 전술 한계를 쓴다.
     quiescenceMax: QUIESCENCE_MAX,
-    pursuitSide,
-    pursuitTarget,
   };
 }
 
@@ -340,23 +332,6 @@ function kingHuntPressure(guards: Coord[], target: Coord | null): number {
   return pressures.slice(0, 4).reduce<number>((sum, value) => sum + value, 0);
 }
 
-/** 정지한 상대 왕을 향해 멀리 있는 호위도 전장 끝까지 추격하게 한다. */
-function goalBlockerPressure(guards: Coord[], target: Coord | null, n: number): number {
-  if (!target || guards.length === 0) return 0;
-  const pressures = guards.map((guard) => {
-    const d = Math.abs(guard.r - target.r) + Math.abs(guard.c - target.c);
-    return Math.max(0, n * 2 - d) * 40;
-  });
-  pressures.sort((a, b) => b - a);
-  // 한 기물만 보내지 않고 실제 포위에 필요한 병력까지 전진시킨다.
-  // 휴리스틱이 실제 승리 점수(WIN)를 넘으면 알파-베타가 추격을 승리로
-  // 오인할 수 있다. 추격 전체 보너스를 WIN의 1/4 이하로 제한한다.
-  return Math.min(
-    WIN / 4,
-    pressures.slice(0, 4).reduce<number>((sum, value) => sum + value, 0),
-  );
-}
-
 function kingThreatenedAt(
   state: GameState,
   p: Player,
@@ -434,8 +409,6 @@ function evaluate(
   hints?: BotHints,
   botSide?: Player,
   elite = false,
-  pursuitSide: Player | null = null,
-  pursuitTarget: Player | null = null,
 ): number {
   const me = state.turn;
   const opp = opponent(me);
@@ -464,15 +437,6 @@ function evaluate(
     score +=
       kingHuntPressure(scan.guards[me], oppKing) -
       kingHuntPressure(scan.guards[opp], myKing);
-    if (pursuitSide && pursuitTarget) {
-      const targetKing = scan.kings[pursuitTarget];
-      const pursuit = goalBlockerPressure(
-        scan.guards[pursuitSide],
-        targetKing,
-        state.board.length,
-      );
-      score += me === pursuitSide ? pursuit : -pursuit;
-    }
     score += 5 * (
       Math.min(escortCountAt(state, me, myKing), 3) -
       Math.min(escortCountAt(state, opp, oppKing), 3)
@@ -563,9 +527,6 @@ function orderMoves(
           if (after === 1) s += 2_000;
           else if (after === 2) s += 90;
           else if (after === 3) s += 35;
-          if (ctx.pursuitSide === me && ctx.pursuitTarget === opp) {
-            s += (before - after) * 300;
-          }
         }
       }
     } else {
@@ -581,15 +542,6 @@ function orderMoves(
 
       s += near(m.to.r, m.to.c);
       if (delay > 0) s += delay * 40;
-      if (
-        oppKing &&
-        config.kingCapture &&
-        ctx.pursuitSide === me &&
-        ctx.pursuitTarget === opp
-      ) {
-        const d = Math.abs(m.to.r - oppKing.r) + Math.abs(m.to.c - oppKing.c);
-        s += Math.max(0, n * 2 - d) * 30;
-      }
       // 유용한 배치는 +5, 무의미한 배치는 -25 패널티
       s += useful ? 5 : -25;
     }
@@ -659,8 +611,6 @@ function quiescence(
       hints,
       botSide,
       ctx.elite,
-      ctx.pursuitSide,
-      ctx.pursuitTarget,
     );
   }
 
@@ -673,8 +623,6 @@ function quiescence(
     hints,
     botSide,
     ctx.elite,
-    ctx.pursuitSide,
-    ctx.pursuitTarget,
   );
   const inCheck = kingThreatened(state, state.turn);
   if (qDepth <= 0) return standPat;
@@ -731,8 +679,6 @@ function negamax(
       hints,
       botSide,
       ctx.elite,
-      ctx.pursuitSide,
-      ctx.pursuitTarget,
     );
   }
 
@@ -842,67 +788,6 @@ function allowsImmediateReplyWin(state: GameState, move: Move, config: RuleConfi
   return findWinningMove(next, replies, config) !== null;
 }
 
-/** 기보를 재생해 해당 진영의 왕이 연속 몇 차례 움직이지 않았는지 센다. */
-function stationaryKingTurns(state: GameState, player: Player, config: RuleConfig): number {
-  if (state.history.length === 0) return 0;
-  let replay = initialState(config);
-  let stationaryTurns = 0;
-  try {
-    for (const move of state.history) {
-      if (replay.turn === player) {
-        const movedKing =
-          move.kind === 'MOVE' && replay.board[move.from.r][move.from.c]?.type === 'KING';
-        stationaryTurns = movedKing ? 0 : stationaryTurns + 1;
-      }
-      replay = child(replay, move);
-    }
-  } catch {
-    return 0;
-  }
-  return stationaryTurns;
-}
-
-/** 정지한 왕을 향해 거리를 실제로 줄이는 안전한 호위 수를 고른다. */
-function findPursuitMove(
-  state: GameState,
-  moves: Move[],
-  targetPlayer: Player,
-): Move | null {
-  const target = findKing(state, targetPlayer);
-  if (!target) return null;
-
-  let bestMove: Move | null = null;
-  let bestScore = -Infinity;
-  let hasAdvancingGuard = false;
-  for (const move of moves) {
-    if (move.kind !== 'MOVE') continue;
-    const piece = state.board[move.from.r][move.from.c];
-    if (piece?.type !== 'GUARD') continue;
-    const before = Math.abs(move.from.r - target.r) + Math.abs(move.from.c - target.c);
-    const after = Math.abs(move.to.r - target.r) + Math.abs(move.to.c - target.c);
-    if (after >= before) continue;
-    hasAdvancingGuard = true;
-    const score = (before - after) * 1_000 - after;
-    if (score > bestScore) {
-      bestScore = score;
-      bestMove = move;
-    }
-  }
-  if (hasAdvancingGuard) return bestMove;
-
-  // 전진 가능한 호위가 없으면 가장 앞쪽에 새 호위를 배치해 추격로를 만든다.
-  for (const move of moves) {
-    if (move.kind !== 'PLACE') continue;
-    const d = Math.abs(move.to.r - target.r) + Math.abs(move.to.c - target.c);
-    const score = -d;
-    if (score > bestScore) {
-      bestScore = score;
-      bestMove = move;
-    }
-  }
-  return bestMove;
-}
-
 export function chooseMove(
   state: GameState,
   config: RuleConfig,
@@ -915,18 +800,11 @@ export function chooseMove(
   const botSide = opts.botSide;
   const rng = opts.rng;
   const rootNoise = opts.rootNoise ?? 0;
-  const possibleTarget = opponent(state.turn);
-  const shouldPursue =
-    !(opts.elite ?? false) &&
-    config.kingCapture &&
-    stationaryKingTurns(state, possibleTarget, config) >= 3;
   const ctx = createSearchCtx(
     config,
     startedAt + maxMs,
     opts.elite ?? false,
     opts.maxNodes ?? Number.POSITIVE_INFINITY,
-    shouldPursue ? state.turn : null,
-    shouldPursue ? possibleTarget : null,
   );
   const finish = (move: Move | null, completedDepth: number): Move | null => {
     opts.onSearchComplete?.({
@@ -1030,11 +908,6 @@ export function chooseMove(
     captureSwing(state, netCapture, config) >= 3
   ) {
     chosen = netCapture;
-  }
-
-  if (shouldPursue && !isCapture(state, chosen)) {
-    const pursuit = findPursuitMove(state, allLegal, possibleTarget);
-    if (pursuit) chosen = pursuit;
   }
 
   if (completedDepth <= 1) {
