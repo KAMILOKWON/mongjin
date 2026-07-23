@@ -60,11 +60,19 @@ describe('settings', () => {
     expect(AI_DIFFICULTY_PRESETS.allMight.planStrength).toBeGreaterThan(
       AI_DIFFICULTY_PRESETS.expert.planStrength!,
     );
+    expect(AI_DIFFICULTY_PRESETS.expert.strategyLevel).toBeGreaterThan(
+      AI_DIFFICULTY_PRESETS.hard.strategyLevel!,
+    );
+    expect(AI_DIFFICULTY_PRESETS.allMight.strategyLevel).toBeGreaterThan(
+      AI_DIFFICULTY_PRESETS.expert.strategyLevel!,
+    );
   });
 
-  it('올마이트도 1.5초 안에 응수하도록 제한한다', () => {
-    expect(AI_DIFFICULTY_PRESETS.allMight.maxMs).toBeLessThanOrEqual(1_500);
-    expect(AI_DIFFICULTY_PRESETS.allMight.maxDepth).toBe(8);
-    expect(AI_DIFFICULTY_PRESETS.allMight.maxNodes).toBe(6_500);
+  it('올마이트는 3초 예산에서 최고 전략 평가와 깊이 9를 사용한다', () => {
+    expect(AI_DIFFICULTY_PRESETS.allMight.maxMs).toBeLessThanOrEqual(3_000);
+    expect(AI_DIFFICULTY_PRESETS.allMight.maxDepth).toBe(9);
+    expect(AI_DIFFICULTY_PRESETS.allMight.maxNodes).toBe(12_000);
+    expect(AI_DIFFICULTY_PRESETS.allMight.strategyLevel).toBe(3);
+    expect(AI_DIFFICULTY_PRESETS.allMight.elite).toBe(true);
   });
 });

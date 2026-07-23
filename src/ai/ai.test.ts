@@ -75,6 +75,29 @@ describe('AI (미니맥스)', () => {
     expect(m?.kind).toBe('PLACE');
   });
 
+  it('올마이트는 후공 레이스에서 왕만 쫓지 않고 호위 차단망을 확장한다', () => {
+    const s = makeState(
+      [
+        [4, 6, 'BLACK', 'KING'],
+        [6, 5, 'BLACK', 'GUARD'],
+        [3, 3, 'WHITE', 'KING'],
+        [1, 4, 'WHITE', 'GUARD'],
+      ],
+      'WHITE',
+      { BLACK: 7, WHITE: 7 },
+    );
+    const m = chooseMove(s, CFG, {
+      maxMs: 5_000,
+      maxDepth: 6,
+      maxNodes: 1_000,
+      planStrength: 1.7,
+      strategyLevel: 3,
+      elite: true,
+    });
+
+    expect(m).toEqual({ kind: 'PLACE', to: { r: 1, c: 5 } });
+  });
+
   it('다른 합법 수가 있으면 세 번째 동형 국면을 만드는 수를 피한다', () => {
     const s = makeState(
       [

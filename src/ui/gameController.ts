@@ -416,6 +416,7 @@ export class GameController {
       rng: (preset.rootNoise ?? 0) > 0 ? Math.random : undefined,
       rootNoise: preset.rootNoise ?? 0,
       planStrength: preset.planStrength ?? 1,
+      strategyLevel: preset.strategyLevel ?? 1,
     };
     try {
       const brain = getBotBrain(this.config);

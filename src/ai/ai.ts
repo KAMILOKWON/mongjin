@@ -46,6 +46,8 @@ export interface AiOptions {
   rootNoise?: number;
   /** 승리 계획(안전한 왕 전진·호위·마무리)의 루트 선택 반영 강도. */
   planStrength?: number;
+  /** 정적 평가 수준: 1 기본, 2 왕 안전, 3 포위 압력. */
+  strategyLevel?: 1 | 2 | 3;
   /** 선택적 보수적 LMR·반복 억제·포위 압력을 적용한다. */
   elite?: boolean;
   /** 진단·벤치용 탐색 통계 콜백. */
@@ -81,6 +83,8 @@ interface SearchCtx {
   elite: boolean;
   /** 전술 퀴에센스 한계 */
   quiescenceMax: number;
+  /** 난이도별 전략 평가 수준 */
+  strategyLevel: 1 | 2 | 3;
 }
 
 function moveSig(m: Move): string {
@@ -97,6 +101,7 @@ function createSearchCtx(
   deadline: number,
   elite = false,
   nodeLimit = Number.POSITIVE_INFINITY,
+  strategyLevel: 1 | 2 | 3 = 1,
 ): SearchCtx {
   const killers: (Move | null)[][] = [];
   for (let i = 0; i < MAX_KILLER_DEPTH; i++) killers.push([null, null]);
@@ -110,9 +115,10 @@ function createSearchCtx(
     history: new Map(),
     killers,
     elite,
-    // 퀴에센스를 과도하게 늘리면 체크 분기가 폭발해 본 탐색이
-    // 오히려 얕아진다. elite도 같은 전술 한계를 쓴다.
+    // 퀴에센스를 더 늘리면 체크 분기가 폭발해 올마이트의 본 탐색이
+    // 오히려 얕아진다. 난이도 차이는 본 탐색·평가 수준으로 만든다.
     quiescenceMax: QUIESCENCE_MAX,
+    strategyLevel,
   };
 }
 
@@ -269,6 +275,7 @@ function placementDelay(
 interface EvaluationScan {
   kings: Record<Player, Coord | null>;
   guardTotals: Record<Player, number>;
+  guards: Record<Player, Coord[]>;
   dangers: Record<Player, Uint8Array>;
 }
 
@@ -280,6 +287,7 @@ function scanForEvaluation(state: GameState, config: RuleConfig): EvaluationScan
     BLACK: state.guardsInHand.BLACK,
     WHITE: state.guardsInHand.WHITE,
   };
+  const guards: Record<Player, Coord[]> = { BLACK: [], WHITE: [] };
   const dangers: Record<Player, Uint8Array> = {
     BLACK: new Uint8Array(n * n),
     WHITE: new Uint8Array(n * n),
@@ -294,6 +302,7 @@ function scanForEvaluation(state: GameState, config: RuleConfig): EvaluationScan
         continue;
       }
       guardTotals[piece.player]++;
+      guards[piece.player].push({ r, c });
       if (!config.kingCapture) continue;
       const threatenedPlayer = opponent(piece.player);
       const danger = dangers[threatenedPlayer];
@@ -305,7 +314,37 @@ function scanForEvaluation(state: GameState, config: RuleConfig): EvaluationScan
     }
   }
 
-  return { kings, guardTotals, dangers };
+  return { kings, guardTotals, guards, dangers };
+}
+
+function safeKingMoveCount(
+  state: GameState,
+  king: Coord | null,
+  danger: Uint8Array,
+): number {
+  if (!king) return 0;
+  const n = state.board.length;
+  let count = 0;
+  for (const [dr, dc] of ALL8) {
+    const r = king.r + dr;
+    const c = king.c + dc;
+    if (!inBoard(n, r, c) || state.board[r][c] || danger[r * n + c]) continue;
+    count++;
+  }
+  return count;
+}
+
+/** 가까운 호위만 세어 무모한 장거리 추격 없이 실제 포위 압력을 평가한다. */
+function localHuntPressure(guards: Coord[], king: Coord | null): number {
+  if (!king) return 0;
+  let pressure = 0;
+  for (const guard of guards) {
+    const d = Math.abs(guard.r - king.r) + Math.abs(guard.c - king.c);
+    if (d === 1) pressure += 90;
+    else if (d === 2) pressure += 35;
+    else if (d === 3) pressure += 10;
+  }
+  return Math.min(240, pressure);
 }
 
 function kingThreatenedAt(
@@ -391,6 +430,7 @@ function evaluate(
   hints?: BotHints,
   botSide?: Player,
   elite = false,
+  strategyLevel: 1 | 2 | 3 = 1,
 ): number {
   const me = state.turn;
   const opp = opponent(me);
@@ -420,6 +460,21 @@ function evaluate(
       Math.min(escortCountAt(state, me, myKing), 3) -
       Math.min(escortCountAt(state, opp, oppKing), 3)
     );
+  }
+
+  if (strategyLevel >= 2) {
+    const safetyWeight = strategyLevel >= 3 ? 18 : 12;
+    score += safetyWeight * (
+      safeKingMoveCount(state, myKing, scan.dangers[me]) -
+      safeKingMoveCount(state, oppKing, scan.dangers[opp])
+    );
+    if (config.kingCapture) {
+      const huntWeight = strategyLevel >= 3 ? 1 : 0.45;
+      score += huntWeight * (
+        localHuntPressure(scan.guards[me], oppKing) -
+        localHuntPressure(scan.guards[opp], myKing)
+      );
+    }
   }
 
   // 선택적 포위 압력: 교착에서 상대 왕의 탈출 칸을 좁히는 쪽으로 수렴시킨다
@@ -596,6 +651,7 @@ function quiescence(
       hints,
       botSide,
       ctx.elite,
+      ctx.strategyLevel,
     );
   }
 
@@ -608,6 +664,7 @@ function quiescence(
     hints,
     botSide,
     ctx.elite,
+    ctx.strategyLevel,
   );
   const inCheck = kingThreatened(state, state.turn);
   if (qDepth <= 0) return standPat;
@@ -664,6 +721,7 @@ function negamax(
       hints,
       botSide,
       ctx.elite,
+      ctx.strategyLevel,
     );
   }
 
@@ -776,6 +834,10 @@ function allowsImmediateReplyWin(state: GameState, move: Move, config: RuleConfi
 interface RootPlanContext {
   strength: number;
   blocked: boolean;
+  strategyLevel: 1 | 2 | 3;
+  /** 지금부터 왕만 움직였을 때 상대보다 늦게 도착하는 반수(plies). */
+  raceDeficit: number;
+  opponentRoute: number;
 }
 
 function directGoalDistance(
@@ -796,12 +858,18 @@ function createRootPlanContext(
   state: GameState,
   config: RuleConfig,
   strength: number,
+  strategyLevel: 1 | 2 | 3,
 ): RootPlanContext {
   const king = findKing(state, state.turn);
   const safeRoute = bfsKingDist(state, state.turn, config);
+  const opponentRoute = bfsKingDist(state, opponent(state.turn), config);
   const directRoute = directGoalDistance(king, state.turn, config);
   return {
     strength,
+    strategyLevel,
+    opponentRoute,
+    // 현재 플레이어가 먼저 두므로 내 도착은 2d-1, 상대는 2d 반수 뒤다.
+    raceDeficit: Math.max(0, 2 * safeRoute - 1 - 2 * opponentRoute),
     blocked:
       kingThreatenedAt(state, state.turn, king) || safeRoute > directRoute + 1,
   };
@@ -819,7 +887,7 @@ function rootPlanBonus(
   config: RuleConfig,
   plan: RootPlanContext,
 ): number {
-  const { strength, blocked } = plan;
+  const { strength, blocked, strategyLevel, raceDeficit } = plan;
   if (strength <= 0) return 0;
   const me = state.turn;
   const opp = opponent(me);
@@ -848,6 +916,18 @@ function rootPlanBonus(
         const after = Math.abs(move.to.r - oppKing.r) + Math.abs(move.to.c - oppKing.c);
         // 실제 한 수 위협을 만드는 추격만 계획에 포함한다.
         if (after === 1 && before > after) score += 70;
+        if (raceDeficit > 0 && strategyLevel >= 2 && after < before) {
+          // 후공 레이스를 그대로 따라가면 한 수 차로 진다. 상위 난이도는
+          // 목적지 쪽에 먼저 전개한 호위를 상대 왕 쪽으로 당겨 템포를 번다.
+          const opponentGoalR = goalRow(opp, state.board.length);
+          const guardAhead =
+            Math.abs(move.to.r - opponentGoalR) <=
+            Math.abs(oppKing.r - opponentGoalR) + 1;
+          if (guardAhead) {
+            const interceptWeight = strategyLevel >= 3 ? 150 : 45;
+            score += interceptWeight * (before - after) * Math.min(raceDeficit, 3);
+          }
+        }
       }
       if (blocked && myKing) {
         const beforeSupport = Math.max(
@@ -870,6 +950,16 @@ function rootPlanBonus(
     if (blocked) score += adjacent ? 180 : 35;
   }
 
+  if (raceDeficit > 0 && strategyLevel >= 2) {
+    // 눈앞의 왕만 쫓지 않고 실제 안전 경로를 늘리는 차단수를 최우선한다.
+    const next = child(state, move);
+    const delayedBy = bfsKingDist(next, opp, config) - plan.opponentRoute;
+    if (delayedBy > 0) {
+      const delayWeight = strategyLevel >= 3 ? 170 : 60;
+      score += delayWeight * delayedBy * Math.min(raceDeficit, 3);
+    }
+  }
+
   return score * strength;
 }
 
@@ -886,11 +976,13 @@ export function chooseMove(
   const rng = opts.rng;
   const rootNoise = opts.rootNoise ?? 0;
   const planStrength = opts.planStrength ?? 1;
+  const strategyLevel = opts.strategyLevel ?? 1;
   const ctx = createSearchCtx(
     config,
     startedAt + maxMs,
     opts.elite ?? false,
     opts.maxNodes ?? Number.POSITIVE_INFINITY,
+    strategyLevel,
   );
   const finish = (move: Move | null, completedDepth: number): Move | null => {
     opts.onSearchComplete?.({
@@ -902,8 +994,9 @@ export function chooseMove(
     return move;
   };
   const legal = legalMoves(state, config);
-  // elite(올마이트)는 2회 등장 위치도 회피해, 2회 반복 구간을 오가는 셔플 교착을 끊는다.
-  const repetitionLimit = opts.elite ? 1 : 2;
+  // 모든 난이도는 세 번째 동일 국면만 피한다. 최고 난이도의 과도한
+  // 2회 반복 금지는 필요한 템포 수까지 제거해 오히려 약해졌다.
+  const repetitionLimit = 2;
   const repetitionSafe = legal.filter((move) => {
     const key = positionKey(child(state, move));
     return (state.positionCounts[key] ?? 0) < repetitionLimit;
@@ -930,7 +1023,7 @@ export function chooseMove(
   const safetyRestricted = safeMoves.length > 0 && safeMoves.length < moves.length;
   if (safetyRestricted) moves = safeMoves;
 
-  const rootPlan = createRootPlanContext(state, config, planStrength);
+  const rootPlan = createRootPlanContext(state, config, planStrength, strategyLevel);
   const planBonuses = new Map(
     moves.map((move) => [moveSig(move), rootPlanBonus(state, move, config, rootPlan)]),
   );
