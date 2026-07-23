@@ -103,10 +103,9 @@ app.innerHTML = `
       <section id="ai-settings" class="settings-card">
         <label>봇 난이도
           <select id="ai-difficulty">
-            <option value="normal">보통</option>
-            <option value="hard" selected>어려움</option>
-            <option value="expert">고수</option>
-            <option value="allMight">올마이트</option>
+            <option value="easy">쉬움</option>
+            <option value="normal" selected>보통</option>
+            <option value="hard">어려움</option>
           </select>
         </label>
         <label>내 색
@@ -160,10 +159,9 @@ app.innerHTML = `
       </div>
       <label>난이도
         <select id="setup-difficulty">
-          <option value="normal">보통 · 빠르게 둬요</option>
-          <option value="hard" selected>어려움 · 수비와 반격을 읽어요</option>
-          <option value="expert">고수 · 깊게 탐색해 도전해요</option>
-          <option value="allMight">올마이트 · 최대 3초 동안 정밀하게 읽어요</option>
+          <option value="easy">쉬움 · 수비와 반격을 읽어요</option>
+          <option value="normal" selected>보통 · 깊게 탐색해 추격과 포위를 노려요</option>
+          <option value="hard">어려움 · 최대 3초 동안 정밀하게 읽어요</option>
         </select>
       </label>
       <label>내 진영

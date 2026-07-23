@@ -33,13 +33,13 @@ npm run bot:selfplay              # 60판 (fast, 기본)
 npm run bot:selfplay 120          # 120판 fast
 npm run bot:selfplay -- 100 --strong          # strong + 전략 merge
 npm run bot:selfplay -- 100 --strong --replace
-npm run bot:bench                 # 고수 vs 올마이트 20판 페어 벤치
+npm run bot:bench                 # 보통 vs 어려움 20판 페어 벤치
 npm run bot:bench -- 20 --full    # 실제 시간 프리셋(매우 느림)
 ```
 
 → `bot/strategies/generated.json` + `bot/games/selfplay/*.mgn`
 
-벤치는 10개의 강제 오프닝을 흑·백 교차 배정하고, 무승부를 승리로 계산하지 않는다. 올마이트가 전체 20판 중 18승(90%) 미만이면 종료 코드 2를 반환한다.
+벤치는 10개의 강제 오프닝을 흑·백 교차 배정하고, 무승부를 승리로 계산하지 않는다. 어려움이 전체 20판 중 18승(90%) 미만이면 종료 코드 2를 반환한다.
 
 ## MGN (Mongjin Game Notation)
 

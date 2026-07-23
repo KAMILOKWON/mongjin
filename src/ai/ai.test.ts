@@ -75,7 +75,7 @@ describe('AI (미니맥스)', () => {
     expect(m?.kind).toBe('PLACE');
   });
 
-  it('올마이트는 후공 레이스에서 왕만 쫓지 않고 호위 차단망을 확장한다', () => {
+  it('어려움 AI는 후공 레이스에서 왕만 쫓지 않고 호위 차단망을 확장한다', () => {
     const s = makeState(
       [
         [4, 6, 'BLACK', 'KING'],

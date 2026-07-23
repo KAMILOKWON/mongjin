@@ -56,7 +56,7 @@ type Listener = () => void;
 
 export class GameController {
   private config: RuleConfig = { ...DEFAULT_CONFIG };
-  private settings: GameSettings = { mode: 'ai', humanColor: 'BLACK', aiDifficulty: 'hard' };
+  private settings: GameSettings = { mode: 'ai', humanColor: 'BLACK', aiDifficulty: 'normal' };
   private humanSide: Player = 'BLACK';
   private aiSide: Player = 'WHITE';
   private onlineSide: Player | null = null;

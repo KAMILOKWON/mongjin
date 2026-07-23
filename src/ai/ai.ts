@@ -115,7 +115,7 @@ function createSearchCtx(
     history: new Map(),
     killers,
     elite,
-    // 퀴에센스를 더 늘리면 체크 분기가 폭발해 올마이트의 본 탐색이
+    // 퀴에센스를 더 늘리면 체크 분기가 폭발해 어려움의 본 탐색이
     // 오히려 얕아진다. 난이도 차이는 본 탐색·평가 수준으로 만든다.
     quiescenceMax: QUIESCENCE_MAX,
     strategyLevel,

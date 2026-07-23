@@ -1,17 +1,17 @@
 #!/usr/bin/env npx tsx
 /**
- * 난이도 헤드투헤드 벤치 (기본: 고수 expert vs 올마이트 allMight)
+ * 난이도 헤드투헤드 벤치 (기본: 보통 normal vs 어려움 hard)
  * 사용:
  *   npm run bot:bench                     # 빠른 비교 20판
  *   npm run bot:bench -- 40               # 40판
  *   npm run bot:bench -- 20 --scale 0.5   # 제품 노드 예산 비율 조정 (기본 0.25)
  *   npm run bot:bench -- 20 --max-plies 240
  *   npm run bot:bench -- 8 --full         # 실제 프리셋 예산 (느림)
- *   npm run bot:bench -- 20 hard expert   # 대결 조합 지정 (A vs B, B의 승률 표시)
- *   npm run bot:bench -- 2 hard expert --full --trace # 전체 착수 출력
+ *   npm run bot:bench -- 20 easy normal   # 대결 조합 지정 (A vs B, B의 승률 표시)
+ *   npm run bot:bench -- 2 normal hard --full --trace # 전체 착수 출력
  *
  * 같은 강제 오프닝을 두 번 두되 AI의 흑/백 배정을 바꿔 색 유불리를 상쇄한다.
- * 올마이트는 결정적으로 두고, 낮은 난이도의 제품용 평가 오차는 고정 시드로
+ * 어려움은 결정적으로 두고, 낮은 난이도의 제품용 평가 오차는 고정 시드로
  * 재현해 CPU 속도와 실행 순서가 달라져도 같은 대국 조건을 보장한다.
  */
 import { DEFAULT_CONFIG } from '../src/core/config';
@@ -127,8 +127,8 @@ function parseArgs(argv: string[]): {
     full,
     scale,
     maxPlies,
-    diffA: diffs[0] ?? 'expert',
-    diffB: diffs[1] ?? 'allMight',
+    diffA: diffs[0] ?? 'normal',
+    diffB: diffs[1] ?? 'hard',
     trace,
   };
 }

@@ -15,7 +15,7 @@ export const SELFPLAY_AI_OPTIONS: AiOptions = {
 };
 
 /**
- * 올마이트 학습용 — fast보다 깊게 두되 대량 배치가 가능한 예산.
+ * 어려움급 학습용 — fast보다 깊게 두되 대량 배치가 가능한 예산.
  * 다양성은 rootNoise가 아니라 강제 오프닝 분기로 확보한다.
  */
 export const SELFPLAY_STRONG_AI_OPTIONS: AiOptions = {
