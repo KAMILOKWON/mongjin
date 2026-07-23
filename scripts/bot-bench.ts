@@ -8,6 +8,7 @@
  *   npm run bot:bench -- 20 --max-plies 240
  *   npm run bot:bench -- 8 --full         # 실제 프리셋 예산 (느림)
  *   npm run bot:bench -- 20 hard expert   # 대결 조합 지정 (A vs B, B의 승률 표시)
+ *   npm run bot:bench -- 2 hard expert --full --trace # 전체 착수 출력
  *
  * 같은 강제 오프닝을 두 번 두되 AI의 흑/백 배정을 바꿔 색 유불리를 상쇄한다.
  * 올마이트는 결정적으로 두고, 낮은 난이도의 제품용 평가 오차는 고정 시드로
@@ -20,7 +21,7 @@ import { getResult } from '../src/core/result';
 import { chooseMove, type AiOptions } from '../src/ai/ai';
 import { getBotBrain } from '../src/bot/brain';
 import { AI_DIFFICULTY_PRESETS, type AiDifficulty } from '../src/game/settings';
-import type { Player } from '../src/core/types';
+import type { Move, Player } from '../src/core/types';
 import { forcedOpeningMove } from '../bot/selfplay/play';
 
 function mulberry32(seed: number): () => number {
@@ -44,16 +45,22 @@ function parseArgs(argv: string[]): {
   maxPlies: number;
   diffA: AiDifficulty;
   diffB: AiDifficulty;
+  trace: boolean;
 } {
   let games = 20;
   let full = false;
   let scale = DEFAULT_SCALE;
   let maxPlies = DEFAULT_MAX_PLIES;
   const diffs: AiDifficulty[] = [];
+  let trace = false;
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i]!;
     if (arg === '--full') {
       full = true;
+      continue;
+    }
+    if (arg === '--trace') {
+      trace = true;
       continue;
     }
     if (arg === '--scale') {
@@ -122,6 +129,7 @@ function parseArgs(argv: string[]): {
     maxPlies,
     diffA: diffs[0] ?? 'expert',
     diffB: diffs[1] ?? 'allMight',
+    trace,
   };
 }
 
@@ -139,6 +147,7 @@ function optsFor(
       hintScale: p.hintScale ?? 1,
       elite: p.elite ?? false,
       rootNoise: p.rootNoise ?? 0,
+      planStrength: p.planStrength ?? 1,
     };
   }
   // 양쪽 프리셋에 같은 비율을 적용한 노드 상한으로 시계·CPU 분산을 제거한다.
@@ -150,6 +159,7 @@ function optsFor(
     hintScale: p.hintScale ?? 1,
     elite: p.elite ?? false,
     rootNoise: p.rootNoise ?? 0,
+    planStrength: p.planStrength ?? 1,
   };
 }
 
@@ -160,7 +170,7 @@ function playMatch(
   scale: number,
   openingIndex: number,
   maxPlies: number,
-): { winner: Player | 'DRAW'; plies: number; reason: string } {
+): { winner: Player | 'DRAW'; plies: number; reason: string; moves: Move[] } {
   const brain = getBotBrain(DEFAULT_CONFIG);
   let state = initialState(DEFAULT_CONFIG);
   const blackOpts = optsFor(blackDiff, full, scale);
@@ -179,7 +189,7 @@ function playMatch(
   for (let ply = state.history.length; ply < maxPlies; ply++) {
     const result = getResult(state, DEFAULT_CONFIG);
     if (result) {
-      return { winner: result.winner, plies: state.history.length, reason: result.reason };
+      return { winner: result.winner, plies: state.history.length, reason: result.reason, moves: state.history };
     }
     const side = state.turn;
     const o = side === 'BLACK' ? blackOpts : whiteOpts;
@@ -193,16 +203,17 @@ function playMatch(
       rng: (o.rootNoise ?? 0) > 0 ? (side === 'BLACK' ? blackRng : whiteRng) : undefined,
       rootNoise: o.rootNoise ?? 0,
       elite: o.elite ?? false,
+      planStrength: o.planStrength ?? 1,
     });
     if (!move) {
-      return { winner: 'DRAW', plies: state.history.length, reason: 'no-move' };
+      return { winner: 'DRAW', plies: state.history.length, reason: 'no-move', moves: state.history };
     }
     state = applyMove(state, move);
   }
-  return { winner: 'DRAW', plies: state.history.length, reason: 'cap' };
+  return { winner: 'DRAW', plies: state.history.length, reason: 'cap', moves: state.history };
 }
 
-const { games, full, scale, maxPlies, diffA, diffB } = parseArgs(process.argv.slice(2));
+const { games, full, scale, maxPlies, diffA, diffB, trace } = parseArgs(process.argv.slice(2));
 const aOpts = optsFor(diffA, full, scale);
 const bOpts = optsFor(diffB, full, scale);
 const budgetText = (name: AiDifficulty, opts: AiOptions & { hintScale: number }) =>
@@ -231,6 +242,7 @@ for (let i = 0; i < games; i++) {
   console.log(
     `[${i + 1}/${games}] opening-${openingIndex + 1} · ${diffB}=${bIsBlack ? 'BLACK' : 'WHITE'} → ${out.winner} (${out.reason}, ${out.plies}수)`,
   );
+  if (trace) console.log(JSON.stringify(out.moves));
 }
 
 const elapsed = ((performance.now() - t0) / 1000).toFixed(1);
