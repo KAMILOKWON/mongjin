@@ -86,7 +86,9 @@ describe('AI 강함 회귀 테스트', () => {
       const aiOpts: AiOptions = {
         maxMs: 5_000,
         maxDepth: preset.maxDepth,
-        maxNodes: preset.maxNodes,
+        // CI의 느린 CPU에서도 worker RPC 제한에 걸리지 않도록 축소 예산을
+        // 사용한다. 제품 프리셋보다 적은 노드에서도 계획을 완주해야 한다.
+        maxNodes: Math.min(preset.maxNodes, 350),
         rootNoise: preset.rootNoise,
         planStrength: preset.planStrength,
         rng: mulberry32(101),
