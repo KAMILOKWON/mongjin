@@ -773,6 +773,40 @@ function allowsImmediateReplyWin(state: GameState, move: Move, config: RuleConfi
   return findWinningMove(next, replies, config) !== null;
 }
 
+interface RootPlanContext {
+  strength: number;
+  blocked: boolean;
+}
+
+function directGoalDistance(
+  king: Coord | null,
+  player: Player,
+  config: RuleConfig,
+): number {
+  if (!king) return BLOCKED_DIST;
+  return Math.min(
+    ...goalCellsFor(player, config).map((goal) =>
+      Math.max(Math.abs(goal.r - king.r), Math.abs(goal.c - king.c)),
+    ),
+  );
+}
+
+/** 안전 경로가 기하학적 최단거리보다 길면 왕의 진로가 막힌 상태다. */
+function createRootPlanContext(
+  state: GameState,
+  config: RuleConfig,
+  strength: number,
+): RootPlanContext {
+  const king = findKing(state, state.turn);
+  const safeRoute = bfsKingDist(state, state.turn, config);
+  const directRoute = directGoalDistance(king, state.turn, config);
+  return {
+    strength,
+    blocked:
+      kingThreatenedAt(state, state.turn, king) || safeRoute > directRoute + 1,
+  };
+}
+
 /**
  * 검색 점수가 비슷할 때 승리로 수렴시키는 루트 계획 점수.
  *
@@ -783,8 +817,9 @@ function rootPlanBonus(
   state: GameState,
   move: Move,
   config: RuleConfig,
-  strength: number,
+  plan: RootPlanContext,
 ): number {
+  const { strength, blocked } = plan;
   if (strength <= 0) return 0;
   const me = state.turn;
   const opp = opponent(me);
@@ -799,6 +834,11 @@ function rootPlanBonus(
       const advance =
         Math.abs(move.from.r - goalR) - Math.abs(move.to.r - goalR);
       score += advance > 0 ? 90 * advance : advance < 0 ? 110 * advance : -8;
+      if (blocked) {
+        // 막혔을 때 후퇴·횡보를 반복하는 대신 호위로 진로를 정리한다.
+        if (advance < 0) score += 180 * advance;
+        else if (advance === 0) score -= 70;
+      }
       if (isGoalCell(me, move.to, config)) score += WIN;
     } else if (piece?.type === 'GUARD') {
       const target = state.board[move.to.r][move.to.c];
@@ -809,6 +849,17 @@ function rootPlanBonus(
         // 실제 한 수 위협을 만드는 추격만 계획에 포함한다.
         if (after === 1 && before > after) score += 70;
       }
+      if (blocked && myKing) {
+        const beforeSupport = Math.max(
+          Math.abs(move.from.r - myKing.r),
+          Math.abs(move.from.c - myKing.c),
+        );
+        const afterSupport = Math.max(
+          Math.abs(move.to.r - myKing.r),
+          Math.abs(move.to.c - myKing.c),
+        );
+        score += 70 + Math.max(0, beforeSupport - afterSupport) * 50;
+      }
     }
   } else if (myKing) {
     const adjacent =
@@ -816,6 +867,7 @@ function rootPlanBonus(
     const escorts = escortCountAt(state, me, myKing);
     if (adjacent && escorts < 2) score += 45 * (2 - escorts);
     else score -= 8;
+    if (blocked) score += adjacent ? 180 : 35;
   }
 
   return score * strength;
@@ -878,6 +930,11 @@ export function chooseMove(
   const safetyRestricted = safeMoves.length > 0 && safeMoves.length < moves.length;
   if (safetyRestricted) moves = safeMoves;
 
+  const rootPlan = createRootPlanContext(state, config, planStrength);
+  const planBonuses = new Map(
+    moves.map((move) => [moveSig(move), rootPlanBonus(state, move, config, rootPlan)]),
+  );
+
   let lastCompleted: Move[] = [moves[0]];
   let completedDepth = 0;
 
@@ -904,7 +961,7 @@ export function chooseMove(
         break;
       }
       const noise = rootNoise > 0 && rng ? (rng() * 2 - 1) * rootNoise : 0;
-      const ranked = v + noise + rootPlanBonus(state, m, config, planStrength);
+      const ranked = v + noise + (planBonuses.get(moveSig(m)) ?? 0);
       if (ranked > best) {
         best = ranked;
         bestSearchScore = v;
