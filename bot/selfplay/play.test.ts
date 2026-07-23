@@ -27,6 +27,8 @@ describe('셀프플레이', () => {
   it('strong 프리셋이 fast보다 깊게 탐색한다', () => {
     expect(SELFPLAY_STRONG_AI_OPTIONS.maxMs).toBeGreaterThan(SELFPLAY_AI_OPTIONS.maxMs!);
     expect(SELFPLAY_STRONG_AI_OPTIONS.maxDepth).toBeGreaterThan(SELFPLAY_AI_OPTIONS.maxDepth!);
+    expect(SELFPLAY_STRONG_AI_OPTIONS.strategyLevel).toBe(3);
+    expect(SELFPLAY_STRONG_AI_OPTIONS.elite).toBe(true);
     expect(selfPlayOptionsFor('strong').maxMs).toBe(SELFPLAY_STRONG_AI_OPTIONS.maxMs);
     expect(selfPlayOptionsFor('fast').maxMs).toBe(SELFPLAY_AI_OPTIONS.maxMs);
   });

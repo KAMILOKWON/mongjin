@@ -148,6 +148,7 @@ function optsFor(
       elite: p.elite ?? false,
       rootNoise: p.rootNoise ?? 0,
       planStrength: p.planStrength ?? 1,
+      strategyLevel: p.strategyLevel ?? 1,
     };
   }
   // 양쪽 프리셋에 같은 비율을 적용한 노드 상한으로 시계·CPU 분산을 제거한다.
@@ -160,6 +161,7 @@ function optsFor(
     elite: p.elite ?? false,
     rootNoise: p.rootNoise ?? 0,
     planStrength: p.planStrength ?? 1,
+    strategyLevel: p.strategyLevel ?? 1,
   };
 }
 
@@ -204,6 +206,7 @@ function playMatch(
       rootNoise: o.rootNoise ?? 0,
       elite: o.elite ?? false,
       planStrength: o.planStrength ?? 1,
+      strategyLevel: o.strategyLevel ?? 1,
     });
     if (!move) {
       return { winner: 'DRAW', plies: state.history.length, reason: 'no-move', moves: state.history };

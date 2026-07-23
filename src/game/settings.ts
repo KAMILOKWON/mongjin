@@ -15,6 +15,8 @@ export interface AiDifficultyPreset {
   rootNoise?: number;
   /** 왕 전진·호위·마무리 계획을 루트 선택에 반영하는 강도. */
   planStrength?: number;
+  /** 정적 평가 수준: 1 기본, 2 왕 안전, 3 포위·정밀 탐색. */
+  strategyLevel?: 1 | 2 | 3;
   /** 전략서 힌트 배율 (기본 1). */
   hintScale?: number;
   /** 선택적 보수적 LMR·반복 억제·포위 압력. */
@@ -24,7 +26,7 @@ export interface AiDifficultyPreset {
 /**
  * 완료 깊이·노드 예산으로 강도를 고정하고 maxMs는 기기별 안전 한계로만 쓴다.
  * 각 프리셋은 제한 시간 안에 반복 심화를 끝낼 수 있는 노드 예산을 쓴다.
- * 올마이트는 최대 1.5초·깊이 8로 탐색하는 최고 난이도다.
+ * 올마이트는 최대 3초·깊이 9로 탐색하는 최고 난이도다.
  */
 export const AI_DIFFICULTY_PRESETS: Record<AiDifficulty, AiDifficultyPreset> = {
   normal: {
@@ -33,35 +35,40 @@ export const AI_DIFFICULTY_PRESETS: Record<AiDifficulty, AiDifficultyPreset> = {
     maxMs: 200,
     maxDepth: 4,
     maxNodes: 700,
-    rootNoise: 120,
-    planStrength: 0.9,
+    rootNoise: 140,
+    planStrength: 0.85,
+    strategyLevel: 1,
   },
   hard: {
     label: '어려움',
     description: '수비와 반격을 깊게 읽는다',
     maxMs: 800,
     maxDepth: 6,
-    maxNodes: 2_250,
-    rootNoise: 35,
-    planStrength: 1.15,
+    maxNodes: 2_500,
+    rootNoise: 45,
+    planStrength: 1.05,
+    strategyLevel: 1,
   },
   expert: {
     label: '고수',
     description: '깊게 탐색해 추격과 포위를 노린다',
-    maxMs: 1500,
-    maxDepth: 7,
-    maxNodes: 6_000,
-    rootNoise: 0,
-    planStrength: 2.4,
+    maxMs: 1800,
+    maxDepth: 8,
+    maxNodes: 8_000,
+    rootNoise: 8,
+    planStrength: 1.45,
+    strategyLevel: 2,
   },
   allMight: {
     label: '올마이트',
-    description: '최고 수를 1.5초 안에 읽는다',
-    maxMs: 1500,
-    maxDepth: 8,
-    maxNodes: 6_500,
+    description: '정밀 탐색으로 포위와 승리를 끝까지 읽는다',
+    maxMs: 3000,
+    maxDepth: 9,
+    maxNodes: 12_000,
     rootNoise: 0,
-    planStrength: 3,
+    planStrength: 1.7,
+    strategyLevel: 3,
+    elite: true,
   },
 };
 

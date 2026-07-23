@@ -19,8 +19,12 @@ export const SELFPLAY_AI_OPTIONS: AiOptions = {
  * 다양성은 rootNoise가 아니라 강제 오프닝 분기로 확보한다.
  */
 export const SELFPLAY_STRONG_AI_OPTIONS: AiOptions = {
-  maxMs: 220,
-  maxDepth: 12,
+  maxMs: 400,
+  maxDepth: 9,
+  maxNodes: 3_000,
+  planStrength: 1.7,
+  strategyLevel: 3,
+  elite: true,
 };
 
 export type SelfPlayStrength = 'fast' | 'strong';
