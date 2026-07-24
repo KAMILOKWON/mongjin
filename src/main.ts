@@ -159,9 +159,9 @@ app.innerHTML = `
       </div>
       <label>난이도
         <select id="setup-difficulty">
-          <option value="easy">쉬움 · 수비와 반격을 읽어요</option>
-          <option value="normal" selected>보통 · 깊게 탐색해 추격과 포위를 노려요</option>
-          <option value="hard">어려움 · 최대 3초 동안 정밀하게 읽어요</option>
+          <option value="easy">쉬움 · 기본 수와 즉시 전술을 익혀요</option>
+          <option value="normal" selected>보통 · 초보 전술과 기본 수비를 읽어요</option>
+          <option value="hard">어려움 · 최대 4.3초 동안 최선 수를 깊게 읽어요</option>
         </select>
       </label>
       <label>내 진영

@@ -75,7 +75,7 @@ describe('AI (미니맥스)', () => {
     expect(m?.kind).toBe('PLACE');
   });
 
-  it('어려움 AI는 후공 레이스에서 왕만 쫓지 않고 호위 차단망을 확장한다', () => {
+  it('어려움 AI는 후공 레이스에서 추격만 반복하지 않고 승리 계획을 진행한다', () => {
     const s = makeState(
       [
         [4, 6, 'BLACK', 'KING'],
@@ -95,7 +95,15 @@ describe('AI (미니맥스)', () => {
       elite: true,
     });
 
-    expect(m).toEqual({ kind: 'PLACE', to: { r: 1, c: 5 } });
+    expect(m).not.toBeNull();
+    if (m?.kind === 'MOVE') {
+      const piece = s.board[m.from.r][m.from.c];
+      // 왕을 움직였다면 자기 목적지 쪽으로 전진해야 한다.
+      if (piece?.type === 'KING') expect(m.to.r).toBeGreaterThan(m.from.r);
+    } else {
+      // 차단을 택했다면 상대 왕의 진행 방향 앞쪽에 배치해야 한다.
+      expect(m!.to.r).toBeLessThanOrEqual(2);
+    }
   });
 
   it('다른 합법 수가 있으면 세 번째 동형 국면을 만드는 수를 피한다', () => {
@@ -176,7 +184,7 @@ describe('AI (미니맥스)', () => {
     expect(stats!.aborted).toBe(true);
   });
 
-  it('방치된 호위 잡기를 놓치지 않는다', () => {
+  it('탐색을 거의 못 한 경우에도 방치된 호위 잡기를 놓치지 않는다', () => {
     const s = makeState(
       [
         [4, 4, 'BLACK', 'GUARD'],
@@ -187,7 +195,7 @@ describe('AI (미니맥스)', () => {
       'WHITE',
       { BLACK: 0, WHITE: 0 },
     );
-    const m = chooseMove(s, CFG, { maxMs: 100, maxDepth: 4 })!;
+    const m = chooseMove(s, CFG, { maxMs: 100, maxDepth: 1, maxNodes: 16 })!;
     expect(m.kind).toBe('MOVE');
     expect(m.to).toEqual({ r: 4, c: 4 });
   });

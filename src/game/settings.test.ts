@@ -37,8 +37,12 @@ describe('settings', () => {
     expect(AI_DIFFICULTY_PRESETS.hard.maxNodes).toBeGreaterThan(
       AI_DIFFICULTY_PRESETS.normal.maxNodes,
     );
-    expect(AI_DIFFICULTY_PRESETS.easy.maxNodes).toBeGreaterThanOrEqual(2_250);
-    expect(AI_DIFFICULTY_PRESETS.normal.maxNodes).toBeGreaterThanOrEqual(6_000);
+    expect(AI_DIFFICULTY_PRESETS.easy.choiceWindow).toBeGreaterThan(
+      AI_DIFFICULTY_PRESETS.normal.choiceWindow,
+    );
+    expect(AI_DIFFICULTY_PRESETS.normal.choiceWindow).toBeGreaterThan(
+      AI_DIFFICULTY_PRESETS.hard.choiceWindow,
+    );
     expect(AI_DIFFICULTY_PRESETS.easy.rootNoise).toBeGreaterThan(
       AI_DIFFICULTY_PRESETS.normal.rootNoise!,
     );
@@ -59,10 +63,11 @@ describe('settings', () => {
     );
   });
 
-  it('어려움은 3초 예산에서 최고 전략 평가와 깊이 9를 사용한다', () => {
-    expect(AI_DIFFICULTY_PRESETS.hard.maxMs).toBeLessThanOrEqual(3_000);
-    expect(AI_DIFFICULTY_PRESETS.hard.maxDepth).toBe(9);
-    expect(AI_DIFFICULTY_PRESETS.hard.maxNodes).toBe(12_000);
+  it('어려움은 5초 안에서 최고 전략과 큰 탐색 예산을 사용한다', () => {
+    expect(AI_DIFFICULTY_PRESETS.hard.maxMs).toBeLessThan(5_000);
+    expect(AI_DIFFICULTY_PRESETS.hard.maxDepth).toBeGreaterThanOrEqual(12);
+    expect(AI_DIFFICULTY_PRESETS.hard.maxNodes).toBeGreaterThanOrEqual(80_000);
+    expect(AI_DIFFICULTY_PRESETS.hard.choiceWindow).toBeLessThanOrEqual(2);
     expect(AI_DIFFICULTY_PRESETS.hard.strategyLevel).toBe(3);
     expect(AI_DIFFICULTY_PRESETS.hard.elite).toBe(true);
   });

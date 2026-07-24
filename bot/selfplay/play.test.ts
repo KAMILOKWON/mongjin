@@ -4,6 +4,7 @@ import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { DEFAULT_CONFIG } from '../../src/core/config';
 import { initialState } from '../../src/core/rules';
+import { applyMove } from '../../src/core/apply';
 import {
   forcedOpeningMove,
   playAiVsAi,
@@ -51,6 +52,20 @@ describe('셀프플레이', () => {
           a0.from.r === b0.from.r &&
           a0.from.c === b0.from.c));
     expect(sameFirst).toBe(false);
+  });
+
+  it('벤치용 첫 10개 인덱스가 서로 다른 4수 오프닝을 만든다', () => {
+    const openings = new Set<string>();
+    for (let gameIndex = 0; gameIndex < 10; gameIndex++) {
+      let state = initialState(DEFAULT_CONFIG);
+      for (let ply = 0; ply < 4; ply++) {
+        const move = forcedOpeningMove(state, DEFAULT_CONFIG, gameIndex);
+        expect(move).not.toBeNull();
+        state = applyMove(state, move!);
+      }
+      openings.add(JSON.stringify(state.history));
+    }
+    expect(openings.size).toBe(10);
   });
 
   it(

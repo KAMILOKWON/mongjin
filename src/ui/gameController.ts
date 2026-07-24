@@ -413,8 +413,9 @@ export class GameController {
       maxDepth,
       maxNodes: preset.maxNodes,
       elite: preset.elite ?? false,
-      rng: (preset.rootNoise ?? 0) > 0 ? Math.random : undefined,
+      rng: preset.choiceWindow > 0 ? Math.random : undefined,
       rootNoise: preset.rootNoise ?? 0,
+      choiceWindow: preset.choiceWindow,
       planStrength: preset.planStrength ?? 1,
       strategyLevel: preset.strategyLevel ?? 1,
     };

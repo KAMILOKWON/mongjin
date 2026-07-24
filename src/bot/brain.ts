@@ -55,7 +55,7 @@ export class BotBrain {
   }
 
   /**
-   * @param scale 전략 힌트 강도. 어려움은 1보다 크게 줘서 북·모티프를 더 강하게 반영한다.
+   * @param scale 전략 힌트 강도. 프리셋별로 북·모티프 반영량을 조절할 수 있다.
    */
   hintsFor(state: GameState, botSide: 'BLACK' | 'WHITE', scale = 1): BotHints {
     const strategies = this.book.exportJson();

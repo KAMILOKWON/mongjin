@@ -2,7 +2,6 @@ import type { Coord, GameState, Move, Player } from '../core/types';
 import type { RuleConfig } from '../core/config';
 import type { BotHints } from '../bot/brain';
 import {
-  captureSwing,
   findWinningMove,
   pickObviousMove,
 } from './tactics';
@@ -42,8 +41,10 @@ export interface AiOptions {
   botSide?: Player;
   /** 동점·근접 최선수 무작위 선택 (셀프플레이 다양성) */
   rng?: () => number;
-  /** 루트 점수에 더하는 대칭 평가 오차 폭(난이도·셀프플레이용). */
+  /** choiceWindow 미지정 호출을 위한 이전 이름의 선택 허용폭. */
   rootNoise?: number;
+  /** 순수 탐색 최선점수에서 이 범위 안의 수만 무작위 후보로 허용한다. */
+  choiceWindow?: number;
   /** 승리 계획(안전한 왕 전진·호위·마무리)의 루트 선택 반영 강도. */
   planStrength?: number;
   /** 정적 평가 수준: 1 기본, 2 왕 안전, 3 포위 압력. */
@@ -94,6 +95,44 @@ function moveSig(m: Move): string {
 
 function movesEqual(a: Move, b: Move): boolean {
   return moveSig(a) === moveSig(b);
+}
+
+interface RootCandidate {
+  move: Move;
+  score: number;
+}
+
+/**
+ * 탐색으로 검증된 근접 최선수 안에서만 계획 점수를 타이브레이커로 쓴다.
+ * rng가 있으면 모든 후보에 선택 가능성을 남기되 더 좋은 계획을 선호한다.
+ */
+function pickRootCandidate(
+  candidates: RootCandidate[],
+  planBonuses: Map<string, number>,
+  rng?: () => number,
+): Move {
+  if (candidates.length === 1) return candidates[0]!.move;
+
+  const bonuses = candidates.map((candidate) => planBonuses.get(moveSig(candidate.move)) ?? 0);
+  if (!rng) {
+    let bestIndex = 0;
+    for (let i = 1; i < candidates.length; i++) {
+      if (bonuses[i]! > bonuses[bestIndex]!) bestIndex = i;
+    }
+    return candidates[bestIndex]!.move;
+  }
+
+  const min = Math.min(...bonuses);
+  const max = Math.max(...bonuses);
+  const span = max - min;
+  const weights = bonuses.map((bonus) => 1 + (span > 0 ? (3 * (bonus - min)) / span : 0));
+  const total = weights.reduce((sum, weight) => sum + weight, 0);
+  let roll = rng() * total;
+  for (let i = 0; i < candidates.length; i++) {
+    roll -= weights[i]!;
+    if (roll < 0) return candidates[i]!.move;
+  }
+  return candidates[candidates.length - 1]!.move;
 }
 
 function createSearchCtx(
@@ -517,7 +556,9 @@ function evaluate(
     const botBonus = hints.evalBonus(state);
     score += me === botSide ? botBonus : -botBonus;
   }
-  return score;
+  // 정적 평가가 강제 승패 대역을 침범하면 얕은 휴리스틱이 실제 승리를
+  // 이길 수 있다. 모든 비종료 평가는 mate 점수 아래에 고정한다.
+  return Math.max(-WIN + 100, Math.min(WIN - 100, score));
 }
 
 function orderMoves(
@@ -811,19 +852,6 @@ function instantWinMove(state: GameState, moves: Move[], config: RuleConfig): Mo
   return findWinningMove(state, moves, config);
 }
 
-function findBestNetCapture(state: GameState, moves: Move[], config: RuleConfig): Move | null {
-  let best: Move | null = null;
-  let bestSwing = 2;
-  for (const m of moves) {
-    const swing = captureSwing(state, m, config);
-    if (swing > bestSwing) {
-      bestSwing = swing;
-      best = m;
-    }
-  }
-  return best;
-}
-
 /** 상대에게 바로 끝내는 수를 내주는 후보는, 피할 수 있는 한 루트 탐색에서 제외한다. */
 function allowsImmediateReplyWin(state: GameState, move: Move, config: RuleConfig): boolean {
   const next = child(state, move);
@@ -975,6 +1003,9 @@ export function chooseMove(
   const botSide = opts.botSide;
   const rng = opts.rng;
   const rootNoise = opts.rootNoise ?? 0;
+  // rootNoise만 지정한 기존 호출도 같은 강도 의미를 유지한다. 실제 난수는
+  // 탐색 점수에 섞지 않고, 검증된 근접 후보의 허용폭으로만 사용한다.
+  const choiceWindow = Math.max(0, opts.choiceWindow ?? rootNoise);
   const planStrength = opts.planStrength ?? 1;
   const strategyLevel = opts.strategyLevel ?? 1;
   const ctx = createSearchCtx(
@@ -1028,53 +1059,85 @@ export function chooseMove(
     moves.map((move) => [moveSig(move), rootPlanBonus(state, move, config, rootPlan)]),
   );
 
-  let lastCompleted: Move[] = [moves[0]];
+  let lastCompleted: RootCandidate[] = [{ move: moves[0]!, score: -Infinity }];
   let completedDepth = 0;
+  let pvMove: Move | null = moves[0]!;
 
   for (let depth = 1; depth <= maxDepth; depth++) {
     if (performance.now() > ctx.deadline) break;
 
-    const rootKey = positionKey(state);
-    const rootTT = ctx.tt.get(rootKey);
-
-    let best = -Infinity;
     let bestSearchScore = -Infinity;
     let alpha = -Infinity;
     const beta = Infinity;
-    const iterBest: Move[] = [];
+    const searched: Array<RootCandidate & { exact: boolean }> = [];
+    let pureBestMove: Move | null = null;
     let depthComplete = true;
 
-    moves = orderMoves(state, moves, config, ctx, depth, hints, botSide, rootTT?.move ?? null);
+    moves = orderMoves(state, moves, config, ctx, depth, hints, botSide, pvMove);
 
-    for (const m of moves) {
+    for (let i = 0; i < moves.length; i++) {
+      const m = moves[i]!;
       const childState = child(state, m);
-      const v = -negamax(childState, ctx, depth - 1, -beta, -alpha, hints, botSide);
+      let exact = i === 0;
+      let v: number;
+      if (i === 0) {
+        v = -negamax(childState, ctx, depth - 1, -beta, -alpha, hints, botSide);
+      } else {
+        // PVS: 먼저 최선점수를 넘는지만 좁은 창으로 확인하고, 넘는 수만
+        // 다시 정확히 읽는다. 계획 보너스는 이 순수 탐색 창에 섞지 않는다.
+        v = -negamax(childState, ctx, depth - 1, -alpha - 1, -alpha, hints, botSide);
+        if (!ctx.aborted && v > alpha) {
+          v = -negamax(childState, ctx, depth - 1, -beta, -alpha, hints, botSide);
+          exact = true;
+        }
+      }
       if (ctx.aborted) {
         depthComplete = false;
         break;
       }
-      const noise = rootNoise > 0 && rng ? (rng() * 2 - 1) * rootNoise : 0;
-      const ranked = v + noise + (planBonuses.get(moveSig(m)) ?? 0);
-      if (ranked > best) {
-        best = ranked;
+      searched.push({ move: m, score: v, exact });
+      if (v > bestSearchScore) {
         bestSearchScore = v;
-        iterBest.length = 0;
-        iterBest.push(m);
-        if (v > alpha) alpha = v;
-      } else if (ranked === best) {
-        iterBest.push(m);
+        pureBestMove = m;
+      }
+      alpha = Math.max(alpha, v);
+    }
+
+    // 좁은 창에서 최선 근처의 bound만 받은 수는 한 번 더 검증한다.
+    // 이 검증까지 끝난 깊이만 최종 결과로 커밋한다.
+    const threshold = bestSearchScore - choiceWindow;
+    const iterCandidates: RootCandidate[] = [];
+    if (depthComplete) {
+      for (const candidate of searched) {
+        if (candidate.score < threshold) continue;
+        if (candidate.exact) {
+          iterCandidates.push(candidate);
+          continue;
+        }
+        const verified = -negamax(
+          child(state, candidate.move),
+          ctx,
+          depth - 1,
+          -threshold,
+          -threshold + 1,
+          hints,
+          botSide,
+        );
+        if (ctx.aborted) {
+          depthComplete = false;
+          break;
+        }
+        if (verified >= threshold) iterCandidates.push({ move: candidate.move, score: verified });
       }
     }
-    if (!depthComplete && depth > 1) break;
-    if (iterBest.length) {
-      lastCompleted = iterBest.slice();
+
+    if (!depthComplete) break;
+    if (iterCandidates.length && pureBestMove) {
+      lastCompleted = iterCandidates;
       completedDepth = depth;
-      const bestMove = iterBest[0]!;
+      const bestMove = pureBestMove;
+      pvMove = bestMove;
       moves = [bestMove, ...moves.filter((m) => !movesEqual(m, bestMove))];
-      // 루트 계획·난이도 오차는 수 선택에만 쓰고 전치표에는 순수 탐색
-      // 점수를 저장한다. 반복 국면에서 계획 보너스가 전술 점수로 재사용되면
-      // 탐색 창이 오염될 수 있다.
-      ttStore(ctx, rootKey, depth, bestSearchScore, 'exact', bestMove);
     }
     if (bestSearchScore >= WIN) break;
   }
@@ -1086,18 +1149,7 @@ export function chooseMove(
   const finalWin = findWinningMove(state, allLegal, config);
   if (finalWin) return finish(finalWin, completedDepth);
 
-  let chosen =
-    rng && lastCompleted.length > 1
-      ? lastCompleted[Math.floor(rng() * lastCompleted.length)]!
-      : lastCompleted[0]!;
-  const netCapture = findBestNetCapture(state, allLegal, config);
-  if (
-    netCapture &&
-    !isCapture(state, chosen) &&
-    captureSwing(state, netCapture, config) >= 3
-  ) {
-    chosen = netCapture;
-  }
+  const chosen = pickRootCandidate(lastCompleted, planBonuses, rng);
 
   if (completedDepth <= 1) {
     const fallback = pickObviousMove(state, allLegal, config);

@@ -2,7 +2,7 @@ import type { Player } from '../core/types';
 
 export type OpponentMode = 'ai' | 'local' | 'online';
 export type HumanColorChoice = 'BLACK' | 'WHITE' | 'random';
-/** 쉬움 · 보통 · 어려움 (구 어려움 · 고수 · 올마이트) */
+/** 화면에 노출하는 쉬움 · 보통 · 어려움 3단계 */
 export type AiDifficulty = 'easy' | 'normal' | 'hard';
 
 export interface AiDifficultyPreset {
@@ -14,6 +14,8 @@ export interface AiDifficultyPreset {
   maxNodes: number;
   /** 수 선택 평가 오차 폭. 낮을수록 정확하고, 어려움은 0이다. */
   rootNoise?: number;
+  /** 순수 탐색 최선점수에서 무작위 선택 후보로 인정할 점수 차이. */
+  choiceWindow: number;
   /** 왕 전진·호위·마무리 계획을 루트 선택에 반영하는 강도. */
   planStrength?: number;
   /** 정적 평가 수준: 1 기본, 2 왕 안전, 3 포위·정밀 탐색. */
@@ -27,38 +29,41 @@ export interface AiDifficultyPreset {
 /**
  * 완료 깊이·노드 예산으로 강도를 고정하고 maxMs는 기기별 안전 한계로만 쓴다.
  * 각 프리셋은 제한 시간 안에 반복 심화를 끝낼 수 있는 노드 예산을 쓴다.
- * 어려움은 최대 3초·깊이 9로 탐색하는 최고 난이도다.
- *
- * 매핑: 쉬움 = 구 어려움, 보통 = 구 고수, 어려움 = 구 올마이트.
+ * 쉬움은 기본 전술 안전장치만 갖춘 입문용, 보통은 짧은 대국 경험을 가진
+ * 초보 수준으로 제한한다. 어려움은 5초 제한에 여유를 둔 4.3초 동안
+ * 반복 심화를 계속하며, 순수 탐색 최선수와 거의 같은 수만 섞는다.
  */
 export const AI_DIFFICULTY_PRESETS: Record<AiDifficulty, AiDifficultyPreset> = {
   easy: {
     label: '쉬움',
-    description: '수비와 반격을 깊게 읽는다',
-    maxMs: 800,
-    maxDepth: 6,
-    maxNodes: 2_500,
-    rootNoise: 45,
-    planStrength: 1.05,
+    description: '규칙에 맞는 기본 수를 차분히 둔다',
+    maxMs: 220,
+    maxDepth: 3,
+    maxNodes: 700,
+    rootNoise: 80,
+    choiceWindow: 80,
+    planStrength: 0.85,
     strategyLevel: 1,
   },
   normal: {
     label: '보통',
-    description: '깊게 탐색해 추격과 포위를 노린다',
-    maxMs: 1800,
-    maxDepth: 8,
-    maxNodes: 8_000,
-    rootNoise: 8,
-    planStrength: 1.45,
+    description: '초보 전술과 기본 수비를 읽는다',
+    maxMs: 700,
+    maxDepth: 5,
+    maxNodes: 2_800,
+    rootNoise: 28,
+    choiceWindow: 28,
+    planStrength: 1.1,
     strategyLevel: 2,
   },
   hard: {
     label: '어려움',
-    description: '정밀 탐색으로 포위와 승리를 끝까지 읽는다',
-    maxMs: 3000,
-    maxDepth: 9,
-    maxNodes: 12_000,
+    description: '최선 수를 깊게 읽어 빈틈을 놓치지 않는다',
+    maxMs: 4300,
+    maxDepth: 14,
+    maxNodes: 100_000,
     rootNoise: 0,
+    choiceWindow: 2,
     planStrength: 1.7,
     strategyLevel: 3,
     elite: true,

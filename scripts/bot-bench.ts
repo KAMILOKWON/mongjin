@@ -4,15 +4,15 @@
  * 사용:
  *   npm run bot:bench                     # 빠른 비교 20판
  *   npm run bot:bench -- 40               # 40판
- *   npm run bot:bench -- 20 --scale 0.5   # 제품 노드 예산 비율 조정 (기본 0.25)
+ *   npm run bot:bench -- 20 --scale 0.1   # 제품 노드 예산 비율 조정 (기본 0.04)
  *   npm run bot:bench -- 20 --max-plies 240
  *   npm run bot:bench -- 8 --full         # 실제 프리셋 예산 (느림)
  *   npm run bot:bench -- 20 easy normal   # 대결 조합 지정 (A vs B, B의 승률 표시)
  *   npm run bot:bench -- 2 normal hard --full --trace # 전체 착수 출력
  *
  * 같은 강제 오프닝을 두 번 두되 AI의 흑/백 배정을 바꿔 색 유불리를 상쇄한다.
- * 어려움은 결정적으로 두고, 낮은 난이도의 제품용 평가 오차는 고정 시드로
- * 재현해 CPU 속도와 실행 순서가 달라져도 같은 대국 조건을 보장한다.
+ * 세 난이도 모두 근접 최선수 변화는 고정 시드로 재현해 CPU 속도와
+ * 실행 순서가 달라져도 같은 대국 조건을 보장한다.
  */
 import { DEFAULT_CONFIG } from '../src/core/config';
 import { initialState } from '../src/core/rules';
@@ -35,7 +35,7 @@ function mulberry32(seed: number): () => number {
   };
 }
 
-const DEFAULT_SCALE = 0.25;
+const DEFAULT_SCALE = 0.04;
 const DEFAULT_MAX_PLIES = 120;
 
 function parseArgs(argv: string[]): {
@@ -147,6 +147,7 @@ function optsFor(
       hintScale: p.hintScale ?? 1,
       elite: p.elite ?? false,
       rootNoise: p.rootNoise ?? 0,
+      choiceWindow: p.choiceWindow,
       planStrength: p.planStrength ?? 1,
       strategyLevel: p.strategyLevel ?? 1,
     };
@@ -154,12 +155,14 @@ function optsFor(
   // 양쪽 프리셋에 같은 비율을 적용한 노드 상한으로 시계·CPU 분산을 제거한다.
   // maxMs는 노드 상한에 문제가 있을 때만 작동하는 안전장치다.
   return {
-    maxMs: 30_000,
+    // 빠른 벤치도 실제 제품 요구와 같은 착수당 5초 제한을 지킨다.
+    maxMs: 4_800,
     maxNodes: Math.max(512, Math.round(p.maxNodes * scale)),
     maxDepth: p.maxDepth,
     hintScale: p.hintScale ?? 1,
     elite: p.elite ?? false,
     rootNoise: p.rootNoise ?? 0,
+    choiceWindow: p.choiceWindow,
     planStrength: p.planStrength ?? 1,
     strategyLevel: p.strategyLevel ?? 1,
   };
@@ -172,17 +175,18 @@ function playMatch(
   scale: number,
   openingIndex: number,
   maxPlies: number,
-): { winner: Player | 'DRAW'; plies: number; reason: string; moves: Move[] } {
+): { winner: Player | 'INCOMPLETE'; plies: number; reason: string; moves: Move[]; thinkTimes: number[] } {
   const brain = getBotBrain(DEFAULT_CONFIG);
   let state = initialState(DEFAULT_CONFIG);
   const blackOpts = optsFor(blackDiff, full, scale);
   const whiteOpts = optsFor(whiteDiff, full, scale);
   const blackRng = mulberry32(0x9e3779b9 + openingIndex * 7919);
   const whiteRng = mulberry32(0x85ebca6b + openingIndex * 7919);
+  const thinkTimes: number[] = [];
 
-  // 서로 다른 합법적 2수 오프닝을 페어마다 강제한다.
+  // 서로 다른 합법적 4수 오프닝을 페어마다 강제한다.
   // 각 오프닝은 AI 배정만 바꿔 두 번 두므로 특정 진영 유불리가 상쇄된다.
-  for (let ply = 0; ply < 2; ply++) {
+  for (let ply = 0; ply < 4; ply++) {
     const forced = forcedOpeningMove(state, DEFAULT_CONFIG, openingIndex);
     if (!forced) break;
     state = applyMove(state, forced);
@@ -191,10 +195,17 @@ function playMatch(
   for (let ply = state.history.length; ply < maxPlies; ply++) {
     const result = getResult(state, DEFAULT_CONFIG);
     if (result) {
-      return { winner: result.winner, plies: state.history.length, reason: result.reason, moves: state.history };
+      return {
+        winner: result.winner,
+        plies: state.history.length,
+        reason: result.reason,
+        moves: state.history,
+        thinkTimes,
+      };
     }
     const side = state.turn;
     const o = side === 'BLACK' ? blackOpts : whiteOpts;
+    const moveStartedAt = performance.now();
     const hints = brain.hintsFor(state, side, o.hintScale);
     const move = chooseMove(state, DEFAULT_CONFIG, {
       maxMs: o.maxMs,
@@ -202,18 +213,32 @@ function playMatch(
       maxNodes: o.maxNodes,
       hints,
       botSide: side,
-      rng: (o.rootNoise ?? 0) > 0 ? (side === 'BLACK' ? blackRng : whiteRng) : undefined,
+      rng: (o.choiceWindow ?? 0) > 0 ? (side === 'BLACK' ? blackRng : whiteRng) : undefined,
       rootNoise: o.rootNoise ?? 0,
+      choiceWindow: o.choiceWindow ?? 0,
       elite: o.elite ?? false,
       planStrength: o.planStrength ?? 1,
       strategyLevel: o.strategyLevel ?? 1,
     });
+    thinkTimes.push(performance.now() - moveStartedAt);
     if (!move) {
-      return { winner: 'DRAW', plies: state.history.length, reason: 'no-move', moves: state.history };
+      return {
+        winner: 'INCOMPLETE',
+        plies: state.history.length,
+        reason: 'engine-error',
+        moves: state.history,
+        thinkTimes,
+      };
     }
     state = applyMove(state, move);
   }
-  return { winner: 'DRAW', plies: state.history.length, reason: 'cap', moves: state.history };
+  return {
+    winner: 'INCOMPLETE',
+    plies: state.history.length,
+    reason: 'ply-cap',
+    moves: state.history,
+    thinkTimes,
+  };
 }
 
 const { games, full, scale, maxPlies, diffA, diffB, trace } = parseArgs(process.argv.slice(2));
@@ -230,7 +255,8 @@ console.log(
 
 let bWins = 0;
 let aWins = 0;
-let draws = 0;
+let incomplete = 0;
+const thinkTimes: number[] = [];
 const t0 = performance.now();
 
 for (let i = 0; i < games; i++) {
@@ -239,7 +265,8 @@ for (let i = 0; i < games; i++) {
   const black = bIsBlack ? diffB : diffA;
   const white = bIsBlack ? diffA : diffB;
   const out = playMatch(black, white, full, scale, openingIndex, maxPlies);
-  if (out.winner === 'DRAW') draws++;
+  thinkTimes.push(...out.thinkTimes);
+  if (out.winner === 'INCOMPLETE') incomplete++;
   else if ((out.winner === 'BLACK') === bIsBlack) bWins++;
   else aWins++;
   console.log(
@@ -251,12 +278,19 @@ for (let i = 0; i < games; i++) {
 const elapsed = ((performance.now() - t0) / 1000).toFixed(1);
 const decided = bWins + aWins;
 const decidedRate = decided ? Math.round((bWins / decided) * 100) : 0;
-// 무승부는 승리가 아니므로 전체 판수 기준 승률을 판정선으로 사용한다.
-const winRate = Math.round((bWins / games) * 100);
+// 미종료는 승리가 아니므로 전체 판수 기준 승률을 판정선으로 사용한다.
+const winRate = (bWins / games) * 100;
+const meetsWinRate = bWins * 10 >= games * 9;
+const sortedThinkTimes = thinkTimes.slice().sort((a, b) => a - b);
+const p95Index = Math.max(0, Math.ceil(sortedThinkTimes.length * 0.95) - 1);
+const p95ThinkMs = sortedThinkTimes[p95Index] ?? 0;
+const maxThinkMs = sortedThinkTimes[sortedThinkTimes.length - 1] ?? 0;
 console.log(
-  `결과: ${diffB} ${bWins} · ${diffA} ${aWins} · draw ${draws} · ${diffB} 승률 ${winRate}% (전체 기준, 결정판만 ${decidedRate}%) · ${elapsed}s`,
+  `결과: ${diffB} ${bWins} · ${diffA} ${aWins} · 미종료 ${incomplete} · ${diffB} 승률 ${winRate.toFixed(1)}% (전체 기준, 결정판만 ${decidedRate}%) · 사고시간 p95 ${Math.round(p95ThinkMs)}ms / 최대 ${Math.round(maxThinkMs)}ms · ${elapsed}s`,
 );
-if (winRate < 90) {
-  console.warn(`경고: ${diffB} 승률이 90% 미만입니다. 탐색·전략서를 더 강화하세요.`);
+if (!meetsWinRate || incomplete > 0 || maxThinkMs >= 5_000) {
+  if (!meetsWinRate) console.warn(`경고: ${diffB} 승률이 90% 미만입니다.`);
+  if (incomplete > 0) console.warn(`경고: 제한 수 안에 끝나지 않은 대국이 ${incomplete}판입니다.`);
+  if (maxThinkMs >= 5_000) console.warn(`경고: 5초를 넘긴 착수가 있습니다.`);
   process.exitCode = 2;
 }

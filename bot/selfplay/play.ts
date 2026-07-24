@@ -52,13 +52,14 @@ export interface SelfPlayBatchResult {
   };
 }
 
-/** 게임 인덱스마다 다른 초반 수를 강제해 동일 기보 반복을 막는다. */
+/** 게임 인덱스마다 다른 4수 초반을 강제해 동일 기보 반복을 막는다. */
 export function forcedOpeningMove(
   state: GameState,
   config: RuleConfig,
   gameIndex: number,
 ): Move | null {
-  if (state.history.length >= 2) return null;
+  const ply = state.history.length;
+  if (ply >= 4) return null;
   const legal = legalMoves(state, config);
   if (!legal.length) return null;
 
@@ -67,11 +68,18 @@ export function forcedOpeningMove(
     return state.board[m.from.r][m.from.c]?.type === 'KING';
   });
   const places = legal.filter((m) => m.kind === 'PLACE');
-  const pool = state.history.length === 0
+  const pool = ply === 0
     ? (kingMoves.length ? kingMoves : legal)
-    : (places.length ? places : legal);
+    : ply === 1
+      ? (places.length ? places : legal)
+      : (kingMoves.length ? kingMoves : places.length ? places : legal);
 
-  return pool[gameIndex % pool.length]!;
+  // 기본 보드의 첫 수는 5갈래다. 5 이후의 인덱스는 첫 수를 반복하되
+  // 세 번째 수에서 반드시 다른 가지로 갈라져 10개 이상의 오프닝을 만든다.
+  const branchIndex = ply < 2
+    ? gameIndex
+    : gameIndex + Math.floor(gameIndex / 5) * 6 + ply * 7;
+  return pool[branchIndex % pool.length]!;
 }
 
 function playOne(

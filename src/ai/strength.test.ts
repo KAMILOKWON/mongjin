@@ -104,9 +104,20 @@ describe('AI 강함 회귀 테스트', () => {
     '백 AI는 "왕 단독 돌진" 전략을 3판 중 2판 이상 응징한다',
     () => {
       const rand = mulberry32(42);
+      const preset = AI_DIFFICULTY_PRESETS.hard;
+      const aiOpts: AiOptions = {
+        maxMs: 4_800,
+        maxDepth: preset.maxDepth,
+        maxNodes: 8_000,
+        choiceWindow: preset.choiceWindow,
+        planStrength: preset.planStrength,
+        strategyLevel: preset.strategyLevel,
+        elite: preset.elite,
+      };
       let wins = 0;
       for (let g = 0; g < 3; g++) {
-        if (playMatch('WHITE', rushBot, rand) === 'WHITE') wins++;
+        aiOpts.rng = mulberry32(500 + g);
+        if (playMatch('WHITE', rushBot, rand, 400, aiOpts) === 'WHITE') wins++;
       }
       expect(wins).toBeGreaterThanOrEqual(2);
     },
