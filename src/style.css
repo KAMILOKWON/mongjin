@@ -63,7 +63,7 @@ body {
   min-height: 100dvh;
   color: var(--ink);
   background: var(--paper);
-  font-family: Pretendard, "Apple SD Gothic Neo", "Noto Sans KR", Inter, system-ui, sans-serif;
+  font-family: Pretendard, "Apple SD Gothic Neo", "Noto Sans KR", "Hiragino Sans", "Yu Gothic", Inter, system-ui, sans-serif;
   -webkit-font-smoothing: antialiased;
   -webkit-tap-highlight-color: transparent;
 }
@@ -129,6 +129,45 @@ button {
   gap: 18px;
   padding: clamp(38px, 4vw, 64px) clamp(30px, 3.2vw, 48px) 28px;
   border-right: 1px solid var(--line);
+}
+
+.home-brand-tools,
+.game-top-tools {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 10px;
+}
+
+.language-toggle {
+  display: inline-flex;
+  padding: 3px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--surface-strong);
+  box-shadow: 0 1px 2px rgba(31, 42, 51, 0.04);
+}
+
+.language-toggle button {
+  min-height: 27px;
+  padding: 0 9px;
+  border: 0;
+  border-radius: 999px;
+  color: #7a8791;
+  background: transparent;
+  font-size: 10px;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.language-toggle button:hover {
+  color: var(--ink);
+}
+
+.language-toggle button.active {
+  color: #fff;
+  background: var(--blue);
+  box-shadow: 0 2px 5px rgba(49, 95, 137, 0.22);
 }
 
 .profile-pill {
@@ -491,6 +530,10 @@ p {
   background: #eff4f8;
   font-size: 11px;
   font-weight: 800;
+}
+
+.game-top-tools .mode-chip {
+  margin-top: 0;
 }
 
 .status-card,
@@ -1097,6 +1140,10 @@ input {
     max-width: 145px;
   }
 
+  .home-brand-tools {
+    gap: 8px;
+  }
+
   .home-brand h1 {
     font-size: 54px;
   }
@@ -1176,6 +1223,11 @@ input {
 
   .mode-chip {
     margin: 0;
+  }
+
+  .game-top-tools {
+    align-items: flex-end;
+    gap: 7px;
   }
 
   .game-stage {

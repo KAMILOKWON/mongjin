@@ -21,6 +21,7 @@ import {
   type PlayerProfile,
 } from '../net/online';
 import { exportGameMgn } from '../../bot/learning/gameRecord';
+import { localizeMessage, playerLabel, reasonLabel as localizedReasonLabel, t } from '../i18n';
 
 const PLAYER_KO: Record<Player, string> = { BLACK: '흑', WHITE: '백' };
 const REASON_KO: Record<WinReason, string> = {
@@ -157,16 +158,15 @@ export class GameController {
   private buildSnapshot(): GameSnapshot {
     const state = this.current();
     const result = getResult(state, this.config);
-    let turnLabel = `${PLAYER_KO[state.turn]} 차례`;
+    let turnLabel = t('status.turn', { player: playerLabel(state.turn) });
     if (this.aiThinking) {
-      const difficulty = AI_DIFFICULTY_PRESETS[this.settings.aiDifficulty].label;
-      turnLabel += ` — 컴퓨터(${difficulty}) 생각 중…`;
-    }
-    else if (this.isOnlineMode() && this.onlineWaiting) turnLabel += ' — 상대 대기 중…';
-    else if (this.isOnlineMode() && this.onlineSide && !this.isMyTurn(state)) turnLabel += ' — 상대 차례';
+      const difficulty = t(`difficulty.${this.settings.aiDifficulty}`);
+      turnLabel += ` — ${t('status.aiThinking', { difficulty })}`;
+    } else if (this.isOnlineMode() && this.onlineWaiting) turnLabel += ` — ${t('status.waiting')}`;
+    else if (this.isOnlineMode() && this.onlineSide && !this.isMyTurn(state)) turnLabel += ` — ${t('status.opponentTurn')}`;
 
     const resultLabel = result
-      ? `${PLAYER_KO[result.winner]} 승리! — ${REASON_KO[result.reason]}`
+      ? t('result.win', { player: playerLabel(result.winner), reason: localizedReasonLabel(result.reason) })
       : null;
 
     let lastMgn: string | null = null;
@@ -187,7 +187,7 @@ export class GameController {
       humanSide: this.humanSide,
       onlineSide: this.onlineSide,
       onlineRoomId: this.online.currentRoomId,
-      onlineStatus: this.onlineStatus,
+      onlineStatus: localizeMessage(this.onlineStatus),
       onlineError: this.onlineError,
       aiThinking: this.aiThinking,
       onlineWaiting: this.onlineWaiting,
@@ -220,6 +220,10 @@ export class GameController {
       this.onlineOpponent = null;
       this.newGame();
     }
+    this.notify();
+  }
+
+  refreshLocale() {
     this.notify();
   }
 
@@ -630,7 +634,10 @@ export class GameController {
           const el = document.createElement('span');
           el.className = `piece ${piece.player.toLowerCase()}${piece.type === 'KING' ? ' king' : ''}`;
           el.setAttribute('role', 'img');
-          el.setAttribute('aria-label', `${PLAYER_KO[piece.player]} ${piece.type === 'KING' ? '왕' : '호위'}`);
+          const pieceKey = piece.type === 'KING'
+            ? (piece.player === 'BLACK' ? 'piece.king.black' : 'piece.king.white')
+            : (piece.player === 'BLACK' ? 'piece.guard.black' : 'piece.guard.white');
+          el.setAttribute('aria-label', t(pieceKey));
           cell.appendChild(el);
           if (moveTargets.has(key)) cell.classList.add('capture');
         } else if (moveTargets.has(key)) {

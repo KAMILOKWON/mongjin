@@ -1,6 +1,7 @@
 import './style.css';
 import type { AiDifficulty, HumanColorChoice, OpponentMode } from './game/settings';
-import { GameController, PLAYER_KO, stoneHtml } from './ui/gameController';
+import { GameController, stoneHtml } from './ui/gameController';
+import { getLocale, playerLabel, setLocale, t, type Locale } from './i18n';
 import { initAppsInToss } from './ait';
 import woodTextureUrl from '../assets/ui/board-light-ash.png';
 import whiteGuardUrl from '../assets/ui/stone-white-guard.png';
@@ -20,17 +21,18 @@ const previewCells = Array.from({ length: 81 }, (_, index) => {
   const goalClass = (r === 0 || r === 8) && c >= 3 && c <= 5 ? ' preview-goal' : '';
   let piece = '';
   if (r === 0 && c === 4) {
-    piece = `<img class="preview-piece preview-piece-white" src="${blackKingUrl}" alt="백 왕" />`;
+    piece = `<img class="preview-piece preview-piece-white" src="${blackKingUrl}" alt="${t('piece.king.white')}" />`;
   } else if (r === 8 && c === 4) {
-    piece = `<img class="preview-piece preview-piece-black" src="${blackKingUrl}" alt="흑 왕" />`;
+    piece = `<img class="preview-piece preview-piece-black" src="${blackKingUrl}" alt="${t('piece.king.black')}" />`;
   }
   return `<div class="preview-cell${goalClass}" aria-hidden="true">${piece}</div>`;
 }).join('');
 
-function guardTray(player: 'white' | 'black', label: string) {
+function guardTray(player: 'white' | 'black') {
   const src = player === 'white' ? whiteGuardUrl : blackGuardUrl;
+  const playerName = player === 'white' ? t('piece.guard.white') : t('piece.guard.black');
   return `
-    <div class="guard-tray guard-tray-${player}" aria-label="${label} 호위 8개">
+    <div class="guard-tray guard-tray-${player}" aria-label="${playerName} 8개">
       ${Array.from({ length: 8 }, () => `<img src="${src}" alt="" />`).join('')}
     </div>`;
 }
@@ -45,43 +47,49 @@ app.innerHTML = `
   <main class="home-screen" id="home-screen">
     <header class="home-brand">
       <div>
-        <h1>몽진</h1>
-        <p class="brand-subtitle">왕의 피난길</p>
+        <h1 data-i18n="brand.title">몽진</h1>
+        <p class="brand-subtitle" data-i18n="brand.subtitle">왕의 피난길</p>
       </div>
-      <button class="profile-pill" id="profile-open" type="button" aria-label="내 프로필 열기">
-        <span id="home-profile-name">프로필</span>
-        <small id="home-profile-rank">전적 불러오는 중</small>
-      </button>
+      <div class="home-brand-tools">
+        <div class="language-toggle" role="group" data-i18n-aria="language.selector">
+          <button type="button" data-locale="ko" data-i18n="language.ko">한국어</button>
+          <button type="button" data-locale="ja" data-i18n="language.ja">日本語</button>
+        </div>
+        <button class="profile-pill" id="profile-open" type="button" data-i18n-aria="profile.open" aria-label="내 프로필 열기">
+          <span id="home-profile-name" data-i18n="profile.default">프로필</span>
+          <small id="home-profile-rank" data-i18n="profile.loading">전적 불러오는 중</small>
+        </button>
+      </div>
     </header>
 
-    <section class="home-actions" aria-label="게임 시작">
+    <section class="home-actions" data-i18n-aria="home.actions" aria-label="게임 시작">
       <button class="menu-button menu-button-primary" id="quick-play" type="button">
         <i class="ph ph-play" aria-hidden="true"></i>
-        <span><strong>랜덤 대전</strong><small>실시간 플레이어와 자동 매칭</small></span>
+        <span><strong data-i18n="menu.random.title">랜덤 대전</strong><small data-i18n="menu.random.description">실시간 플레이어와 자동 매칭</small></span>
       </button>
       <button class="menu-button" id="computer-play" type="button">
         <i class="ph ph-desktop" aria-hidden="true"></i>
-        <span><strong>컴퓨터 대전</strong><small>난이도와 진영 선택</small></span>
+        <span><strong data-i18n="menu.ai.title">컴퓨터 대전</strong><small data-i18n="menu.ai.description">난이도와 진영 선택</small></span>
       </button>
       <button class="menu-button" id="online-play" type="button">
         <i class="ph ph-globe-hemisphere-east" aria-hidden="true"></i>
-        <span><strong>친구 대전</strong><small>입장코드로 친구와 대국</small></span>
+        <span><strong data-i18n="menu.friend.title">친구 대전</strong><small data-i18n="menu.friend.description">입장코드로 친구와 대국</small></span>
       </button>
       <button class="menu-button menu-button-tutorial" id="tutorial-open" type="button">
         <i class="ph ph-book-open-text" aria-hidden="true"></i>
-        <span><strong>튜토리얼</strong><small>4단계로 규칙 익히기</small></span>
+        <span><strong data-i18n="menu.tutorial.title">튜토리얼</strong><small data-i18n="menu.tutorial.description">4단계로 규칙 익히기</small></span>
       </button>
     </section>
 
-    <section class="home-preview" aria-label="몽진 초기 배치 미리보기">
+    <section class="home-preview" data-i18n-aria="preview.aria" aria-label="몽진 초기 배치 미리보기">
       <div class="preview-board-shell">
         <div class="preview-board">${previewCells}</div>
       </div>
       <div class="preview-trays">
-        ${guardTray('white', '백')}
-        ${guardTray('black', '흑')}
+        ${guardTray('white')}
+        ${guardTray('black')}
       </div>
-      <p class="preview-caption"><span>9 × 9</span> 왕을 호위해 상대 진영의 목적지까지 이동시키세요.</p>
+      <p class="preview-caption"><span>9 × 9</span> <span data-i18n="preview.caption">왕을 호위해 상대 진영의 목적지까지 이동시키세요.</span></p>
     </section>
   </main>
 
@@ -89,60 +97,66 @@ app.innerHTML = `
     <aside class="game-sidebar">
       <div class="game-sidebar-top">
         <button class="back-button" id="back-home" type="button">
-          <i class="ph ph-arrow-left" aria-hidden="true"></i> 홈으로
+          <i class="ph ph-arrow-left" aria-hidden="true"></i> <span data-i18n="game.back">홈으로</span>
         </button>
         <div class="game-brand">
-          <h1>몽진</h1>
-          <p>왕의 피난길</p>
+          <h1 data-i18n="brand.title">몽진</h1>
+          <p data-i18n="brand.subtitle">왕의 피난길</p>
         </div>
-        <div class="mode-chip" id="mode-chip">컴퓨터 대전</div>
+        <div class="game-top-tools">
+          <div class="language-toggle" role="group" data-i18n-aria="language.selector">
+            <button type="button" data-locale="ko" data-i18n="language.ko">한국어</button>
+            <button type="button" data-locale="ja" data-i18n="language.ja">日本語</button>
+          </div>
+          <div class="mode-chip" id="mode-chip">컴퓨터 대전</div>
+        </div>
       </div>
 
       <section id="status" class="status-card" aria-live="polite"></section>
 
       <section id="ai-settings" class="settings-card">
-        <label>봇 난이도
+        <label><span data-i18n="settings.aiDifficulty">봇 난이도</span>
           <select id="ai-difficulty">
-            <option value="easy">쉬움</option>
-            <option value="normal" selected>보통</option>
-            <option value="hard">어려움</option>
+            <option value="easy" data-i18n="difficulty.easy">쉬움</option>
+            <option value="normal" selected data-i18n="difficulty.normal">보통</option>
+            <option value="hard" data-i18n="difficulty.hard">어려움</option>
           </select>
         </label>
-        <label>내 색
+        <label><span data-i18n="settings.humanColor">내 색</span>
           <select id="human-color">
-            <option value="BLACK" selected>흑 · 선공</option>
-            <option value="WHITE">백 · 후공</option>
-            <option value="random">랜덤</option>
+            <option value="BLACK" selected data-i18n="color.black.first">흑 · 선공</option>
+            <option value="WHITE" data-i18n="color.white.second">백 · 후공</option>
+            <option value="random" data-i18n="color.random">랜덤</option>
           </select>
         </label>
       </section>
 
       <section id="online-panel" class="online-panel hidden">
-        <button class="secondary-button" id="create-room" type="button">입장코드 생성</button>
+        <button class="secondary-button" id="create-room" type="button" data-i18n="online.create">입장코드 생성</button>
         <div id="room-code-display" class="room-code-display hidden">
           <strong id="room-code-value"></strong>
-          <button class="text-button" id="copy-code" type="button">복사</button>
+          <button class="text-button" id="copy-code" type="button" data-i18n="online.copy">복사</button>
         </div>
         <div class="online-join">
-          <input id="room-code" type="text" maxlength="6" placeholder="6자리 코드" autocomplete="off" aria-label="입장코드" />
-          <button class="secondary-button" id="join-room" type="button">참가</button>
+          <input id="room-code" type="text" maxlength="6" data-i18n-placeholder="online.code.placeholder" data-i18n-aria="online.code.aria" placeholder="6자리 코드" autocomplete="off" aria-label="입장코드" />
+          <button class="secondary-button" id="join-room" type="button" data-i18n="online.join">참가</button>
         </div>
         <div id="online-status" class="online-status" aria-live="polite"></div>
       </section>
 
       <section id="random-panel" class="random-panel hidden">
-        <div class="random-opponent" id="random-opponent">상대를 찾고 있어요</div>
+        <div class="random-opponent" id="random-opponent" data-i18n="online.searching">상대를 찾고 있어요</div>
         <div id="random-status" class="online-status" aria-live="polite"></div>
-        <button class="secondary-button" id="cancel-matchmaking" type="button">매칭 취소</button>
+        <button class="secondary-button" id="cancel-matchmaking" type="button" data-i18n="online.cancel">매칭 취소</button>
       </section>
 
       <div class="game-actions">
-        <button class="secondary-button" id="undo" type="button"><i class="ph ph-arrow-counter-clockwise" aria-hidden="true"></i> 무르기</button>
-        <button class="secondary-button" id="reset" type="button"><i class="ph ph-arrows-clockwise" aria-hidden="true"></i> 새 게임</button>
+        <button class="secondary-button" id="undo" type="button"><i class="ph ph-arrow-counter-clockwise" aria-hidden="true"></i> <span data-i18n="game.undo">무르기</span></button>
+        <button class="secondary-button" id="reset" type="button"><i class="ph ph-arrows-clockwise" aria-hidden="true"></i> <span data-i18n="game.reset">새 게임</span></button>
       </div>
 
       <button class="rules-button" id="rules-open" type="button">
-        <i class="ph ph-book-open-text" aria-hidden="true"></i> 규칙 다시 보기
+        <i class="ph ph-book-open-text" aria-hidden="true"></i> <span data-i18n="rules.open">규칙 다시 보기</span>
       </button>
     </aside>
 
@@ -154,51 +168,51 @@ app.innerHTML = `
   <dialog class="app-dialog setup-dialog" id="setup-dialog">
     <form method="dialog" class="dialog-card" id="setup-form">
       <div class="dialog-heading">
-        <div><p class="eyebrow">GAME SETUP</p><h2>컴퓨터 대전</h2></div>
-        <button class="icon-button" value="cancel" aria-label="닫기"><i class="ph ph-x" aria-hidden="true"></i></button>
+        <div><p class="eyebrow" data-i18n="setup.eyebrow">GAME SETUP</p><h2 data-i18n="setup.title">컴퓨터 대전</h2></div>
+        <button class="icon-button" value="cancel" data-i18n-aria="dialog.close" aria-label="닫기"><i class="ph ph-x" aria-hidden="true"></i></button>
       </div>
-      <label>난이도
+      <label><span data-i18n="setup.difficulty">난이도</span>
         <select id="setup-difficulty">
-          <option value="easy">쉬움 · 기본 수와 즉시 전술을 익혀요</option>
-          <option value="normal" selected>보통 · 초보 전술과 기본 수비를 읽어요</option>
-          <option value="hard">어려움 · 최대 4.3초 동안 최선 수를 깊게 읽어요</option>
+          <option value="easy" data-i18n="setup.easy.option">쉬움 · 기본 수와 즉시 전술을 익혀요</option>
+          <option value="normal" selected data-i18n="setup.normal.option">보통 · 초보 전술과 기본 수비를 읽어요</option>
+          <option value="hard" data-i18n="setup.hard.option">어려움 · 최대 4.3초 동안 최선 수를 깊게 읽어요</option>
         </select>
       </label>
-      <label>내 진영
+      <label><span data-i18n="setup.side">내 진영</span>
         <select id="setup-color">
-          <option value="BLACK" selected>흑 · 선공</option>
-          <option value="WHITE">백 · 후공</option>
-          <option value="random">랜덤</option>
+          <option value="BLACK" selected data-i18n="color.black.first">흑 · 선공</option>
+          <option value="WHITE" data-i18n="color.white.second">백 · 후공</option>
+          <option value="random" data-i18n="color.random">랜덤</option>
         </select>
       </label>
-      <button class="dialog-primary" id="setup-start" value="default" type="button">대국 시작</button>
-      <button class="dialog-link" id="local-play" value="cancel" type="button">한 기기에서 둘이 두기</button>
+      <button class="dialog-primary" id="setup-start" value="default" type="button" data-i18n="setup.start">대국 시작</button>
+      <button class="dialog-link" id="local-play" value="cancel" type="button" data-i18n="setup.local">한 기기에서 둘이 두기</button>
     </form>
   </dialog>
 
   <dialog class="app-dialog profile-dialog" id="profile-dialog">
     <section class="dialog-card" aria-labelledby="profile-title">
       <div class="dialog-heading">
-        <div><p class="eyebrow">PLAYER PROFILE</p><h2 id="profile-title">내 프로필</h2></div>
-        <button class="icon-button" id="profile-close" type="button" aria-label="닫기"><i class="ph ph-x" aria-hidden="true"></i></button>
+        <div><p class="eyebrow" data-i18n="profile.eyebrow">PLAYER PROFILE</p><h2 id="profile-title" data-i18n="profile.title">내 프로필</h2></div>
+        <button class="icon-button" id="profile-close" type="button" data-i18n-aria="dialog.close" aria-label="닫기"><i class="ph ph-x" aria-hidden="true"></i></button>
       </div>
-      <label>닉네임
+      <label><span data-i18n="profile.nickname">닉네임</span>
         <div class="profile-name-edit">
-          <input id="profile-name" type="text" minlength="2" maxlength="12" autocomplete="nickname" placeholder="2~12자" />
-          <button class="secondary-button" id="profile-save" type="button">저장</button>
+          <input id="profile-name" type="text" minlength="2" maxlength="12" autocomplete="nickname" data-i18n-placeholder="profile.placeholder" placeholder="2~12자" />
+          <button class="secondary-button" id="profile-save" type="button" data-i18n="profile.save">저장</button>
         </div>
       </label>
       <div class="profile-rank-card">
-        <span>전체 순위</span>
-        <strong id="profile-rank">-위</strong>
-        <small id="profile-rating">레이팅 -</small>
+        <span data-i18n="profile.rank">전체 순위</span>
+        <strong id="profile-rank" data-i18n="profile.rankPlaceholder">-위</strong>
+        <small id="profile-rating" data-i18n="profile.ratingPlaceholder">레이팅 -</small>
       </div>
-      <div class="profile-stats" aria-label="랜덤 대전 전적">
-        <div><span>승</span><strong id="profile-wins">0</strong></div>
-        <div><span>패</span><strong id="profile-losses">0</strong></div>
-        <div><span>승률</span><strong id="profile-win-rate">0%</strong></div>
+      <div class="profile-stats" data-i18n-aria="profile.stats" aria-label="랜덤 대전 전적">
+        <div><span data-i18n="profile.wins">승</span><strong id="profile-wins">0</strong></div>
+        <div><span data-i18n="profile.losses">패</span><strong id="profile-losses">0</strong></div>
+        <div><span data-i18n="profile.winRate">승률</span><strong id="profile-win-rate">0%</strong></div>
       </div>
-      <p class="profile-note">랜덤 대전 결과만 공식 전적에 반영돼요.</p>
+      <p class="profile-note" data-i18n="profile.note">랜덤 대전 결과만 공식 전적에 반영돼요.</p>
       <div id="profile-status" class="online-status" aria-live="polite"></div>
     </section>
   </dialog>
@@ -206,19 +220,52 @@ app.innerHTML = `
   <dialog class="app-dialog tutorial-dialog" id="tutorial-dialog">
     <section class="dialog-card tutorial-card" aria-labelledby="tutorial-title">
       <div class="dialog-heading">
-        <div><p class="eyebrow">HOW TO PLAY</p><h2 id="tutorial-title">왕을 피난시키세요</h2></div>
-        <button class="icon-button" id="tutorial-close" type="button" aria-label="닫기"><i class="ph ph-x" aria-hidden="true"></i></button>
+        <div><p class="eyebrow" data-i18n="tutorial.eyebrow">HOW TO PLAY</p><h2 id="tutorial-title" data-i18n="tutorial.title">왕을 피난시키세요</h2></div>
+        <button class="icon-button" id="tutorial-close" type="button" data-i18n-aria="dialog.close" aria-label="닫기"><i class="ph ph-x" aria-hidden="true"></i></button>
       </div>
       <div class="tutorial-visual" id="tutorial-visual"></div>
       <p class="tutorial-copy" id="tutorial-copy"></p>
-      <div class="tutorial-progress" id="tutorial-progress" aria-label="튜토리얼 진행 상태"></div>
+      <div class="tutorial-progress" id="tutorial-progress" data-i18n-aria="tutorial.progress" aria-label="튜토리얼 진행 상태"></div>
       <div class="tutorial-actions">
-        <button class="secondary-button" id="tutorial-prev" type="button">이전</button>
-        <button class="dialog-primary" id="tutorial-next" type="button">다음</button>
+        <button class="secondary-button" id="tutorial-prev" type="button" data-i18n="tutorial.previous">이전</button>
+        <button class="dialog-primary" id="tutorial-next" type="button" data-i18n="tutorial.next">다음</button>
       </div>
     </section>
   </dialog>
 `;
+
+function applyTranslations() {
+  const locale = getLocale();
+  document.documentElement.lang = locale;
+  document.title = t('meta.title');
+  document.querySelector('meta[name="description"]')?.setAttribute('content', t('meta.description'));
+
+  document.querySelectorAll<HTMLElement>('[data-i18n]').forEach((element) => {
+    const key = element.dataset.i18n;
+    if (key) element.textContent = t(key);
+  });
+  document.querySelectorAll<HTMLElement>('[data-i18n-aria]').forEach((element) => {
+    const key = element.dataset.i18nAria;
+    if (key) element.setAttribute('aria-label', t(key));
+  });
+  document.querySelectorAll<HTMLInputElement>('[data-i18n-placeholder]').forEach((element) => {
+    const key = element.dataset.i18nPlaceholder;
+    if (key) element.placeholder = t(key);
+  });
+  document.querySelectorAll<HTMLButtonElement>('[data-locale]').forEach((button) => {
+    button.classList.toggle('active', button.dataset.locale === locale);
+    button.setAttribute('aria-pressed', String(button.dataset.locale === locale));
+  });
+
+  const whiteTray = document.querySelector<HTMLElement>('.guard-tray-white');
+  const blackTray = document.querySelector<HTMLElement>('.guard-tray-black');
+  whiteTray?.setAttribute('aria-label', `${t('piece.guard.white')} 8${locale === 'ja' ? '個' : '개'}`);
+  blackTray?.setAttribute('aria-label', `${t('piece.guard.black')} 8${locale === 'ja' ? '個' : '개'}`);
+  document.querySelector<HTMLImageElement>('.preview-piece-white')?.setAttribute('alt', t('piece.king.white'));
+  document.querySelector<HTMLImageElement>('.preview-piece-black')?.setAttribute('alt', t('piece.king.black'));
+}
+
+applyTranslations();
 
 const homeScreen = document.querySelector<HTMLElement>('#home-screen')!;
 const gameScreen = document.querySelector<HTMLElement>('#game-screen')!;
@@ -247,18 +294,16 @@ const profileNameEl = document.querySelector<HTMLInputElement>('#profile-name')!
 const profileStatusEl = document.querySelector<HTMLElement>('#profile-status')!;
 let pendingProfileName: string | null = null;
 
-const modeLabels: Record<OpponentMode, string> = {
-  ai: '컴퓨터 대전',
-  local: '같이 두기',
-  online: '온라인 대전',
-};
+function modeLabel(mode: OpponentMode): string {
+  return t(`mode.${mode}`);
+}
 
 function renderStatus() {
   const snap = game.getSnapshot();
   const { state, result, settings } = snap;
   const handRow = (player: 'BLACK' | 'WHITE') => `
     <div class="hand-row">
-      <span class="hand-label"><b>${PLAYER_KO[player]}</b> 호위 <span>${state.guardsInHand[player]} / 8</span></span>
+      <span class="hand-label"><b>${t('status.hand', { player: playerLabel(player) })}</b><span>${state.guardsInHand[player]} / 8</span></span>
       <span class="hand-stones">${stoneHtml(player, state.guardsInHand[player])}</span>
     </div>`;
 
@@ -267,8 +312,8 @@ function renderStatus() {
     : `<div class="turn-banner"><span class="turn-stone ${state.turn.toLowerCase()}"></span><span>${snap.turnLabel}</span></div>${handRow('BLACK')}${handRow('WHITE')}`;
 
   modeChipEl.textContent = settings.mode === 'online' && snap.onlineMatchKind === 'random'
-    ? '랜덤 대전'
-    : modeLabels[settings.mode];
+    ? t('mode.random')
+    : modeLabel(settings.mode);
   aiSettingsEl.classList.toggle('hidden', settings.mode !== 'ai');
   onlinePanelEl.classList.toggle('hidden', settings.mode !== 'online' || snap.onlineMatchKind === 'random');
   randomPanelEl.classList.toggle('hidden', settings.mode !== 'online' || snap.onlineMatchKind !== 'random');
@@ -277,8 +322,8 @@ function renderStatus() {
   randomStatusEl.textContent = snap.onlineStatus;
   randomStatusEl.classList.toggle('error', snap.onlineError);
   randomOpponentEl.textContent = snap.onlineOpponent
-    ? `${snap.onlineOpponent.name} · 레이팅 ${snap.onlineOpponent.rating}`
-    : '상대를 찾고 있어요';
+    ? t('online.opponent', { name: snap.onlineOpponent.name, rating: snap.onlineOpponent.rating })
+    : t('online.searching');
 
   const showCode = settings.mode === 'online' && !!snap.onlineRoomId;
   roomCodeDisplayEl.classList.toggle('hidden', !showCode);
@@ -290,17 +335,17 @@ function renderStatus() {
   if (profile) {
     document.querySelector<HTMLElement>('#home-profile-name')!.textContent = profile.name;
     document.querySelector<HTMLElement>('#home-profile-rank')!.textContent =
-      `${profile.rank}위 · ${profile.wins}승 ${profile.losses}패`;
-    document.querySelector<HTMLElement>('#profile-rank')!.textContent = `${profile.rank}위`;
+      `${profile.rank}${getLocale() === 'ja' ? '位' : '위'} · ${profile.wins}${t('profile.wins')} ${profile.losses}${t('profile.losses')}`;
+    document.querySelector<HTMLElement>('#profile-rank')!.textContent = `${profile.rank}${getLocale() === 'ja' ? '位' : '위'}`;
     document.querySelector<HTMLElement>('#profile-rating')!.textContent =
-      `레이팅 ${profile.rating} · 전체 ${profile.totalPlayers}명`;
+      t('profile.rating', { rating: profile.rating, total: profile.totalPlayers });
     document.querySelector<HTMLElement>('#profile-wins')!.textContent = String(profile.wins);
     document.querySelector<HTMLElement>('#profile-losses')!.textContent = String(profile.losses);
     document.querySelector<HTMLElement>('#profile-win-rate')!.textContent = `${profile.winRate}%`;
     if (document.activeElement !== profileNameEl) profileNameEl.value = profile.name;
     if (pendingProfileName && profile.name === pendingProfileName) {
       pendingProfileName = null;
-      profileStatusEl.textContent = '저장했어요';
+      profileStatusEl.textContent = t('profile.saved');
       profileStatusEl.classList.remove('error');
     }
   }
@@ -370,10 +415,10 @@ document.querySelector('#copy-code')!.addEventListener('click', async () => {
   if (!code) return;
   try {
     await navigator.clipboard.writeText(code);
-    onlineStatusEl.textContent = `입장코드 ${code} 복사됨 — 친구에게 공유하세요`;
+    onlineStatusEl.textContent = t('clipboard.copied', { code });
     onlineStatusEl.classList.remove('error');
   } catch {
-    onlineStatusEl.textContent = '코드를 직접 선택해 복사해 주세요';
+    onlineStatusEl.textContent = t('clipboard.manual');
     onlineStatusEl.classList.add('error');
   }
 });
@@ -391,11 +436,11 @@ document.querySelector('#profile-close')!.addEventListener('click', () => profil
 document.querySelector('#profile-save')!.addEventListener('click', async () => {
   const name = profileNameEl.value.trim();
   if (name.length < 2 || name.length > 12) {
-    profileStatusEl.textContent = '닉네임은 2~12자로 입력해 주세요';
+    profileStatusEl.textContent = t('profile.invalid');
     profileStatusEl.classList.add('error');
     return;
   }
-  profileStatusEl.textContent = '저장 중…';
+  profileStatusEl.textContent = t('profile.saving');
   profileStatusEl.classList.remove('error');
   pendingProfileName = name;
   await game.updateProfileName(name);
@@ -403,28 +448,28 @@ document.querySelector('#profile-save')!.addEventListener('click', async () => {
 
 const tutorialSteps = [
   {
-    title: '왕을 피난시키세요',
-    copy: '내 왕을 상대 진영 끝줄의 가운데 세 칸 중 하나로 먼저 이동시키면 승리합니다.',
+    titleKey: 'tutorial.step1.title',
+    copyKey: 'tutorial.step1.copy',
     image: tutorialGoalUrl,
-    alt: '흑 왕이 상대편 끝줄의 가운데 목적지로 이동하는 경로',
+    altKey: 'tutorial.step1.alt',
   },
   {
-    title: '호위를 배치하세요',
-    copy: '매 턴 호위 하나를 내 말과 상하좌우로 맞닿은 빈 칸에 놓을 수 있습니다. 호위는 각 진영에 8개입니다.',
+    titleKey: 'tutorial.step2.title',
+    copyKey: 'tutorial.step2.copy',
     image: tutorialPlaceUrl,
-    alt: '왕과 호위에 상하좌우로 맞닿은 칸에 새 호위를 배치하는 모습',
+    altKey: 'tutorial.step2.alt',
   },
   {
-    title: '두거나, 움직이세요',
-    copy: '한 턴에는 호위를 새로 두거나 말 하나를 움직입니다. 왕은 8방향, 호위는 상하좌우로 한 칸 이동합니다.',
+    titleKey: 'tutorial.step3.title',
+    copyKey: 'tutorial.step3.copy',
     image: tutorialMoveUrl,
-    alt: '왕은 여덟 방향, 호위는 상하좌우 네 방향으로 움직이는 방법',
+    altKey: 'tutorial.step3.alt',
   },
   {
-    title: '왕을 끝까지 지키세요',
-    copy: '호위는 상대 호위와 왕을 잡을 수 있습니다. 왕이 잡히면 즉시 패배하므로 혼자 돌진하지 마세요.',
+    titleKey: 'tutorial.step4.title',
+    copyKey: 'tutorial.step4.copy',
     image: tutorialProtectUrl,
-    alt: '세 호위가 왕을 둘러싸고 상대 호위의 접근을 막는 모습',
+    altKey: 'tutorial.step4.alt',
   },
 ] as const;
 
@@ -436,16 +481,27 @@ const tutorialProgress = document.querySelector<HTMLElement>('#tutorial-progress
 const tutorialPrev = document.querySelector<HTMLButtonElement>('#tutorial-prev')!;
 const tutorialNext = document.querySelector<HTMLButtonElement>('#tutorial-next')!;
 
+document.querySelectorAll<HTMLButtonElement>('[data-locale]').forEach((button) => {
+  button.addEventListener('click', () => {
+    const locale = button.dataset.locale as Locale | undefined;
+    if (locale !== 'ko' && locale !== 'ja') return;
+    setLocale(locale);
+    applyTranslations();
+    if (tutorialDialog.open) renderTutorial();
+    game.refreshLocale();
+  });
+});
+
 function renderTutorial() {
   const step = tutorialSteps[tutorialStep];
-  tutorialTitle.textContent = step.title;
-  tutorialCopy.textContent = step.copy;
-  tutorialVisual.innerHTML = `<img src="${step.image}" alt="${step.alt}" decoding="async" /><span aria-hidden="true">${tutorialStep + 1}</span>`;
+  tutorialTitle.textContent = t(step.titleKey);
+  tutorialCopy.textContent = t(step.copyKey);
+  tutorialVisual.innerHTML = `<img src="${step.image}" alt="${t(step.altKey)}" decoding="async" /><span aria-hidden="true">${tutorialStep + 1}</span>`;
   tutorialProgress.innerHTML = tutorialSteps.map((_, index) =>
     `<span class="${index === tutorialStep ? 'active' : ''}">${index + 1}</span>`,
   ).join('');
   tutorialPrev.disabled = tutorialStep === 0;
-  tutorialNext.textContent = tutorialStep === tutorialSteps.length - 1 ? '연습 대국 시작' : '다음';
+  tutorialNext.textContent = tutorialStep === tutorialSteps.length - 1 ? t('tutorial.startPractice') : t('tutorial.next');
 }
 
 function openTutorial() {
