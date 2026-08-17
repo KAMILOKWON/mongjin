@@ -1,11 +1,15 @@
 {
   "name": "@studiozzzg/mongjin-steam",
   "version": "1.0.0",
+  "description": "Mongjin desktop build for Steam",
+  "author": "Studio ZZG",
   "private": true,
   "type": "module",
   "main": "main.mjs",
   "scripts": {
-    "package": "electron-builder --dir --publish never"
+    "package:mac": "electron-builder --mac dir --universal --publish never",
+    "package:win": "electron-builder --win dir --x64 --publish never",
+    "package": "npm run package:mac && npm run package:win"
   },
   "devDependencies": {
     "electron": "37.10.3",
@@ -14,9 +18,10 @@
   "build": {
     "appId": "com.studiozzzg.mongjin.steam",
     "productName": "Mongjin",
+    "icon": "../ios/Mongjin/Assets.xcassets/AppIcon.appiconset/AppIcon.png",
     "files": ["main.mjs", "preload.mjs", "game/**/*"],
     "directories": { "output": "release" },
-    "asar": false,
+    "asar": true,
     "mac": { "category": "public.app-category.games", "target": ["dir"] },
     "win": { "target": ["dir"] }
   }

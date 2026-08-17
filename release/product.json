@@ -51,6 +51,12 @@
         },
         "beta": {
           "cwd": ".",
+          "requiredTools": [
+            "bundle"
+          ],
+          "requiredFiles": [
+            "Gemfile.lock"
+          ],
           "run": [
             "bundle",
             "exec",
@@ -103,7 +109,9 @@
       ],
       "credentials": [
         "STEAM_BUILD_ACCOUNT",
-        "STEAM_APP_ID"
+        "STEAM_APP_ID",
+        "STEAM_MAC_DEPOT_ID",
+        "STEAM_WINDOWS_DEPOT_ID"
       ],
       "actions": {
         "build": {
@@ -112,6 +120,52 @@
             "npm",
             "run",
             "build:steam"
+          ]
+        },
+        "beta": {
+          "type": "steam-pipe",
+          "requiredTools": [
+            "steamcmd"
+          ],
+          "requiredFiles": [
+            "apps/steam/release/mac-universal",
+            "apps/steam/release/win-unpacked"
+          ],
+          "buildOutput": "apps/steam/release/steam-output",
+          "depots": [
+            {
+              "platform": "mac",
+              "idEnv": "STEAM_MAC_DEPOT_ID",
+              "contentRoot": "apps/steam/release/mac-universal"
+            },
+            {
+              "platform": "windows",
+              "idEnv": "STEAM_WINDOWS_DEPOT_ID",
+              "contentRoot": "apps/steam/release/win-unpacked"
+            }
+          ]
+        },
+        "production": {
+          "type": "steam-pipe",
+          "requiredTools": [
+            "steamcmd"
+          ],
+          "requiredFiles": [
+            "apps/steam/release/mac-universal",
+            "apps/steam/release/win-unpacked"
+          ],
+          "buildOutput": "apps/steam/release/steam-output",
+          "depots": [
+            {
+              "platform": "mac",
+              "idEnv": "STEAM_MAC_DEPOT_ID",
+              "contentRoot": "apps/steam/release/mac-universal"
+            },
+            {
+              "platform": "windows",
+              "idEnv": "STEAM_WINDOWS_DEPOT_ID",
+              "contentRoot": "apps/steam/release/win-unpacked"
+            }
           ]
         }
       }
