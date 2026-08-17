@@ -1,0 +1,27 @@
+default_platform(:ios)
+
+def studio_api_key
+  app_store_connect_api_key(
+    key_id: ENV.fetch("APP_STORE_CONNECT_KEY_ID"),
+    issuer_id: ENV.fetch("APP_STORE_CONNECT_ISSUER_ID"),
+    key_filepath: ENV.fetch("APP_STORE_CONNECT_KEY_PATH")
+  )
+end
+
+platform :ios do
+  desc "Archive Mongjin and upload it to TestFlight"
+  lane :beta do
+    setup_ci if ENV["CI"]
+    build_app(
+      project: "apps/ios/Mongjin.xcodeproj",
+      scheme: "Mongjin",
+      clean: true,
+      export_method: "app-store",
+      output_directory: "artifacts/ios"
+    )
+    upload_to_testflight(
+      api_key: studio_api_key,
+      skip_waiting_for_build_processing: true
+    )
+  end
+end

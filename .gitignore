@@ -15,3 +15,8 @@ DerivedData/
 *.local
 server/data/
 tmp/
+artifacts/
+fastlane/report.xml
+fastlane/Preview.html
+fastlane/screenshots/
+fastlane/test_output/
