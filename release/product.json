@@ -17,6 +17,10 @@
       "path": "package.json"
     },
     {
+      "type": "package-json",
+      "path": "apps/steam/package.json"
+    },
+    {
       "type": "xcode",
       "path": "apps/ios/Mongjin.xcodeproj/project.pbxproj"
     }
@@ -90,17 +94,27 @@
       }
     },
     "steam": {
-      "state": "planned",
+      "state": "scaffolded",
       "identifier": null,
       "projectPath": "apps/steam",
       "requiredTools": [
-        "steamcmd"
+        "node",
+        "npm"
       ],
       "credentials": [
         "STEAM_BUILD_ACCOUNT",
         "STEAM_APP_ID"
       ],
-      "actions": {}
+      "actions": {
+        "build": {
+          "cwd": ".",
+          "run": [
+            "npm",
+            "run",
+            "build:steam"
+          ]
+        }
+      }
     }
   }
 }

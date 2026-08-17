@@ -17,7 +17,9 @@
     "dev:ait": "npm run ait:install && ait dev",
     "build:ait": "npm run ait:install && ait build",
     "test:ios": "swift test --package-path apps/ios",
-    "build:ios": "xcodebuild -project apps/ios/Mongjin.xcodeproj -scheme Mongjin -configuration Release -destination 'generic/platform=iOS Simulator' CODE_SIGNING_ALLOWED=NO build"
+    "build:ios": "xcodebuild -project apps/ios/Mongjin.xcodeproj -scheme Mongjin -configuration Release -destination 'generic/platform=iOS Simulator' CODE_SIGNING_ALLOWED=NO build",
+    "build:steam-web": "vite build --config vite.config.steam.ts",
+    "build:steam": "npm run build:steam-web && npm run package --prefix apps/steam"
   },
   "dependencies": {
     "@capacitor/core": "^8.4.0"

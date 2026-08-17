@@ -1,0 +1,23 @@
+{
+  "name": "@studiozzzg/mongjin-steam",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "main": "main.mjs",
+  "scripts": {
+    "package": "electron-builder --dir --publish never"
+  },
+  "devDependencies": {
+    "electron": "37.10.3",
+    "electron-builder": "^26.0.0"
+  },
+  "build": {
+    "appId": "com.studiozzzg.mongjin.steam",
+    "productName": "Mongjin",
+    "files": ["main.mjs", "preload.mjs", "game/**/*"],
+    "directories": { "output": "release" },
+    "asar": false,
+    "mac": { "category": "public.app-category.games", "target": ["dir"] },
+    "win": { "target": ["dir"] }
+  }
+}
