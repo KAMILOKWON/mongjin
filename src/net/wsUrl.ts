@@ -7,6 +7,10 @@ export function resolveWsUrl(): string {
 
   if (typeof location === 'undefined') return 'ws://localhost:3001';
 
+  if (globalThis.window?.Capacitor?.isNativePlatform?.()) {
+    return PRODUCTION_WS_URL;
+  }
+
   const { hostname, protocol } = location;
   if (hostname === 'localhost' || hostname === '127.0.0.1') {
     return 'ws://localhost:3001';

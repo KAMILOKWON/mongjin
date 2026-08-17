@@ -491,24 +491,31 @@ export class GameController {
   private static readonly BOARD_PADDING = 12;
   private static readonly BOARD_GAP = 2;
 
-  /** 보드 테두리·패딩·칸 간격을 제외한 실제 사용 가능 너비 */
-  private availableBoardWidth(): number {
+  /** 보드 테두리·패딩·칸 간격을 제외한 실제 사용 가능 영역 */
+  private availableBoardBox(): { width: number; height: number } {
     const wrap = this.boardEl?.parentElement;
-    if (wrap && wrap.clientWidth > 0) return wrap.clientWidth;
+    if (wrap && wrap.clientWidth > 0) {
+      const height = wrap.clientHeight > 48 ? wrap.clientHeight : Number.POSITIVE_INFINITY;
+      return { width: wrap.clientWidth, height };
+    }
 
     const vw = window.innerWidth;
-    const isMobile = vw <= 640;
-    const appPad = isMobile ? 32 : 48;
+    const isMobile = vw <= 720;
+    const appPad = isMobile ? 24 : 48;
     const maxApp = isMobile ? 480 : vw;
-    return Math.max(0, Math.min(maxApp, vw) - appPad);
+    return {
+      width: Math.max(0, Math.min(maxApp, vw) - appPad),
+      height: Number.POSITIVE_INFINITY,
+    };
   }
 
   private cellSizeFor(n: number): number {
+    const box = this.availableBoardBox();
     const chrome =
       GameController.BOARD_BORDER +
       GameController.BOARD_PADDING +
       GameController.BOARD_GAP * (n - 1);
-    const inner = this.availableBoardWidth() - chrome;
+    const inner = Math.min(box.width, box.height) - chrome;
     return Math.max(24, Math.min(64, Math.floor(inner / n)));
   }
 

@@ -12,6 +12,6 @@ export default defineConfig({
   },
   test: {
     // 외장 볼륨에서 macOS가 만드는 AppleDouble 파일(._*) 제외
-    exclude: ['**/node_modules/**', '**/dist/**', '**/._*'],
+    exclude: ['**/node_modules/**', '**/dist/**', '**/sites/**', '**/._*'],
   },
 });

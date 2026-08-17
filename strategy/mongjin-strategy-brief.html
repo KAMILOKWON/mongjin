@@ -1,0 +1,449 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <title>몽진 간략 전략서</title>
+  <style>
+    :root {
+      --ink: #20201d;
+      --muted: #716e66;
+      --paper: #f4f0e7;
+      --sheet: #fffdf8;
+      --line: #d8d1c2;
+      --red: #9b3b2f;
+      --red-soft: #f3e6df;
+      --blue: #315b63;
+      --blue-soft: #e1eceb;
+      --gold: #aa7a29;
+      --shadow: 0 22px 70px rgba(56, 47, 34, .11);
+    }
+
+    * { box-sizing: border-box; }
+
+    html { scroll-behavior: smooth; }
+
+    body {
+      margin: 0;
+      color: var(--ink);
+      background:
+        radial-gradient(circle at 15% 4%, rgba(170, 122, 41, .10), transparent 28rem),
+        linear-gradient(180deg, #e9e3d7 0, var(--paper) 28rem);
+      font-family: Pretendard, "Noto Sans KR", "Apple SD Gothic Neo", sans-serif;
+      line-height: 1.65;
+      word-break: keep-all;
+    }
+
+    a { color: inherit; }
+
+    .page {
+      width: min(920px, calc(100% - 32px));
+      margin: 40px auto 80px;
+      background: var(--sheet);
+      border: 1px solid rgba(110, 92, 61, .22);
+      box-shadow: var(--shadow);
+    }
+
+    header {
+      position: relative;
+      overflow: hidden;
+      padding: 72px 72px 60px;
+      color: #f8f3e8;
+      background: #242a27;
+    }
+
+    header::after {
+      content: "蒙塵";
+      position: absolute;
+      right: 38px;
+      bottom: -42px;
+      color: rgba(255, 255, 255, .055);
+      font: 800 clamp(9rem, 25vw, 16rem)/1 serif;
+      letter-spacing: -.12em;
+    }
+
+    .eyebrow {
+      margin: 0 0 14px;
+      color: #d9bd83;
+      font-size: .75rem;
+      font-weight: 800;
+      letter-spacing: .18em;
+      text-transform: uppercase;
+    }
+
+    h1 {
+      position: relative;
+      z-index: 1;
+      margin: 0;
+      font-family: "Iowan Old Style", "Noto Serif KR", Batang, serif;
+      font-size: clamp(2.8rem, 7vw, 5.2rem);
+      font-weight: 700;
+      line-height: 1.05;
+      letter-spacing: -.06em;
+    }
+
+    .subtitle {
+      position: relative;
+      z-index: 1;
+      max-width: 600px;
+      margin: 20px 0 0;
+      color: #c9cbc5;
+      font-size: 1.05rem;
+    }
+
+    .meta {
+      position: relative;
+      z-index: 1;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px 18px;
+      margin-top: 34px;
+      color: #9fa59f;
+      font-size: .78rem;
+    }
+
+    main { padding: 58px 72px 76px; }
+
+    section + section {
+      margin-top: 62px;
+      padding-top: 58px;
+      border-top: 1px solid var(--line);
+    }
+
+    h2 {
+      margin: 0 0 24px;
+      font-family: "Iowan Old Style", "Noto Serif KR", Batang, serif;
+      font-size: 1.75rem;
+      line-height: 1.3;
+      letter-spacing: -.035em;
+    }
+
+    h3 {
+      margin: 0 0 8px;
+      font-size: 1rem;
+      letter-spacing: -.02em;
+    }
+
+    p { margin: 0; }
+    p + p { margin-top: 10px; }
+
+    .thesis {
+      padding-left: 26px;
+      border-left: 4px solid var(--gold);
+      font-family: "Iowan Old Style", "Noto Serif KR", Batang, serif;
+      font-size: clamp(1.35rem, 3.5vw, 2rem);
+      font-weight: 700;
+      line-height: 1.55;
+      letter-spacing: -.035em;
+    }
+
+    .thesis strong { color: var(--red); }
+
+    .principles,
+    .phases,
+    .priorities {
+      display: grid;
+      gap: 14px;
+    }
+
+    .principles { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+
+    .card {
+      min-height: 170px;
+      padding: 24px;
+      border: 1px solid var(--line);
+      background: #fffefa;
+    }
+
+    .card .number {
+      display: block;
+      margin-bottom: 28px;
+      color: var(--red);
+      font-family: Georgia, serif;
+      font-size: .8rem;
+      font-weight: 700;
+    }
+
+    .card p,
+    .phase p,
+    .note,
+    li { color: #55534d; }
+
+    .phase {
+      display: grid;
+      grid-template-columns: 120px 1fr;
+      gap: 22px;
+      padding: 22px 0;
+      border-bottom: 1px solid var(--line);
+    }
+
+    .phase:last-child { border-bottom: 0; }
+
+    .phase-label {
+      color: var(--blue);
+      font-family: "Iowan Old Style", "Noto Serif KR", Batang, serif;
+      font-size: 1.25rem;
+      font-weight: 700;
+    }
+
+    .phase ul,
+    .checklist,
+    .research-list {
+      margin: 12px 0 0;
+      padding-left: 1.2rem;
+    }
+
+    li + li { margin-top: 7px; }
+
+    .priority {
+      display: grid;
+      grid-template-columns: 48px 1fr;
+      align-items: center;
+      min-height: 66px;
+      border: 1px solid var(--line);
+      background: #fffefa;
+    }
+
+    .priority b {
+      display: grid;
+      align-self: stretch;
+      place-items: center;
+      color: #fff;
+      background: var(--red);
+      font-family: Georgia, serif;
+      font-size: .85rem;
+    }
+
+    .priority span { padding: 13px 17px; }
+
+    .decision {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      overflow: hidden;
+      border: 1px solid var(--line);
+    }
+
+    .decision > div { padding: 28px; }
+    .decision > div + div { border-left: 1px solid var(--line); }
+    .decision .ahead { background: var(--red-soft); }
+    .decision .behind { background: var(--blue-soft); }
+
+    .decision small {
+      display: block;
+      margin-bottom: 8px;
+      color: var(--muted);
+      font-weight: 800;
+      letter-spacing: .08em;
+    }
+
+    .decision strong {
+      display: block;
+      margin-bottom: 10px;
+      font-size: 1.2rem;
+    }
+
+    .check-panel {
+      display: grid;
+      grid-template-columns: .9fr 1.1fr;
+      gap: 26px;
+      padding: 30px;
+      color: #eef0ec;
+      background: #2f3936;
+    }
+
+    .check-panel h2 { margin-bottom: 10px; color: #fff; }
+    .check-panel .note { color: #b8c1bc; }
+    .checklist { margin-top: 0; }
+    .checklist li { color: #e3e8e4; }
+    .checklist li::marker { color: #d9bd83; }
+
+    .research {
+      padding: 28px;
+      border: 1px dashed #b6aa96;
+      background: #fbf7ee;
+    }
+
+    .research h3 { color: var(--red); }
+
+    footer {
+      display: flex;
+      justify-content: space-between;
+      gap: 24px;
+      padding: 24px 72px;
+      color: var(--muted);
+      border-top: 1px solid var(--line);
+      font-size: .75rem;
+    }
+
+    footer a { text-underline-offset: 3px; }
+
+    @media (max-width: 700px) {
+      .page { width: 100%; margin: 0; border: 0; }
+      header, main { padding-left: 24px; padding-right: 24px; }
+      header { padding-top: 56px; padding-bottom: 48px; }
+      .principles, .decision, .check-panel { grid-template-columns: 1fr; }
+      .decision > div + div { border-top: 1px solid var(--line); border-left: 0; }
+      .phase { grid-template-columns: 1fr; gap: 6px; }
+      footer { flex-direction: column; padding: 22px 24px; }
+    }
+
+    @media print {
+      body { background: #fff; font-size: 10pt; }
+      .page { width: 100%; margin: 0; border: 0; box-shadow: none; }
+      header { padding: 38px 44px; print-color-adjust: exact; }
+      main { padding: 36px 44px; }
+      section + section { margin-top: 34px; padding-top: 30px; }
+      .card { min-height: auto; break-inside: avoid; }
+      .phase, .decision, .check-panel, .research { break-inside: avoid; }
+    }
+  </style>
+</head>
+<body>
+  <article class="page">
+    <header>
+      <p class="eyebrow">Personal strategy memo · v1.0</p>
+      <h1>몽진<br>간략 전략서</h1>
+      <p class="subtitle">빠르게 달리는 왕과, 느리지만 왕을 잡을 수 있는 호위 사이에서 매 수의 균형을 찾는 법.</p>
+      <div class="meta">
+        <span>기준 규칙: 9×9 · 호위 8개</span>
+        <span>요약일: 2026. 07. 20.</span>
+        <span>개인 열람용</span>
+      </div>
+    </header>
+
+    <main>
+      <section aria-labelledby="thesis-title">
+        <h2 id="thesis-title">한 문장 전략</h2>
+        <p class="thesis">왕은 매번 목적지에 가까워져야 한다. 단, <strong>다음 수에 잡히지 않을 만큼만</strong> 호위를 데리고 간다.</p>
+      </section>
+
+      <section aria-labelledby="principles-title">
+        <h2 id="principles-title">네 가지 원칙</h2>
+        <div class="principles">
+          <div class="card">
+            <span class="number">01</span>
+            <h3>왕은 목표이자 약점이다</h3>
+            <p>목적지에 먼저 닿으면 이기지만, 호위와 4방으로 붙으면 즉시 잡힐 수 있다. 단독 돌진은 속도가 아니라 실수다.</p>
+          </div>
+          <div class="card">
+            <span class="number">02</span>
+            <h3>호위는 벽보다 사정권이다</h3>
+            <p>호위가 선 칸보다 다음 수에 공격하는 상하좌우 네 칸이 중요하다. 상대 왕의 안전 경로를 끊는 위치를 찾는다.</p>
+          </div>
+          <div class="card">
+            <span class="number">03</span>
+            <h3>착수는 미래의 병참선이다</h3>
+            <p>새 호위는 현재 전투력과 다음 착수 범위를 함께 만든다. 고립된 전방 호위보다 이어지는 네트워크가 강하다.</p>
+          </div>
+          <div class="card">
+            <span class="number">04</span>
+            <h3>목적지는 셋, 입구는 넓게 본다</h3>
+            <p>호위는 목적지 칸에 설 수 없다. 한 칸을 고집하지 말고 d·e·f 세 입구 사이를 마지막 순간 전환한다.</p>
+          </div>
+        </div>
+      </section>
+
+      <section aria-labelledby="decision-title">
+        <h2 id="decision-title">레이스인가, 방해인가</h2>
+        <div class="decision">
+          <div class="ahead">
+            <small>내가 1템포 이상 앞선다</small>
+            <strong>전진한다</strong>
+            <p>왕의 대각 전진을 우선하되 주변 8칸 안에 호위 1개를 유지한다. 교환으로 목적지 입구를 연다.</p>
+          </div>
+          <div class="behind">
+            <small>내가 늦거나 길이 막혔다</small>
+            <strong>상대를 늦춘다</strong>
+            <p>상대 왕의 바로 앞보다 2수 뒤 경로, 목적지 앞줄, 중앙 병목을 선점한 뒤 번 템포를 내 왕 전진으로 바꾼다.</p>
+          </div>
+        </div>
+      </section>
+
+      <section aria-labelledby="phases-title">
+        <h2 id="phases-title">국면별 운영</h2>
+        <div class="phases">
+          <div class="phase">
+            <div class="phase-label">초반</div>
+            <div>
+              <h3>속도와 안전의 형태를 정한다</h3>
+              <ul>
+                <li><b>@e2</b>는 안전한 호위 선전개, <b>Ke1-e2</b>는 빠른 중앙 레이스다.</li>
+                <li>빠르게 나갔다면 3~5수 안에 최소 호위 하나를 왕 주변에 붙인다.</li>
+                <li>흑은 선공 템포를 거리로, 백은 한 번의 유효한 차단으로 바꾼다.</li>
+              </ul>
+            </div>
+          </div>
+          <div class="phase">
+            <div class="phase-label">중반</div>
+            <div>
+              <h3>길을 만들고 상대 길을 꺾는다</h3>
+              <ul>
+                <li>왕 주변 8칸에 호위 1개는 최소 안전선, 2개는 교환 대응선이다.</li>
+                <li>호위 교환은 말 수보다 ‘교환 후 어느 왕의 길이 열리는가’로 평가한다.</li>
+                <li>차단만 계속하지 않는다. 상대가 우회한 순간 내 왕 레이스로 전환한다.</li>
+              </ul>
+            </div>
+          </div>
+          <div class="phase">
+            <div class="phase-label">종반</div>
+            <div>
+              <h3>목적지 칸보다 앞줄을 장악한다</h3>
+              <ul>
+                <li>핵심 전장은 흑 기준 c8~g8, 백 기준 c2~g2다.</li>
+                <li>왕을 중앙에 두어 목적지 두 칸 이상을 동시에 노린다.</li>
+                <li>측면 우회는 중앙 재진입을 위한 수단이다. 변에 오래 머물면 포위가 쉬워진다.</li>
+              </ul>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section aria-labelledby="priority-title">
+        <h2 id="priority-title">종반 판단 순서</h2>
+        <div class="priorities">
+          <div class="priority"><b>1</b><span>내 왕이 지금 목적지에 들어갈 수 있는가?</span></div>
+          <div class="priority"><b>2</b><span>내 호위가 지금 상대 왕을 잡을 수 있는가?</span></div>
+          <div class="priority"><b>3</b><span>상대 왕의 다음 목적지 진입을 막았는가?</span></div>
+          <div class="priority"><b>4</b><span>내 왕이 다음 수에 잡히는 위협을 막았는가?</span></div>
+          <div class="priority"><b>5</b><span>그다음에야 교환, 착수, 재료를 계산한다.</span></div>
+        </div>
+      </section>
+
+      <section class="check-panel" aria-labelledby="check-title">
+        <div>
+          <p class="eyebrow">Before every move</p>
+          <h2 id="check-title">매 수 10초 점검</h2>
+          <p class="note">하나라도 놓치면 전략보다 전술로 먼저 진다.</p>
+        </div>
+        <ul class="checklist">
+          <li>내 왕이 다음 수에 잡히는가?</li>
+          <li>상대 왕이 다음 수에 목적지에 들어가는가?</li>
+          <li>내게 즉시 이기는 수가 있는가?</li>
+          <li>왕 이동 후 대각 탈출 칸이 남는가?</li>
+          <li>호위가 바로 잡혀도 재포획할 수 있는가?</li>
+          <li>같은 국면 3회 반복 패배를 만들지는 않는가?</li>
+        </ul>
+      </section>
+
+      <section aria-labelledby="research-title">
+        <h2 id="research-title">다음 검증 과제</h2>
+        <div class="research">
+          <h3>정석이 아니라 현재의 강한 가설</h3>
+          <ul class="research-list">
+            <li><b>@e2</b> 선전개와 <b>Ke1-e2</b> 빠른 전진의 실제 승률 비교</li>
+            <li>흑 선공 우위의 크기와 백의 최적 첫 차단 수 검증</li>
+            <li>호위 8개, 왕 포위 규칙, 반복 패배 규칙의 실전 기여도 측정</li>
+            <li>셀프플레이 표본 확대 후 오프닝·입구 전환 패턴 업데이트</li>
+          </ul>
+        </div>
+      </section>
+    </main>
+
+    <footer>
+      <span>몽진(蒙塵) · 개인용 요약 전략서</span>
+      <a href="./mongjin-strategy.md">상세 전략 연구 노트 보기</a>
+    </footer>
+  </article>
+</body>
+</html>

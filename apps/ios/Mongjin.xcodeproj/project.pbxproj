@@ -1,0 +1,421 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 56;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		B00000000000000000001 /* MongjinApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000001 /* MongjinApp.swift */; };
+		B00000000000000000002 /* AppModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000002 /* AppModel.swift */; };
+		B00000000000000000003 /* GameSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000003 /* GameSession.swift */; };
+		B00000000000000000004 /* ProfileStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000004 /* ProfileStore.swift */; };
+		B00000000000000000005 /* TutorialGuide.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000005 /* TutorialGuide.swift */; };
+		B00000000000000000006 /* Theme.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000006 /* Theme.swift */; };
+		B00000000000000000007 /* BoardView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000007 /* BoardView.swift */; };
+		B00000000000000000008 /* GameView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000008 /* GameView.swift */; };
+		B00000000000000000009 /* GuardTray.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000009 /* GuardTray.swift */; };
+		B00000000000000000010 /* HomeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000010 /* HomeView.swift */; };
+		B00000000000000000011 /* MatchView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000011 /* MatchView.swift */; };
+		B00000000000000000012 /* PieceImage.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000012 /* PieceImage.swift */; };
+		B00000000000000000013 /* ProfileView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000013 /* ProfileView.swift */; };
+		B00000000000000000014 /* ResultSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000014 /* ResultSheet.swift */; };
+		B00000000000000000015 /* SetupView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000015 /* SetupView.swift */; };
+		B00000000000000000016 /* TutorialView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000016 /* TutorialView.swift */; };
+		E00000000000000000003 /* GoogleMobileAds in Frameworks */ = {isa = PBXBuildFile; productRef = E00000000000000000002 /* GoogleMobileAds */; };
+		D00000000000000000017 /* AI.swift in Sources */ = {isa = PBXBuildFile; fileRef = C00000000000000000017 /* AI.swift */; };
+		D00000000000000000018 /* Apply.swift in Sources */ = {isa = PBXBuildFile; fileRef = C00000000000000000018 /* Apply.swift */; };
+		D00000000000000000019 /* Config.swift in Sources */ = {isa = PBXBuildFile; fileRef = C00000000000000000019 /* Config.swift */; };
+		D00000000000000000020 /* GhostPlayer.swift in Sources */ = {isa = PBXBuildFile; fileRef = C00000000000000000020 /* GhostPlayer.swift */; };
+		D00000000000000000021 /* GhostStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = C00000000000000000021 /* GhostStore.swift */; };
+		D00000000000000000022 /* GhostTape.swift in Sources */ = {isa = PBXBuildFile; fileRef = C00000000000000000022 /* GhostTape.swift */; };
+		D00000000000000000023 /* Result.swift in Sources */ = {isa = PBXBuildFile; fileRef = C00000000000000000023 /* Result.swift */; };
+		D00000000000000000024 /* Rules.swift in Sources */ = {isa = PBXBuildFile; fileRef = C00000000000000000024 /* Rules.swift */; };
+		D00000000000000000025 /* SeedGhosts.swift in Sources */ = {isa = PBXBuildFile; fileRef = C00000000000000000025 /* SeedGhosts.swift */; };
+		D00000000000000000026 /* Tactics.swift in Sources */ = {isa = PBXBuildFile; fileRef = C00000000000000000026 /* Tactics.swift */; };
+		D00000000000000000027 /* Types.swift in Sources */ = {isa = PBXBuildFile; fileRef = C00000000000000000027 /* Types.swift */; };
+		B00000000000000000900 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = F00000000000000000002 /* Assets.xcassets */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXFileReference section */
+		A00000000000000000001 /* MongjinApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MongjinApp.swift; sourceTree = "<group>"; };
+		A00000000000000000002 /* AppModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppModel.swift; sourceTree = "<group>"; };
+		A00000000000000000003 /* GameSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GameSession.swift; sourceTree = "<group>"; };
+		A00000000000000000004 /* ProfileStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProfileStore.swift; sourceTree = "<group>"; };
+		A00000000000000000005 /* TutorialGuide.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TutorialGuide.swift; sourceTree = "<group>"; };
+		A00000000000000000006 /* Theme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Theme.swift; sourceTree = "<group>"; };
+		A00000000000000000007 /* BoardView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BoardView.swift; sourceTree = "<group>"; };
+		A00000000000000000008 /* GameView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GameView.swift; sourceTree = "<group>"; };
+		A00000000000000000009 /* GuardTray.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GuardTray.swift; sourceTree = "<group>"; };
+		A00000000000000000010 /* HomeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HomeView.swift; sourceTree = "<group>"; };
+		A00000000000000000011 /* MatchView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MatchView.swift; sourceTree = "<group>"; };
+		A00000000000000000012 /* PieceImage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PieceImage.swift; sourceTree = "<group>"; };
+		A00000000000000000013 /* ProfileView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProfileView.swift; sourceTree = "<group>"; };
+		A00000000000000000014 /* ResultSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ResultSheet.swift; sourceTree = "<group>"; };
+		A00000000000000000015 /* SetupView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SetupView.swift; sourceTree = "<group>"; };
+		A00000000000000000016 /* TutorialView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TutorialView.swift; sourceTree = "<group>"; };
+		A00000000000000000028 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+		C00000000000000000017 /* AI.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AI.swift; sourceTree = "<group>"; };
+		C00000000000000000018 /* Apply.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Apply.swift; sourceTree = "<group>"; };
+		C00000000000000000019 /* Config.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Config.swift; sourceTree = "<group>"; };
+		C00000000000000000020 /* GhostPlayer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GhostPlayer.swift; sourceTree = "<group>"; };
+		C00000000000000000021 /* GhostStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GhostStore.swift; sourceTree = "<group>"; };
+		C00000000000000000022 /* GhostTape.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GhostTape.swift; sourceTree = "<group>"; };
+		C00000000000000000023 /* Result.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Result.swift; sourceTree = "<group>"; };
+		C00000000000000000024 /* Rules.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Rules.swift; sourceTree = "<group>"; };
+		C00000000000000000025 /* SeedGhosts.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SeedGhosts.swift; sourceTree = "<group>"; };
+		C00000000000000000026 /* Tactics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Tactics.swift; sourceTree = "<group>"; };
+		C00000000000000000027 /* Types.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Types.swift; sourceTree = "<group>"; };
+		F00000000000000000001 /* Mongjin.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Mongjin.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		F00000000000000000002 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+/* End PBXFileReference section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		P00000000000000000005 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				E00000000000000000003 /* GoogleMobileAds in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		G00000000000000000001 = {
+			isa = PBXGroup;
+			children = (
+				G00000000000000000003 /* Mongjin */,
+				G00000000000000000006 /* MongjinCore */,
+				G00000000000000000002 /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		G00000000000000000002 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				F00000000000000000001 /* Mongjin.app */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+		G00000000000000000003 /* Mongjin */ = {
+			isa = PBXGroup;
+			children = (
+				A00000000000000000001 /* MongjinApp.swift */,
+				A00000000000000000006 /* Theme.swift */,
+				G00000000000000000005 /* Session */,
+				G00000000000000000004 /* Views */,
+				F00000000000000000002 /* Assets.xcassets */,
+				A00000000000000000028 /* Info.plist */,
+			);
+			path = Mongjin;
+			sourceTree = "<group>";
+		};
+		G00000000000000000004 /* Views */ = {
+			isa = PBXGroup;
+			children = (
+				A00000000000000000007 /* BoardView.swift */,
+				A00000000000000000008 /* GameView.swift */,
+				A00000000000000000009 /* GuardTray.swift */,
+				A00000000000000000010 /* HomeView.swift */,
+				A00000000000000000011 /* MatchView.swift */,
+				A00000000000000000012 /* PieceImage.swift */,
+				A00000000000000000013 /* ProfileView.swift */,
+				A00000000000000000014 /* ResultSheet.swift */,
+				A00000000000000000015 /* SetupView.swift */,
+				A00000000000000000016 /* TutorialView.swift */,
+			);
+			path = Views;
+			sourceTree = "<group>";
+		};
+		G00000000000000000005 /* Session */ = {
+			isa = PBXGroup;
+			children = (
+				A00000000000000000002 /* AppModel.swift */,
+				A00000000000000000003 /* GameSession.swift */,
+				A00000000000000000004 /* ProfileStore.swift */,
+				A00000000000000000005 /* TutorialGuide.swift */,
+			);
+			path = Session;
+			sourceTree = "<group>";
+		};
+		G00000000000000000006 /* MongjinCore */ = {
+			isa = PBXGroup;
+			children = (
+				C00000000000000000017 /* AI.swift */,
+				C00000000000000000018 /* Apply.swift */,
+				C00000000000000000019 /* Config.swift */,
+				C00000000000000000020 /* GhostPlayer.swift */,
+				C00000000000000000021 /* GhostStore.swift */,
+				C00000000000000000022 /* GhostTape.swift */,
+				C00000000000000000023 /* Result.swift */,
+				C00000000000000000024 /* Rules.swift */,
+				C00000000000000000025 /* SeedGhosts.swift */,
+				C00000000000000000026 /* Tactics.swift */,
+				C00000000000000000027 /* Types.swift */,
+			);
+			name = MongjinCore;
+			path = Sources/MongjinCore;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		P00000000000000000002 /* Mongjin */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = K00000000000000000002 /* Build configuration list for PBXNativeTarget "Mongjin" */;
+			buildPhases = (
+				P00000000000000000003 /* Sources */,
+				P00000000000000000005 /* Frameworks */,
+				P00000000000000000004 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = Mongjin;
+			packageProductDependencies = (
+				E00000000000000000002 /* GoogleMobileAds */,
+			);
+			productName = Mongjin;
+			productReference = F00000000000000000001 /* Mongjin.app */;
+			productType = "com.apple.product-type.application";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		P00000000000000000001 /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = 1;
+				LastSwiftUpdateCheck = 1600;
+				LastUpgradeCheck = 1600;
+				TargetAttributes = {
+					P00000000000000000002 = {
+						CreatedOnToolsVersion = 16.0;
+					};
+				};
+			};
+			buildConfigurationList = K00000000000000000001 /* Build configuration list for PBXProject "Mongjin" */;
+			compatibilityVersion = "Xcode 14.0";
+			developmentRegion = ko;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				en,
+				ko,
+				Base,
+			);
+			mainGroup = G00000000000000000001;
+			productRefGroup = G00000000000000000002 /* Products */;
+			packageReferences = (
+				E00000000000000000001 /* XCRemoteSwiftPackageReference "swift-package-manager-google-mobile-ads" */,
+			);
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				P00000000000000000002 /* Mongjin */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		P00000000000000000004 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				B00000000000000000900 /* Assets.xcassets in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		P00000000000000000003 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				B00000000000000000001 /* MongjinApp.swift in Sources */,
+				B00000000000000000002 /* AppModel.swift in Sources */,
+				B00000000000000000003 /* GameSession.swift in Sources */,
+				B00000000000000000004 /* ProfileStore.swift in Sources */,
+				B00000000000000000005 /* TutorialGuide.swift in Sources */,
+				B00000000000000000006 /* Theme.swift in Sources */,
+				B00000000000000000007 /* BoardView.swift in Sources */,
+				B00000000000000000008 /* GameView.swift in Sources */,
+				B00000000000000000009 /* GuardTray.swift in Sources */,
+				B00000000000000000010 /* HomeView.swift in Sources */,
+				B00000000000000000011 /* MatchView.swift in Sources */,
+				B00000000000000000012 /* PieceImage.swift in Sources */,
+				B00000000000000000013 /* ProfileView.swift in Sources */,
+				B00000000000000000014 /* ResultSheet.swift in Sources */,
+				B00000000000000000015 /* SetupView.swift in Sources */,
+				B00000000000000000016 /* TutorialView.swift in Sources */,
+				D00000000000000000017 /* AI.swift in Sources */,
+				D00000000000000000018 /* Apply.swift in Sources */,
+				D00000000000000000019 /* Config.swift in Sources */,
+				D00000000000000000020 /* GhostPlayer.swift in Sources */,
+				D00000000000000000021 /* GhostStore.swift in Sources */,
+				D00000000000000000022 /* GhostTape.swift in Sources */,
+				D00000000000000000023 /* Result.swift in Sources */,
+				D00000000000000000024 /* Rules.swift in Sources */,
+				D00000000000000000025 /* SeedGhosts.swift in Sources */,
+				D00000000000000000026 /* Tactics.swift in Sources */,
+				D00000000000000000027 /* Types.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin XCBuildConfiguration section */
+		K00000000000000000003 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				ONLY_ACTIVE_ARCH = YES;
+				SDKROOT = iphoneos;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				SWIFT_VERSION = 5.0;
+			};
+			name = Debug;
+		};
+		K00000000000000000004 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				SDKROOT = iphoneos;
+				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_VERSION = 5.0;
+				VALIDATE_PRODUCT = YES;
+			};
+			name = Release;
+		};
+		K00000000000000000005 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 5;
+				DEVELOPMENT_TEAM = M9RZNRX9T4;
+				ENABLE_PREVIEWS = YES;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = Mongjin/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = "몽진";
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.board-games";
+				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
+				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
+				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
+				INFOPLIST_KEY_UISupportedInterfaceOrientations = UIInterfaceOrientationPortrait;
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				MARKETING_VERSION = 1.0.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.studiozzg.mongjin;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SUPPORTS_MACCATALYST = NO;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_STRICT_CONCURRENCY = targeted;
+				TARGETED_DEVICE_FAMILY = 1;
+			};
+			name = Debug;
+		};
+		K00000000000000000006 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 5;
+				DEVELOPMENT_TEAM = M9RZNRX9T4;
+				ENABLE_PREVIEWS = YES;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = Mongjin/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = "몽진";
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.board-games";
+				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
+				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
+				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
+				INFOPLIST_KEY_UISupportedInterfaceOrientations = UIInterfaceOrientationPortrait;
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				MARKETING_VERSION = 1.0.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.studiozzg.mongjin;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SUPPORTS_MACCATALYST = NO;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_STRICT_CONCURRENCY = targeted;
+				TARGETED_DEVICE_FAMILY = 1;
+			};
+			name = Release;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCRemoteSwiftPackageReference section */
+		E00000000000000000001 /* XCRemoteSwiftPackageReference "swift-package-manager-google-mobile-ads" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/googleads/swift-package-manager-google-mobile-ads.git";
+			requirement = {
+				kind = exactVersion;
+				version = 13.7.0;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		E00000000000000000002 /* GoogleMobileAds */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = E00000000000000000001 /* XCRemoteSwiftPackageReference "swift-package-manager-google-mobile-ads" */;
+			productName = GoogleMobileAds;
+		};
+/* End XCSwiftPackageProductDependency section */
+
+/* Begin XCConfigurationList section */
+		K00000000000000000001 /* Build configuration list for PBXProject "Mongjin" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				K00000000000000000003 /* Debug */,
+				K00000000000000000004 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		K00000000000000000002 /* Build configuration list for PBXNativeTarget "Mongjin" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				K00000000000000000005 /* Debug */,
+				K00000000000000000006 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+/* End XCConfigurationList section */
+	};
+	rootObject = P00000000000000000001 /* Project object */;
+}

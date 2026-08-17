@@ -1,0 +1,106 @@
+{
+  "schemaVersion": 1,
+  "id": "mongjin",
+  "displayName": "몽진",
+  "version": "1.0.0",
+  "build": 5,
+  "protocolVersion": 1,
+  "submittedBaseline": "ios-1.0.0+5",
+  "sharedSource": [
+    "src",
+    "bot",
+    "assets"
+  ],
+  "versionFiles": [
+    {
+      "type": "package-json",
+      "path": "package.json"
+    },
+    {
+      "type": "xcode",
+      "path": "apps/ios/Mongjin.xcodeproj/project.pbxproj"
+    }
+  ],
+  "platforms": {
+    "ios": {
+      "state": "submitted",
+      "identifier": "com.studiozzzg.mongjin",
+      "projectPath": "apps/ios/Mongjin.xcodeproj",
+      "requiredTools": [
+        "swift",
+        "xcodebuild"
+      ],
+      "credentials": [
+        "APP_STORE_CONNECT_KEY_ID",
+        "APP_STORE_CONNECT_ISSUER_ID",
+        "APP_STORE_CONNECT_KEY_PATH"
+      ],
+      "actions": {
+        "build": {
+          "cwd": ".",
+          "run": [
+            "swift",
+            "test",
+            "--package-path",
+            "apps/ios"
+          ]
+        },
+        "beta": {
+          "cwd": ".",
+          "run": [
+            "bundle",
+            "exec",
+            "fastlane",
+            "ios",
+            "beta"
+          ]
+        }
+      }
+    },
+    "android": {
+      "state": "planned",
+      "identifier": "com.studiozzzg.mongjin",
+      "projectPath": "apps/android",
+      "requiredTools": [
+        "java"
+      ],
+      "credentials": [
+        "GOOGLE_PLAY_SERVICE_ACCOUNT_JSON"
+      ],
+      "actions": {}
+    },
+    "toss": {
+      "state": "ready",
+      "identifier": "mongjin",
+      "projectPath": ".",
+      "requiredTools": [
+        "node",
+        "npm"
+      ],
+      "credentials": [],
+      "actions": {
+        "build": {
+          "cwd": ".",
+          "run": [
+            "npm",
+            "run",
+            "build:ait"
+          ]
+        }
+      }
+    },
+    "steam": {
+      "state": "planned",
+      "identifier": null,
+      "projectPath": "apps/steam",
+      "requiredTools": [
+        "steamcmd"
+      ],
+      "credentials": [
+        "STEAM_BUILD_ACCOUNT",
+        "STEAM_APP_ID"
+      ],
+      "actions": {}
+    }
+  }
+}

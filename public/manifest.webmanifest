@@ -1,0 +1,17 @@
+{
+  "name": "몽진",
+  "short_name": "몽진",
+  "description": "왕을 호위해 상대 진영까지 피난시키는 2인 추상 전략 게임",
+  "start_url": "./?app=1",
+  "display": "standalone",
+  "background_color": "#f1eee8",
+  "theme_color": "#f1eee8",
+  "lang": "ko",
+  "icons": [
+    {
+      "src": "apple-touch-icon.png",
+      "sizes": "1024x1024",
+      "type": "image/png"
+    }
+  ]
+}
