@@ -6,6 +6,7 @@ enum PlayMode: Equatable {
     case ai(AiDifficulty)
     case ghost(GhostTape)
     case tutorial
+    case online(opponentName: String, opponentRating: Int, isBot: Bool)
 
     var title: String {
         switch self {
@@ -13,6 +14,7 @@ enum PlayMode: Equatable {
         case .ai(let difficulty): return "컴퓨터 · \(difficulty.label)"
         case .ghost(let tape): return tape.ownerName
         case .tutorial: return "튜토리얼"
+        case .online(let name, _, _): return name
         }
     }
 }
@@ -73,6 +75,7 @@ final class GameSession {
 
     private var ghost: GhostController?
     private var turnToken = 0
+    var onOnlineMove: ((Move) -> Void)?
 
     init(mode: PlayMode, humanColor: HumanColorChoice = .black, config: RuleConfig = .default) {
         self.config = config
@@ -92,6 +95,8 @@ final class GameSession {
             self.humanSide = humanColor.resolve()
         case .tutorial:
             self.humanSide = .black
+        case .online:
+            self.humanSide = .black
         }
         self.legal = legalMoves(start, config)
         if mode == .tutorial {
@@ -105,7 +110,7 @@ final class GameSession {
         switch mode {
         case .local, .tutorial:
             return true
-        case .ai, .ghost:
+        case .ai, .ghost, .online:
             return state.turn == humanSide && !thinking
         }
     }
@@ -116,7 +121,14 @@ final class GameSession {
     }
 
     var isQuickMatch: Bool {
-        if case .ghost = mode { return true }
+        switch mode {
+        case .ghost, .online: return true
+        default: return false
+        }
+    }
+
+    var isOnline: Bool {
+        if case .online = mode { return true }
         return false
     }
 
@@ -134,7 +146,7 @@ final class GameSession {
         if let result { return result.label }
         if thinking {
             switch mode {
-            case .ghost: return "상대가 두는 중"
+            case .ghost, .online: return "상대가 두는 중"
             case .ai: return "컴퓨터가 생각하는 중"
             case .local, .tutorial: return "\(state.turn.korean) 차례"
             }
@@ -296,6 +308,12 @@ final class GameSession {
         }
         turnToken += 1
         moveDeadline = nil
+        if isOnline {
+            selected = nil
+            thinking = true
+            onOnlineMove?(move)
+            return
+        }
         undoStack.append(state)
         apply(move)
         selected = nil
@@ -307,6 +325,27 @@ final class GameSession {
             await playOpponentIfNeeded()
             startMoveClockIfNeeded()
         }
+    }
+
+    func bindOnlineSide(_ side: Player) {
+        humanSide = side
+    }
+
+    func applyServerState(_ next: GameState) {
+        state = next
+        lastMove = next.history.last
+        result = getResult(next, config)
+        selected = nil
+        thinking = next.turn != humanSide && result == nil
+        refreshLegal()
+    }
+
+    func applyServerResult(winner: Player, reason: WinReason) {
+        result = GameResult(winner: winner, reason: reason)
+        thinking = false
+        selected = nil
+        legal = []
+        moveDeadline = nil
     }
 
     private func loadTutorialLesson(_ index: Int) {
@@ -358,7 +397,7 @@ final class GameSession {
     }
 
     private func startMoveClockIfNeeded() {
-        guard isQuickMatch, result == nil, state.turn == humanSide, !thinking else {
+        guard case .ghost = mode, result == nil, state.turn == humanSide, !thinking else {
             moveDeadline = nil
             return
         }
@@ -399,7 +438,7 @@ final class GameSession {
     private func playOpponentIfNeeded() async {
         guard result == nil else { return }
         switch mode {
-        case .local, .tutorial:
+        case .local, .tutorial, .online:
             return
         case .ai(let difficulty):
             guard state.turn != humanSide else { return }

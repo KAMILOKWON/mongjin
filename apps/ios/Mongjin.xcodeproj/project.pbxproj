@@ -8,65 +8,67 @@
 
 /* Begin PBXBuildFile section */
 		B00000000000000000001 /* MongjinApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000001 /* MongjinApp.swift */; };
-		B00000000000000000002 /* AppModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000002 /* AppModel.swift */; };
-		B00000000000000000003 /* GameSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000003 /* GameSession.swift */; };
-		B00000000000000000004 /* ProfileStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000004 /* ProfileStore.swift */; };
-		B00000000000000000005 /* TutorialGuide.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000005 /* TutorialGuide.swift */; };
-		B00000000000000000006 /* Theme.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000006 /* Theme.swift */; };
-		B00000000000000000007 /* BoardView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000007 /* BoardView.swift */; };
-		B00000000000000000008 /* GameView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000008 /* GameView.swift */; };
-		B00000000000000000009 /* GuardTray.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000009 /* GuardTray.swift */; };
-		B00000000000000000010 /* HomeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000010 /* HomeView.swift */; };
-		B00000000000000000011 /* MatchView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000011 /* MatchView.swift */; };
-		B00000000000000000012 /* PieceImage.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000012 /* PieceImage.swift */; };
-		B00000000000000000013 /* ProfileView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000013 /* ProfileView.swift */; };
-		B00000000000000000014 /* ResultSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000014 /* ResultSheet.swift */; };
-		B00000000000000000015 /* SetupView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000015 /* SetupView.swift */; };
-		B00000000000000000016 /* TutorialView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000016 /* TutorialView.swift */; };
+		B00000000000000000002 /* OnlineClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000002 /* OnlineClient.swift */; };
+		B00000000000000000003 /* AppModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000003 /* AppModel.swift */; };
+		B00000000000000000004 /* GameSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000004 /* GameSession.swift */; };
+		B00000000000000000005 /* ProfileStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000005 /* ProfileStore.swift */; };
+		B00000000000000000006 /* TutorialGuide.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000006 /* TutorialGuide.swift */; };
+		B00000000000000000007 /* Theme.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000007 /* Theme.swift */; };
+		B00000000000000000008 /* BoardView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000008 /* BoardView.swift */; };
+		B00000000000000000009 /* GameView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000009 /* GameView.swift */; };
+		B00000000000000000010 /* GuardTray.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000010 /* GuardTray.swift */; };
+		B00000000000000000011 /* HomeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000011 /* HomeView.swift */; };
+		B00000000000000000012 /* MatchView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000012 /* MatchView.swift */; };
+		B00000000000000000013 /* PieceImage.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000013 /* PieceImage.swift */; };
+		B00000000000000000014 /* ProfileView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000014 /* ProfileView.swift */; };
+		B00000000000000000015 /* ResultSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000015 /* ResultSheet.swift */; };
+		B00000000000000000016 /* SetupView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000016 /* SetupView.swift */; };
+		B00000000000000000017 /* TutorialView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000017 /* TutorialView.swift */; };
+		D00000000000000000018 /* AI.swift in Sources */ = {isa = PBXBuildFile; fileRef = C00000000000000000018 /* AI.swift */; };
+		D00000000000000000019 /* Apply.swift in Sources */ = {isa = PBXBuildFile; fileRef = C00000000000000000019 /* Apply.swift */; };
+		D00000000000000000020 /* Config.swift in Sources */ = {isa = PBXBuildFile; fileRef = C00000000000000000020 /* Config.swift */; };
+		D00000000000000000021 /* GhostPlayer.swift in Sources */ = {isa = PBXBuildFile; fileRef = C00000000000000000021 /* GhostPlayer.swift */; };
+		D00000000000000000022 /* GhostStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = C00000000000000000022 /* GhostStore.swift */; };
+		D00000000000000000023 /* GhostTape.swift in Sources */ = {isa = PBXBuildFile; fileRef = C00000000000000000023 /* GhostTape.swift */; };
+		D00000000000000000024 /* Result.swift in Sources */ = {isa = PBXBuildFile; fileRef = C00000000000000000024 /* Result.swift */; };
+		D00000000000000000025 /* Rules.swift in Sources */ = {isa = PBXBuildFile; fileRef = C00000000000000000025 /* Rules.swift */; };
+		D00000000000000000026 /* SeedGhosts.swift in Sources */ = {isa = PBXBuildFile; fileRef = C00000000000000000026 /* SeedGhosts.swift */; };
+		D00000000000000000027 /* Tactics.swift in Sources */ = {isa = PBXBuildFile; fileRef = C00000000000000000027 /* Tactics.swift */; };
+		D00000000000000000028 /* Types.swift in Sources */ = {isa = PBXBuildFile; fileRef = C00000000000000000028 /* Types.swift */; };
 		E00000000000000000003 /* GoogleMobileAds in Frameworks */ = {isa = PBXBuildFile; productRef = E00000000000000000002 /* GoogleMobileAds */; };
-		D00000000000000000017 /* AI.swift in Sources */ = {isa = PBXBuildFile; fileRef = C00000000000000000017 /* AI.swift */; };
-		D00000000000000000018 /* Apply.swift in Sources */ = {isa = PBXBuildFile; fileRef = C00000000000000000018 /* Apply.swift */; };
-		D00000000000000000019 /* Config.swift in Sources */ = {isa = PBXBuildFile; fileRef = C00000000000000000019 /* Config.swift */; };
-		D00000000000000000020 /* GhostPlayer.swift in Sources */ = {isa = PBXBuildFile; fileRef = C00000000000000000020 /* GhostPlayer.swift */; };
-		D00000000000000000021 /* GhostStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = C00000000000000000021 /* GhostStore.swift */; };
-		D00000000000000000022 /* GhostTape.swift in Sources */ = {isa = PBXBuildFile; fileRef = C00000000000000000022 /* GhostTape.swift */; };
-		D00000000000000000023 /* Result.swift in Sources */ = {isa = PBXBuildFile; fileRef = C00000000000000000023 /* Result.swift */; };
-		D00000000000000000024 /* Rules.swift in Sources */ = {isa = PBXBuildFile; fileRef = C00000000000000000024 /* Rules.swift */; };
-		D00000000000000000025 /* SeedGhosts.swift in Sources */ = {isa = PBXBuildFile; fileRef = C00000000000000000025 /* SeedGhosts.swift */; };
-		D00000000000000000026 /* Tactics.swift in Sources */ = {isa = PBXBuildFile; fileRef = C00000000000000000026 /* Tactics.swift */; };
-		D00000000000000000027 /* Types.swift in Sources */ = {isa = PBXBuildFile; fileRef = C00000000000000000027 /* Types.swift */; };
 		B00000000000000000900 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = F00000000000000000002 /* Assets.xcassets */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
 		A00000000000000000001 /* MongjinApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MongjinApp.swift; sourceTree = "<group>"; };
-		A00000000000000000002 /* AppModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppModel.swift; sourceTree = "<group>"; };
-		A00000000000000000003 /* GameSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GameSession.swift; sourceTree = "<group>"; };
-		A00000000000000000004 /* ProfileStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProfileStore.swift; sourceTree = "<group>"; };
-		A00000000000000000005 /* TutorialGuide.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TutorialGuide.swift; sourceTree = "<group>"; };
-		A00000000000000000006 /* Theme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Theme.swift; sourceTree = "<group>"; };
-		A00000000000000000007 /* BoardView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BoardView.swift; sourceTree = "<group>"; };
-		A00000000000000000008 /* GameView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GameView.swift; sourceTree = "<group>"; };
-		A00000000000000000009 /* GuardTray.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GuardTray.swift; sourceTree = "<group>"; };
-		A00000000000000000010 /* HomeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HomeView.swift; sourceTree = "<group>"; };
-		A00000000000000000011 /* MatchView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MatchView.swift; sourceTree = "<group>"; };
-		A00000000000000000012 /* PieceImage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PieceImage.swift; sourceTree = "<group>"; };
-		A00000000000000000013 /* ProfileView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProfileView.swift; sourceTree = "<group>"; };
-		A00000000000000000014 /* ResultSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ResultSheet.swift; sourceTree = "<group>"; };
-		A00000000000000000015 /* SetupView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SetupView.swift; sourceTree = "<group>"; };
-		A00000000000000000016 /* TutorialView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TutorialView.swift; sourceTree = "<group>"; };
-		A00000000000000000028 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
-		C00000000000000000017 /* AI.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AI.swift; sourceTree = "<group>"; };
-		C00000000000000000018 /* Apply.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Apply.swift; sourceTree = "<group>"; };
-		C00000000000000000019 /* Config.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Config.swift; sourceTree = "<group>"; };
-		C00000000000000000020 /* GhostPlayer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GhostPlayer.swift; sourceTree = "<group>"; };
-		C00000000000000000021 /* GhostStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GhostStore.swift; sourceTree = "<group>"; };
-		C00000000000000000022 /* GhostTape.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GhostTape.swift; sourceTree = "<group>"; };
-		C00000000000000000023 /* Result.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Result.swift; sourceTree = "<group>"; };
-		C00000000000000000024 /* Rules.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Rules.swift; sourceTree = "<group>"; };
-		C00000000000000000025 /* SeedGhosts.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SeedGhosts.swift; sourceTree = "<group>"; };
-		C00000000000000000026 /* Tactics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Tactics.swift; sourceTree = "<group>"; };
-		C00000000000000000027 /* Types.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Types.swift; sourceTree = "<group>"; };
+		A00000000000000000002 /* OnlineClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OnlineClient.swift; sourceTree = "<group>"; };
+		A00000000000000000003 /* AppModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppModel.swift; sourceTree = "<group>"; };
+		A00000000000000000004 /* GameSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GameSession.swift; sourceTree = "<group>"; };
+		A00000000000000000005 /* ProfileStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProfileStore.swift; sourceTree = "<group>"; };
+		A00000000000000000006 /* TutorialGuide.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TutorialGuide.swift; sourceTree = "<group>"; };
+		A00000000000000000007 /* Theme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Theme.swift; sourceTree = "<group>"; };
+		A00000000000000000008 /* BoardView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BoardView.swift; sourceTree = "<group>"; };
+		A00000000000000000009 /* GameView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GameView.swift; sourceTree = "<group>"; };
+		A00000000000000000010 /* GuardTray.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GuardTray.swift; sourceTree = "<group>"; };
+		A00000000000000000011 /* HomeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HomeView.swift; sourceTree = "<group>"; };
+		A00000000000000000012 /* MatchView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MatchView.swift; sourceTree = "<group>"; };
+		A00000000000000000013 /* PieceImage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PieceImage.swift; sourceTree = "<group>"; };
+		A00000000000000000014 /* ProfileView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProfileView.swift; sourceTree = "<group>"; };
+		A00000000000000000015 /* ResultSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ResultSheet.swift; sourceTree = "<group>"; };
+		A00000000000000000016 /* SetupView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SetupView.swift; sourceTree = "<group>"; };
+		A00000000000000000017 /* TutorialView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TutorialView.swift; sourceTree = "<group>"; };
+		C00000000000000000018 /* AI.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AI.swift; sourceTree = "<group>"; };
+		C00000000000000000019 /* Apply.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Apply.swift; sourceTree = "<group>"; };
+		C00000000000000000020 /* Config.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Config.swift; sourceTree = "<group>"; };
+		C00000000000000000021 /* GhostPlayer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GhostPlayer.swift; sourceTree = "<group>"; };
+		C00000000000000000022 /* GhostStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GhostStore.swift; sourceTree = "<group>"; };
+		C00000000000000000023 /* GhostTape.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GhostTape.swift; sourceTree = "<group>"; };
+		C00000000000000000024 /* Result.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Result.swift; sourceTree = "<group>"; };
+		C00000000000000000025 /* Rules.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Rules.swift; sourceTree = "<group>"; };
+		C00000000000000000026 /* SeedGhosts.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SeedGhosts.swift; sourceTree = "<group>"; };
+		C00000000000000000027 /* Tactics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Tactics.swift; sourceTree = "<group>"; };
+		C00000000000000000028 /* Types.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Types.swift; sourceTree = "<group>"; };
+		A00000000000000000900 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		F00000000000000000001 /* Mongjin.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Mongjin.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		F00000000000000000002 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 /* End PBXFileReference section */
@@ -87,7 +89,7 @@
 			isa = PBXGroup;
 			children = (
 				G00000000000000000003 /* Mongjin */,
-				G00000000000000000006 /* MongjinCore */,
+				G00000000000000000004 /* MongjinCore */,
 				G00000000000000000002 /* Products */,
 			);
 			sourceTree = "<group>";
@@ -104,57 +106,66 @@
 			isa = PBXGroup;
 			children = (
 				A00000000000000000001 /* MongjinApp.swift */,
-				A00000000000000000006 /* Theme.swift */,
-				G00000000000000000005 /* Session */,
-				G00000000000000000004 /* Views */,
+				A00000000000000000007 /* Theme.swift */,
+					G00000000000000000010 /* Net */,
+					G00000000000000000011 /* Session */,
+					G00000000000000000012 /* Views */,
 				F00000000000000000002 /* Assets.xcassets */,
-				A00000000000000000028 /* Info.plist */,
+				A00000000000000000900 /* Info.plist */,
 			);
 			path = Mongjin;
 			sourceTree = "<group>";
 		};
-		G00000000000000000004 /* Views */ = {
+		G00000000000000000010 /* Net */ = {
 			isa = PBXGroup;
 			children = (
-				A00000000000000000007 /* BoardView.swift */,
-				A00000000000000000008 /* GameView.swift */,
-				A00000000000000000009 /* GuardTray.swift */,
-				A00000000000000000010 /* HomeView.swift */,
-				A00000000000000000011 /* MatchView.swift */,
-				A00000000000000000012 /* PieceImage.swift */,
-				A00000000000000000013 /* ProfileView.swift */,
-				A00000000000000000014 /* ResultSheet.swift */,
-				A00000000000000000015 /* SetupView.swift */,
-				A00000000000000000016 /* TutorialView.swift */,
+				A00000000000000000002 /* OnlineClient.swift */,
 			);
-			path = Views;
+			path = Net;
 			sourceTree = "<group>";
 		};
-		G00000000000000000005 /* Session */ = {
+		G00000000000000000011 /* Session */ = {
 			isa = PBXGroup;
 			children = (
-				A00000000000000000002 /* AppModel.swift */,
-				A00000000000000000003 /* GameSession.swift */,
-				A00000000000000000004 /* ProfileStore.swift */,
-				A00000000000000000005 /* TutorialGuide.swift */,
+				A00000000000000000003 /* AppModel.swift */,
+				A00000000000000000004 /* GameSession.swift */,
+				A00000000000000000005 /* ProfileStore.swift */,
+				A00000000000000000006 /* TutorialGuide.swift */,
 			);
 			path = Session;
 			sourceTree = "<group>";
 		};
-		G00000000000000000006 /* MongjinCore */ = {
+		G00000000000000000012 /* Views */ = {
 			isa = PBXGroup;
 			children = (
-				C00000000000000000017 /* AI.swift */,
-				C00000000000000000018 /* Apply.swift */,
-				C00000000000000000019 /* Config.swift */,
-				C00000000000000000020 /* GhostPlayer.swift */,
-				C00000000000000000021 /* GhostStore.swift */,
-				C00000000000000000022 /* GhostTape.swift */,
-				C00000000000000000023 /* Result.swift */,
-				C00000000000000000024 /* Rules.swift */,
-				C00000000000000000025 /* SeedGhosts.swift */,
-				C00000000000000000026 /* Tactics.swift */,
-				C00000000000000000027 /* Types.swift */,
+				A00000000000000000008 /* BoardView.swift */,
+				A00000000000000000009 /* GameView.swift */,
+				A00000000000000000010 /* GuardTray.swift */,
+				A00000000000000000011 /* HomeView.swift */,
+				A00000000000000000012 /* MatchView.swift */,
+				A00000000000000000013 /* PieceImage.swift */,
+				A00000000000000000014 /* ProfileView.swift */,
+				A00000000000000000015 /* ResultSheet.swift */,
+				A00000000000000000016 /* SetupView.swift */,
+				A00000000000000000017 /* TutorialView.swift */,
+			);
+			path = Views;
+			sourceTree = "<group>";
+		};
+		G00000000000000000004 /* MongjinCore */ = {
+			isa = PBXGroup;
+			children = (
+				C00000000000000000018 /* AI.swift */,
+				C00000000000000000019 /* Apply.swift */,
+				C00000000000000000020 /* Config.swift */,
+				C00000000000000000021 /* GhostPlayer.swift */,
+				C00000000000000000022 /* GhostStore.swift */,
+				C00000000000000000023 /* GhostTape.swift */,
+				C00000000000000000024 /* Result.swift */,
+				C00000000000000000025 /* Rules.swift */,
+				C00000000000000000026 /* SeedGhosts.swift */,
+				C00000000000000000027 /* Tactics.swift */,
+				C00000000000000000028 /* Types.swift */,
 			);
 			name = MongjinCore;
 			path = Sources/MongjinCore;
@@ -237,32 +248,33 @@
 			buildActionMask = 2147483647;
 			files = (
 				B00000000000000000001 /* MongjinApp.swift in Sources */,
-				B00000000000000000002 /* AppModel.swift in Sources */,
-				B00000000000000000003 /* GameSession.swift in Sources */,
-				B00000000000000000004 /* ProfileStore.swift in Sources */,
-				B00000000000000000005 /* TutorialGuide.swift in Sources */,
-				B00000000000000000006 /* Theme.swift in Sources */,
-				B00000000000000000007 /* BoardView.swift in Sources */,
-				B00000000000000000008 /* GameView.swift in Sources */,
-				B00000000000000000009 /* GuardTray.swift in Sources */,
-				B00000000000000000010 /* HomeView.swift in Sources */,
-				B00000000000000000011 /* MatchView.swift in Sources */,
-				B00000000000000000012 /* PieceImage.swift in Sources */,
-				B00000000000000000013 /* ProfileView.swift in Sources */,
-				B00000000000000000014 /* ResultSheet.swift in Sources */,
-				B00000000000000000015 /* SetupView.swift in Sources */,
-				B00000000000000000016 /* TutorialView.swift in Sources */,
-				D00000000000000000017 /* AI.swift in Sources */,
-				D00000000000000000018 /* Apply.swift in Sources */,
-				D00000000000000000019 /* Config.swift in Sources */,
-				D00000000000000000020 /* GhostPlayer.swift in Sources */,
-				D00000000000000000021 /* GhostStore.swift in Sources */,
-				D00000000000000000022 /* GhostTape.swift in Sources */,
-				D00000000000000000023 /* Result.swift in Sources */,
-				D00000000000000000024 /* Rules.swift in Sources */,
-				D00000000000000000025 /* SeedGhosts.swift in Sources */,
-				D00000000000000000026 /* Tactics.swift in Sources */,
-				D00000000000000000027 /* Types.swift in Sources */,
+				B00000000000000000002 /* OnlineClient.swift in Sources */,
+				B00000000000000000003 /* AppModel.swift in Sources */,
+				B00000000000000000004 /* GameSession.swift in Sources */,
+				B00000000000000000005 /* ProfileStore.swift in Sources */,
+				B00000000000000000006 /* TutorialGuide.swift in Sources */,
+				B00000000000000000007 /* Theme.swift in Sources */,
+				B00000000000000000008 /* BoardView.swift in Sources */,
+				B00000000000000000009 /* GameView.swift in Sources */,
+				B00000000000000000010 /* GuardTray.swift in Sources */,
+				B00000000000000000011 /* HomeView.swift in Sources */,
+				B00000000000000000012 /* MatchView.swift in Sources */,
+				B00000000000000000013 /* PieceImage.swift in Sources */,
+				B00000000000000000014 /* ProfileView.swift in Sources */,
+				B00000000000000000015 /* ResultSheet.swift in Sources */,
+				B00000000000000000016 /* SetupView.swift in Sources */,
+				B00000000000000000017 /* TutorialView.swift in Sources */,
+				D00000000000000000018 /* AI.swift in Sources */,
+				D00000000000000000019 /* Apply.swift in Sources */,
+				D00000000000000000020 /* Config.swift in Sources */,
+				D00000000000000000021 /* GhostPlayer.swift in Sources */,
+				D00000000000000000022 /* GhostStore.swift in Sources */,
+				D00000000000000000023 /* GhostTape.swift in Sources */,
+				D00000000000000000024 /* Result.swift in Sources */,
+				D00000000000000000025 /* Rules.swift in Sources */,
+				D00000000000000000026 /* SeedGhosts.swift in Sources */,
+				D00000000000000000027 /* Tactics.swift in Sources */,
+				D00000000000000000028 /* Types.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

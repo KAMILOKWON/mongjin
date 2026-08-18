@@ -31,8 +31,7 @@ struct ResultCard: View {
     }
 
     private var isQuick: Bool {
-        if case .ghost = session.mode { return true }
-        return false
+        session.isQuickMatch
     }
 
     private var won: Bool {

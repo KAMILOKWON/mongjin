@@ -34,11 +34,7 @@
         "swift",
         "xcodebuild"
       ],
-      "credentials": [
-        "APP_STORE_CONNECT_KEY_ID",
-        "APP_STORE_CONNECT_ISSUER_ID",
-        "APP_STORE_CONNECT_KEY_PATH"
-      ],
+      "credentials": [],
       "actions": {
         "build": {
           "cwd": ".",
@@ -52,23 +48,21 @@
         "beta": {
           "cwd": ".",
           "requiredTools": [
-            "bundle"
+            "xcodebuild"
           ],
           "requiredFiles": [
-            "Gemfile.lock"
+            "apps/ios/ExportOptionsUpload.plist",
+            "scripts/upload-ios-appstore.sh"
           ],
           "run": [
-            "bundle",
-            "exec",
-            "fastlane",
-            "ios",
-            "beta"
+            "bash",
+            "scripts/upload-ios-appstore.sh"
           ]
         }
       }
     },
     "android": {
-      "state": "planned",
+      "state": "scaffolded",
       "identifier": "com.studiozzzg.mongjin",
       "projectPath": "apps/android",
       "requiredTools": [
@@ -77,12 +71,44 @@
       "credentials": [
         "GOOGLE_PLAY_SERVICE_ACCOUNT_JSON"
       ],
-      "actions": {}
+      "actions": {
+        "build": {
+          "cwd": ".",
+          "credentials": [
+            "ANDROID_KEYSTORE_PATH",
+            "ANDROID_KEYSTORE_PASSWORD",
+            "ANDROID_KEY_ALIAS",
+            "ANDROID_KEY_PASSWORD"
+          ],
+          "run": [
+            "npm",
+            "run",
+            "build:android"
+          ]
+        },
+        "beta": {
+          "cwd": ".",
+          "requiredTools": [
+            "bundle"
+          ],
+          "requiredFiles": [
+            "Gemfile.lock",
+            "apps/android/app/build/outputs/bundle/release/app-release.aab"
+          ],
+          "run": [
+            "bundle",
+            "exec",
+            "fastlane",
+            "android",
+            "internal"
+          ]
+        }
+      }
     },
     "toss": {
       "state": "ready",
       "identifier": "mongjin",
-      "projectPath": ".",
+      "projectPath": "apps/toss",
       "requiredTools": [
         "node",
         "npm"
@@ -90,11 +116,26 @@
       "credentials": [],
       "actions": {
         "build": {
-          "cwd": ".",
+          "cwd": "apps/toss",
           "run": [
             "npm",
             "run",
             "build:ait"
+          ]
+        },
+        "beta": {
+          "cwd": "apps/toss",
+          "requiredFiles": [
+            "apps/toss/mongjin.ait"
+          ],
+          "run": [
+            "npx",
+            "ait",
+            "deploy",
+            "--location",
+            "mongjin.ait",
+            "--memo",
+            "1.0.0+51 iPhone/Android cross-play"
           ]
         }
       }

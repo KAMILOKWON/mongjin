@@ -28,6 +28,10 @@ struct GameView: View {
                     MatchSeats(tape: tape, session: session, me: model.profile)
                         .padding(.horizontal, 16)
                         .padding(.bottom, 8)
+                } else if case .online(let name, let rating, _) = session.mode {
+                    OnlineSeats(opponentName: name, opponentRating: rating, session: session, me: model.profile)
+                        .padding(.horizontal, 16)
+                        .padding(.bottom, 8)
                 }
 
                 BoardView(session: session, ghostSide: ghostSide(session))
@@ -70,8 +74,10 @@ struct GameView: View {
                 .padding(.horizontal, 16)
 
                 HStack(spacing: 10) {
-                    if session.isQuickMatch {
+                    if session.isQuickMatch && !session.isOnline {
                         MoveClock(deadline: session.moveDeadline)
+                    } else if session.isOnline {
+                        Color.clear.frame(maxWidth: .infinity, minHeight: 1)
                     } else {
                         Button("무르기") { session.undo() }
                             .buttonStyle(SecondaryButtonStyle())
@@ -109,6 +115,9 @@ struct GameView: View {
             .confirmationDialog("항복할까요?", isPresented: $confirmResign, titleVisibility: .visible) {
                 Button("항복", role: .destructive) {
                     session.resign()
+                    if session.isOnline {
+                        model.online.disconnect()
+                    }
                 }
                 Button("취소", role: .cancel) {}
             } message: {
@@ -131,7 +140,7 @@ struct GameView: View {
     }
 
     private func resultLabel(_ result: GameResult, session: GameSession) -> String {
-        if case .ghost = session.mode {
+        if session.isQuickMatch {
             if result.reason == .forfeit {
                 return result.winner == session.humanSide ? "승리 · 상대가 항복함" : "패배 · 항복"
             }
@@ -143,6 +152,29 @@ struct GameView: View {
                 : "패배 · \(result.reason.korean)"
         }
         return result.label
+    }
+}
+
+struct OnlineSeats: View {
+    var opponentName: String
+    var opponentRating: Int
+    var session: GameSession
+    var me: PlayerCard
+
+    var body: some View {
+        MatchSeats(
+            tape: GhostTape(
+                ownerName: opponentName,
+                ownerRating: opponentRating,
+                side: session.humanSide.opponent,
+                moves: [],
+                result: GameResult(winner: .black, reason: .goal),
+                plyCount: 0,
+                source: .local
+            ),
+            session: session,
+            me: me
+        )
     }
 }
 

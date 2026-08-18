@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">몽진</string>
+    <string name="title_activity_main">몽진</string>
+    <string name="package_name">com.studiozzzg.mongjin</string>
+    <string name="custom_url_scheme">com.studiozzzg.mongjin</string>
+</resources>
