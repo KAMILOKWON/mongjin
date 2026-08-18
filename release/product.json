@@ -62,7 +62,7 @@
       }
     },
     "android": {
-      "state": "scaffolded",
+      "state": "ready",
       "identifier": "com.studiozzzg.mongjin",
       "projectPath": "apps/android",
       "requiredTools": [
@@ -78,7 +78,9 @@
             "ANDROID_KEYSTORE_PATH",
             "ANDROID_KEYSTORE_PASSWORD",
             "ANDROID_KEY_ALIAS",
-            "ANDROID_KEY_PASSWORD"
+            "ANDROID_KEY_PASSWORD",
+            "ADMOB_ANDROID_APP_ID",
+            "ADMOB_ANDROID_BANNER_UNIT_ID"
           ],
           "run": [
             "npm",

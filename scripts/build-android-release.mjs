@@ -8,6 +8,8 @@ const required = [
   'ANDROID_KEYSTORE_PASSWORD',
   'ANDROID_KEY_ALIAS',
   'ANDROID_KEY_PASSWORD',
+  'ADMOB_ANDROID_APP_ID',
+  'ADMOB_ANDROID_BANNER_UNIT_ID',
 ];
 const missing = required.filter((name) => !process.env[name]);
 

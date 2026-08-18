@@ -92,10 +92,10 @@
         "id": "platform-android-project",
         "title": "Android 네이티브 프로젝트 연결",
         "kind": "platform-test",
-        "status": "doing",
+        "status": "done",
         "link": "/Volumes/Studio ZZG/mongjin/apps/android",
-        "note": "Capacitor 래퍼 생성 완료. 현재 개발 중이며 Google Play 빌드·심사·업로드는 사용자 요청에 따라 제외",
-        "updatedAt": "2026-08-18T04:46:03Z"
+        "note": "Capacitor 래퍼가 canonical shared source를 사용하고, GMA Next-Gen SDK·UMP 배너 광고를 연결했습니다. 디버그 APK와 릴리스 AAB 컴파일 검증 완료; 실제 서명·Play 업로드는 인증값 대기",
+        "updatedAt": "2026-08-18T10:15:00Z"
       },
       {
         "id": "release",
@@ -103,7 +103,7 @@
         "kind": "release",
         "status": "doing",
         "link": "",
-        "note": "앱인토스 심사 준비 진행 중, Android 네이티브 심사 제외",
+        "note": "앱인토스 심사 준비 진행 중, Android는 Play 내부 테스트용 서명·AdMob·서비스 계정 인증값 대기",
         "updatedAt": "2026-08-18T04:46:03Z"
       }
     ]
@@ -133,7 +133,7 @@
     },
     "android": {
       "platform": "android",
-      "stage": "scaffolded",
+      "stage": "ready",
       "appId": "com.studiozzzg.mongjin",
       "projectPath": "apps/android",
       "storeUrl": "",
@@ -147,14 +147,16 @@
         "ANDROID_KEYSTORE_PASSWORD",
         "ANDROID_KEY_ALIAS",
         "ANDROID_KEY_PASSWORD",
+        "ADMOB_ANDROID_APP_ID",
+        "ADMOB_ANDROID_BANNER_UNIT_ID",
         "GOOGLE_PLAY_SERVICE_ACCOUNT_JSON"
       ],
       "compatibilityNotes": [
-        "Capacitor WebView와 Android 터치 레이아웃 확인 필요",
-        "릴리즈 서명 키와 Google Play 서비스 계정 준비 필요"
+        "Capacitor WebView와 Android 터치 레이아웃 연결 완료",
+        "GMA Next-Gen SDK·UMP adaptive banner 연결 완료; 릴리즈 서명 키·AdMob Android IDs·Google Play 서비스 계정 준비 필요"
       ],
-      "notes": "Android 네이티브 앱은 개발 중입니다. Google Play 심사와 업로드는 이번 작업 범위에서 제외했습니다.",
-      "updatedAt": "2026-08-18T04:46:03Z"
+      "notes": "Android 래퍼와 AdMob 코드 설정 및 디버그 APK/릴리스 AAB 컴파일 검증을 완료했습니다. Play Console Internal testing 업로드와 심사는 서명 키, Android AdMob IDs, 서비스 계정 및 Play Console 콘텐츠/등급 정보가 채워진 뒤 진행합니다.",
+      "updatedAt": "2026-08-18T10:15:00Z"
     },
     "appintoss": {
       "platform": "appintoss",
@@ -200,7 +202,7 @@
       "supportUrl": "https://mongjin-privacy.kwonoin.chatgpt.site/#support",
       "price": "무료",
       "ageRating": "미정",
-      "reviewNotes": "Android 네이티브 심사 제외. 개발용 프로젝트만 연결했습니다.",
+      "reviewNotes": "Capacitor WebView 기반 Android 앱이며, 빠른 대전은 wss://mongjin-api.onrender.com을 사용합니다. 홈 화면 하단에는 AdMob adaptive banner가 표시됩니다. Play Console Internal testing에서 먼저 검증하며, 앱 콘텐츠·등급·Data safety와 실제 광고 ID 설정이 필요합니다.",
       "screenshots": [],
       "locales": [
         "ko"
@@ -245,8 +247,8 @@
       "betaUrl": "",
       "reviewUrl": "",
       "releaseUrl": "",
-      "notes": "Android 네이티브 앱은 개발 중이라 Google Play 심사를 진행하지 않습니다.",
-      "updatedAt": "2026-08-18T04:46:03Z"
+      "notes": "Android AAB 컴파일 검증 완료. 실제 서명 키, Android AdMob IDs, Google Play 서비스 계정, Play Console 콘텐츠·등급·Data safety 입력 후 Internal testing 업로드 예정.",
+      "updatedAt": "2026-08-18T10:15:00Z"
     },
     "appintoss": {
       "status": "not_started",
