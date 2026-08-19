@@ -38,6 +38,8 @@ const REASON_KO: Record<WinReason, string> = {
   'no-moves': '상대가 둘 수 없음',
 };
 
+type ForcedResult = { winner: Player; reason: WinReason | 'timeout' };
+
 export interface GameSnapshot {
   state: GameState;
   result: GameResult | null;
@@ -58,6 +60,8 @@ export interface GameSnapshot {
   isMyTurn: boolean;
   turnLabel: string;
   resultLabel: string | null;
+  /** 빠른 대전 수 제한 시각. 없으면 시계를 숨긴다 */
+  moveDeadline: number | null;
   /** 대국 종료 시 MGN 기보 텍스트 (학습·저장용) */
   lastMgn: string | null;
 }
@@ -86,6 +90,10 @@ export class GameController {
   private learningRecorded = false;
   private aiTurnId = 0;
   private quickGhost: GhostController | null = null;
+  private moveDeadline: number | null = null;
+  private moveClockTimer: number | null = null;
+  private moveClockToken = 0;
+  private forcedResult: ForcedResult | null = null;
   private lastQuickMatchGhostName = (() => {
     try { return localStorage.getItem(LAST_QUICK_MATCH_NAME_KEY); }
     catch { return null; }
@@ -96,6 +104,7 @@ export class GameController {
       this.states = [state];
       this.selected = null;
       this.onlineWaiting = false;
+      this.syncOnlineMoveClock(state);
       this.notify();
     },
     onJoined: (roomId, side) => {
@@ -117,6 +126,7 @@ export class GameController {
         ? `${opponent.name}와 대국해요 · ${PLAYER_KO[side]}`
         : `${opponent.name} 님과 매칭됐어요 · ${PLAYER_KO[side]}`;
       this.onlineError = false;
+      this.syncOnlineMoveClock(this.current(), side);
       this.notify();
     },
     onMatchResult: (winner, reason) => {
@@ -191,7 +201,7 @@ export class GameController {
 
   private buildSnapshot(): GameSnapshot {
     const state = this.current();
-    const result = getResult(state, this.config);
+    const result = this.forcedResult ?? getResult(state, this.config);
     let turnLabel = `${PLAYER_KO[state.turn]} 차례`;
     if (this.aiThinking) {
       const difficulty = AI_DIFFICULTY_PRESETS[this.settings.aiDifficulty].label;
@@ -201,14 +211,19 @@ export class GameController {
     else if (this.isOnlineMode() && this.onlineSide && !this.isMyTurn(state)) turnLabel += ' · 상대 차례';
 
     const resultLabel = result
-      ? `${PLAYER_KO[result.winner]} 승리 · ${REASON_KO[result.reason]}`
+      ? `${PLAYER_KO[result.winner]} 승리 · ${result.reason === 'timeout' ? '시간 초과' : REASON_KO[result.reason]}`
       : null;
 
     let lastMgn: string | null = null;
-    if (result) {
+    const coreResult: GameResult | null = !result
+      ? null
+      : result.reason === 'timeout'
+        ? { winner: result.winner, reason: 'no-moves' }
+        : { winner: result.winner, reason: result.reason };
+    if (coreResult) {
       lastMgn = exportGameMgn({
         state,
-        result,
+        result: coreResult,
         config: this.config,
         settings: this.settings,
         humanSide: this.humanSide,
@@ -217,7 +232,7 @@ export class GameController {
 
     return {
       state,
-      result,
+      result: coreResult,
       settings: { ...this.settings },
       humanSide: this.humanSide,
       onlineSide: this.onlineSide,
@@ -234,6 +249,7 @@ export class GameController {
       isMyTurn: this.isMyTurn(state),
       turnLabel,
       resultLabel,
+      moveDeadline: this.isQuickMatch() ? this.moveDeadline : null,
       lastMgn,
     };
   }
@@ -241,6 +257,8 @@ export class GameController {
   setMode(mode: OpponentMode) {
     if (this.settings.mode === mode) return;
     this.cancelAiTurn();
+    this.clearMoveClock();
+    this.forcedResult = null;
     this.quickGhost = null;
     this.settings.mode = mode;
     if (this.isOnlineMode()) {
@@ -289,6 +307,8 @@ export class GameController {
 
   reset() {
     if (this.aiThinking) return;
+    this.clearMoveClock();
+    this.forcedResult = null;
     if (this.isOnlineMode()) {
       this.cancelAiTurn();
       this.online.disconnect();
@@ -389,6 +409,7 @@ export class GameController {
     this.settings.mode = 'ai';
     this.settings.humanColor = opponentOf(tape.side);
     this.newGame();
+    this.ensureMoveClock();
   }
 
   cancelRandomMatch() {
@@ -445,6 +466,7 @@ export class GameController {
 
   destroy() {
     this.cancelAiTurn();
+    this.clearMoveClock();
     this.online.disconnect();
     this.listeners.clear();
   }
@@ -461,6 +483,58 @@ export class GameController {
     return this.settings.mode === 'online';
   }
 
+  private isQuickMatch() {
+    return this.quickGhost !== null || this.onlineMatchKind === 'random' || this.onlineOpponent?.isBot === true;
+  }
+
+  private syncOnlineMoveClock(state: GameState, side = this.onlineSide) {
+    if (this.onlineMatchKind !== 'random' || this.quickGhost) return;
+    if (side && state.turn === side && !getResult(state, this.config)) {
+      this.moveDeadline = Date.now() + 60_000;
+    } else {
+      this.moveDeadline = null;
+    }
+  }
+
+  private ensureMoveClock() {
+    if (!this.quickGhost) return;
+    const state = this.current();
+    if (this.forcedResult || getResult(state, this.config) || !this.isMyTurn(state) || this.aiThinking) {
+      this.clearMoveClock();
+      return;
+    }
+    if (this.moveDeadline && this.moveDeadline > Date.now()) return;
+    this.startMoveClock();
+  }
+
+  private startMoveClock() {
+    this.clearMoveClock();
+    this.moveDeadline = Date.now() + 60_000;
+    const token = ++this.moveClockToken;
+    this.moveClockTimer = window.setTimeout(() => {
+      if (token !== this.moveClockToken) return;
+      this.finishAsTimeoutLoss();
+    }, 60_000);
+    this.notify();
+  }
+
+  private clearMoveClock() {
+    this.moveClockToken += 1;
+    if (this.moveClockTimer !== null) {
+      window.clearTimeout(this.moveClockTimer);
+      this.moveClockTimer = null;
+    }
+    this.moveDeadline = null;
+  }
+
+  private finishAsTimeoutLoss() {
+    this.clearMoveClock();
+    this.cancelAiTurn();
+    this.selected = null;
+    this.forcedResult = { winner: opponentOf(this.humanSide), reason: 'timeout' };
+    this.notify();
+  }
+
   private isMyTurn(state: GameState): boolean {
     if (this.isAiMode()) return state.turn === this.humanSide;
     if (this.isOnlineMode()) return this.onlineSide !== null && state.turn === this.onlineSide;
@@ -468,7 +542,7 @@ export class GameController {
   }
 
   private canUndo(): boolean {
-    if (this.isOnlineMode()) return false;
+    if (this.isOnlineMode() || this.quickGhost) return false;
     return this.states.length > 1;
   }
 
@@ -479,12 +553,15 @@ export class GameController {
 
   private newGame() {
     this.cancelAiTurn();
+    this.clearMoveClock();
+    this.forcedResult = null;
     this.applySidesFromSettings();
     this.states = [initialState(this.config)];
     this.selected = null;
     this.learningRecorded = false;
     this.notify();
     this.maybeAiTurn();
+    this.ensureMoveClock();
   }
 
   private recordLearningIfEnded() {
@@ -546,9 +623,11 @@ export class GameController {
 
   private maybeAiTurn() {
     const state = this.current();
-    if (!this.isAiMode() || this.aiThinking || state.turn !== this.aiSide || getResult(state, this.config)) {
+    if (!this.isAiMode() || this.aiThinking || state.turn !== this.aiSide || getResult(state, this.config) || this.forcedResult) {
+      this.ensureMoveClock();
       return;
     }
+    this.clearMoveClock();
     this.aiThinking = true;
     const aiTurnId = ++this.aiTurnId;
     const preset = AI_DIFFICULTY_PRESETS[this.settings.aiDifficulty];
@@ -573,11 +652,14 @@ export class GameController {
         const after = this.current();
         if (
           this.isAiMode() &&
+          !this.forcedResult &&
           !getResult(after, this.config) &&
           after.turn === this.aiSide &&
           legalMoves(after, this.config).length > 0
         ) {
           this.maybeAiTurn();
+        } else {
+          this.ensureMoveClock();
         }
       }
     }, 120);
@@ -668,9 +750,12 @@ export class GameController {
 
     if (this.isOnlineMode()) {
       this.online.sendMove(move);
+      this.moveDeadline = null;
+      this.notify();
       return;
     }
 
+    this.clearMoveClock();
     this.states.push(applyMove(state, move));
     this.recordLearningIfEnded();
     this.notify();

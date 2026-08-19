@@ -6,7 +6,7 @@ import {
   Paragraph,
   TextField,
 } from '@toss/tds-mobile';
-import { GameController } from '@shared/ui/gameController';
+import { GameController, type GameSnapshot } from '@shared/ui/gameController';
 import {
   AI_DIFFICULTY_PRESETS,
   type AiDifficulty,
@@ -444,6 +444,59 @@ function GuardTray({
   );
 }
 
+function SeatRow({ snap }: { snap: GameSnapshot }) {
+  return (
+    <div className="ait-seats">
+      <Seat player="WHITE" snap={snap} />
+      <Seat player="BLACK" snap={snap} />
+    </div>
+  );
+}
+
+function Seat({ player, snap }: { player: 'BLACK' | 'WHITE'; snap: GameSnapshot }) {
+  const isWhite = player === 'WHITE';
+  const mine = snap.onlineSide === player;
+  const opponent = snap.onlineOpponent;
+  const name = mine ? snap.profile?.name ?? '나' : opponent?.name ?? '상대';
+  const rating = mine ? snap.profile?.rating : opponent?.rating;
+  const active = !snap.resultLabel && snap.state.turn === player;
+
+  return (
+    <section className={`ait-seat is-${player.toLowerCase()}${active ? ' is-active' : ''}`}>
+      <img
+        className="ait-seat-stone"
+        src={isWhite ? whiteGuardUrl : blackGuardUrl}
+        alt=""
+        draggable={false}
+      />
+      <div className="ait-seat-info">
+        <div className="ait-seat-name">
+          <strong>{name}</strong>
+          {mine && <span className="ait-seat-me">나</span>}
+        </div>
+        <span className="ait-seat-detail">
+          {isWhite ? '백' : '흑'}
+          {rating ? ` · Elo ${rating}` : ''}
+        </span>
+      </div>
+    </section>
+  );
+}
+
+function MoveClock({ remaining, waiting }: { remaining: number; waiting: boolean }) {
+  const running = remaining > 0 && !waiting;
+  const urgent = running && remaining <= 10;
+  const label = running
+    ? `${Math.floor(remaining / 60)}:${String(remaining % 60).padStart(2, '0')}`
+    : '—:—';
+  return (
+    <div className={`ait-clock${urgent ? ' is-urgent' : ''}`} role="timer" aria-label={running ? `남은 시간 ${label}` : '상대 차례'}>
+      <strong>{label}</strong>
+      <span>{running ? '남은 시간' : '상대 차례'}</span>
+    </div>
+  );
+}
+
 function GameScreen({ onLeave }: { onLeave: () => void }) {
   const snap = useGameSnapshot();
   const boardRef = useRef<HTMLDivElement>(null);
@@ -459,6 +512,17 @@ function GameScreen({ onLeave }: { onLeave: () => void }) {
       ? `${modeLabel} · ${AI_DIFFICULTY_PRESETS[snap.settings.aiDifficulty].label}`
       : modeLabel;
   const quickFallback = snap.onlineOpponent?.isBot === true;
+  const quick = snap.onlineMatchKind === 'random' || quickFallback;
+  const [remaining, setRemaining] = useState(0);
+
+  useEffect(() => {
+    const tick = () => {
+      setRemaining(snap.moveDeadline ? Math.max(0, Math.ceil((snap.moveDeadline - Date.now()) / 1000)) : 0);
+    };
+    tick();
+    const timer = window.setInterval(tick, 250);
+    return () => window.clearInterval(timer);
+  }, [snap.moveDeadline]);
 
   useLayoutEffect(() => {
     if (boardRef.current) game.attachBoard(boardRef.current);
@@ -483,6 +547,8 @@ function GameScreen({ onLeave }: { onLeave: () => void }) {
   return (
     <div className="ait-screen ait-game">
       <ScreenNav title={chip} onBack={onLeave} />
+
+      {snap.onlineOpponent && <SeatRow snap={snap} />}
 
       <div className="ait-board-wrap">
         <div ref={boardRef} className="ait-board" />
@@ -522,19 +588,25 @@ function GameScreen({ onLeave }: { onLeave: () => void }) {
       </section>
 
       <div className="ait-actions">
+        {quick ? (
+          <MoveClock remaining={remaining} waiting={Boolean(snap.resultLabel) || snap.aiThinking || !snap.isMyTurn} />
+        ) : snap.settings.mode === 'online' ? (
+          <div />
+        ) : (
+          <Button
+            size="large"
+            variant="weak"
+            display="block"
+            disabled={!snap.canUndo || snap.aiThinking}
+            onClick={() => game.undo()}
+          >
+            무르기
+          </Button>
+        )}
         <Button
           size="large"
-          variant="weak"
           display="block"
-          disabled={quickFallback || !snap.canUndo || snap.aiThinking}
-          onClick={() => game.undo()}
-        >
-          무르기
-        </Button>
-        <Button
-          size="large"
-          display="block"
-          disabled={snap.aiThinking && snap.settings.mode !== 'online'}
+          disabled={snap.aiThinking && snap.settings.mode !== 'online' && !quickFallback}
           onClick={() => {
             if (snap.settings.mode === 'online' || quickFallback) onLeave();
             else game.reset();

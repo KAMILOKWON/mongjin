@@ -214,7 +214,9 @@ input:focus-visible {
   border: 8px solid var(--ait-wood-edge);
   border-radius: 16px;
   background-color: var(--ait-wood);
-  background-image: url('../assets/ui/board-light-ash.png');
+  background-image:
+    linear-gradient(rgba(215, 197, 168, 0.55), rgba(215, 197, 168, 0.55)),
+    url('../assets/ui/board-light-ash.png');
   background-blend-mode: normal;
   background-position: center;
   background-size: cover;
@@ -258,12 +260,12 @@ input:focus-visible {
   display: grid;
   min-width: 0;
   place-items: center;
-  border: 1px solid rgba(61, 75, 86, 0.5);
-  background: rgba(255, 255, 255, 0.035);
+  border: 1px solid rgba(181, 162, 133, 0.72);
+  background: rgba(251, 250, 247, 0.3);
 }
 
 .ait-preview-cell.is-goal {
-  background: rgba(49, 95, 137, 0.09);
+  background: rgba(140, 175, 203, 0.33);
 }
 
 .ait-preview-king {
@@ -671,13 +673,105 @@ input:focus-visible {
   border: 6px solid var(--ait-wood-edge);
   border-radius: 13px;
   background-color: var(--ait-wood);
-  background-image: url('../assets/ui/board-light-ash.png');
+  background-image:
+    linear-gradient(rgba(215, 197, 168, 0.55), rgba(215, 197, 168, 0.55)),
+    url('../assets/ui/board-light-ash.png');
   background-blend-mode: normal;
   background-position: center;
   background-size: cover;
   box-shadow:
     inset 0 0 0 1px rgba(255, 255, 255, 0.58),
     0 10px 20px rgba(31, 42, 51, 0.12);
+}
+
+.ait-seats {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  margin: 0 12px 8px;
+}
+
+.ait-seat {
+  display: flex;
+  min-width: 0;
+  min-height: 58px;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 10px;
+  border: 1px solid #ded9cf;
+  border-radius: 14px;
+  box-shadow: 0 5px 14px rgba(32, 42, 51, 0.08);
+  transition: border-color 160ms ease, box-shadow 160ms ease;
+}
+
+.ait-seat.is-white {
+  background: #f1eee6;
+  color: var(--ait-ink);
+}
+
+.ait-seat.is-black {
+  border-color: #303a45;
+  background: #303a45;
+  color: #fff;
+}
+
+.ait-seat.is-active {
+  border-color: var(--ait-blue);
+  box-shadow:
+    0 0 0 2px var(--ait-blue),
+    0 5px 14px rgba(32, 42, 51, 0.08);
+}
+
+.ait-seat-stone {
+  width: 30px;
+  height: 30px;
+  flex: none;
+}
+
+.ait-seat-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.ait-seat-name {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.ait-seat-name strong {
+  overflow: hidden;
+  font-size: 14px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ait-seat-me {
+  flex: none;
+  padding: 1px 5px;
+  border-radius: 999px;
+  background: rgba(49, 95, 137, 0.14);
+  font-size: 10px;
+  font-weight: 900;
+}
+
+.ait-seat.is-black .ait-seat-me {
+  background: rgba(255, 255, 255, 0.16);
+}
+
+.ait-seat-detail {
+  display: block;
+  overflow: hidden;
+  margin-top: 2px;
+  color: var(--ait-ink-soft);
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ait-seat.is-black .ait-seat-detail {
+  color: #d8e0e5;
 }
 
 .ait-hud {
@@ -745,6 +839,43 @@ input:focus-visible {
   grid-template-columns: 1fr 1fr;
   gap: 8px;
   padding: 10px 16px calc(10px + env(safe-area-inset-bottom, 0px));
+}
+
+.ait-clock {
+  display: flex;
+  min-height: 48px;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 8px 10px;
+  border: 1px solid var(--ait-line);
+  border-radius: 14px;
+  background: #fff;
+}
+
+.ait-clock.is-urgent {
+  border-color: rgba(255, 107, 99, 0.55);
+}
+
+.ait-clock strong {
+  color: var(--ait-ink);
+  font-size: 20px;
+  font-weight: 900;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.03em;
+  line-height: 1;
+}
+
+.ait-clock span {
+  margin-top: 3px;
+  color: var(--ait-ink-soft);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.ait-clock.is-urgent strong,
+.ait-clock.is-urgent span {
+  color: #ff6b63;
 }
 
 .ait-guard-trays {
@@ -866,6 +997,15 @@ input:focus-visible {
 
   .ait-hud {
     padding: 10px;
+  }
+
+  .ait-seats {
+    gap: 8px;
+  }
+
+  .ait-seat {
+    padding-right: 8px;
+    padding-left: 8px;
   }
 
   .ait-guard-trays {
