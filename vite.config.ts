@@ -4,6 +4,22 @@ import { defineConfig } from 'vite';
 
 export default defineConfig({
   base: './', // GitHub Pages 하위 경로에서도 동작하도록 상대 경로 사용
+  optimizeDeps: {
+    // 저장소 안의 archive/ 및 네이티브 빌드 산출물을 앱 엔트리로 오인하지 않게 한다.
+    entries: ['index.html'],
+  },
+  server: {
+    watch: {
+      ignored: [
+        '**/android/**',
+        '**/apps/mobile/android/**',
+        '**/archive/**',
+        '**/seabiscuit/**',
+        '**/dist/**',
+        '**/tmp/**',
+      ],
+    },
+  },
   resolve: {
     // 앱인토스 SDK(~수백 MB) 없이 로컬/웹 빌드. 토스 배포 시 이 alias 블록을 제거하고 SDK 설치.
     alias: {

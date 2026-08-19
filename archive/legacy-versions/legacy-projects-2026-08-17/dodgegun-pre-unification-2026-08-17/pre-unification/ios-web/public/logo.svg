@@ -1,0 +1,24 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 600 600" role="img" aria-labelledby="title desc">
+  <title id="title">도지건</title>
+  <desc id="desc">청색 플레이어가 적색 플레이어가 쏜 탄환을 피하는 탑다운 아레나</desc>
+  <rect width="600" height="600" fill="#15191e"/>
+  <path d="M96 48H504L552 96V504L504 552H96L48 504V96Z" fill="#1c2127" stroke="#080a0c" stroke-linejoin="miter" stroke-width="24"/>
+  <path d="M119 85H481L515 119V481L481 515H119L85 481V119Z" fill="#101318" stroke="#d1a44b" stroke-linejoin="miter" stroke-width="10"/>
+
+  <path d="M379 369L242 283" fill="none" stroke="#d1a44b" stroke-width="9"/>
+  <g transform="translate(275 304) rotate(32)">
+    <path d="M-28 0L6-17H25V17H6Z" fill="#e3e0d7" stroke="#080a0c" stroke-linejoin="miter" stroke-width="9"/>
+  </g>
+
+  <g transform="translate(188 212) rotate(32)">
+    <rect x="32" y="-14" width="62" height="28" fill="#353b42" stroke="#080a0c" stroke-width="9"/>
+    <circle r="50" fill="#2d65aa" stroke="#080a0c" stroke-width="14"/>
+    <path d="M-26 -17H24" fill="none" stroke="#4383d2" stroke-width="11"/>
+  </g>
+
+  <g transform="translate(421 396) rotate(32)">
+    <rect x="-92" y="-14" width="62" height="28" fill="#353b42" stroke="#080a0c" stroke-width="9"/>
+    <circle r="50" fill="#9f2b25" stroke="#080a0c" stroke-width="14"/>
+    <path d="M-26 -17H24" fill="none" stroke="#cf4439" stroke-width="11"/>
+  </g>
+</svg>

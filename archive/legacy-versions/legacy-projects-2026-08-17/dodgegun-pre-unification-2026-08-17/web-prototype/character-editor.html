@@ -1,0 +1,690 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<title>도지건 — 캐릭터 작업실</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Black+Ops+One&family=IBM+Plex+Mono:wght@500;600&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --ink: #080a0c;
+    --steel-0: #101318;
+    --steel-1: #1c2127;
+    --steel-2: #353b42;
+    --p1: #2d65aa;
+    --p1-hi: #4383d2;
+    --p2: #9f2b25;
+    --p2-hi: #cf4439;
+    --brass: #d1a44b;
+    --paper: #e3e0d7;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0;
+    height: 100%;
+    background: #15191e;
+    color: var(--paper);
+    font-family: "IBM Plex Mono", ui-monospace, monospace;
+    overflow: hidden;
+  }
+  #app {
+    display: grid;
+    grid-template-columns: 332px 1fr 280px;
+    height: 100%;
+  }
+  aside, .rail {
+    background: linear-gradient(180deg, #1a1f24, #14181c);
+    border-color: #080a0c;
+    overflow: auto;
+  }
+  aside, .rail { display: flex; flex-direction: column; min-height: 0; }
+  aside { border-right: 2px solid #080a0c; }
+  .rail { border-left: 2px solid #080a0c; }
+  .scroll { flex: 1 1 auto; overflow: auto; min-height: 0; }
+  .sticky-actions {
+    flex: 0 0 auto;
+    border-top: 2px solid #080a0c;
+    background: #12161a;
+  }
+  header.top {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 10px;
+    padding: 14px 14px 10px;
+    border-bottom: 2px solid #080a0c;
+    background: #12161a;
+    position: sticky;
+    top: 0;
+    z-index: 2;
+  }
+  h1 {
+    margin: 0;
+    font-family: "Black Ops One", Impact, sans-serif;
+    font-size: 18px;
+    letter-spacing: .04em;
+  }
+  a.back {
+    color: var(--brass);
+    text-decoration: none;
+    font-size: 11px;
+    border: 1px solid #3a3320;
+    padding: 5px 8px;
+    background: #241f14;
+  }
+  a.back:hover { background: #332b1a; }
+  .section { padding: 12px 14px 4px; }
+  .section h2 {
+    margin: 0 0 8px;
+    font-size: 11px;
+    letter-spacing: .12em;
+    color: #9aa0a6;
+    text-transform: uppercase;
+  }
+  .row { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 8px; }
+  button, select, input[type="file"]::file-selector-button {
+    font: inherit;
+    color: var(--paper);
+    background: #2a3036;
+    border: 2px solid #080a0c;
+    padding: 6px 9px;
+    cursor: pointer;
+  }
+  button:hover, select:hover { background: #353c43; }
+  button.active {
+    background: linear-gradient(180deg, var(--p1-hi), var(--p1));
+    color: #fff;
+  }
+  button.danger { background: #5a2420; }
+  button.good { background: #1f4a2e; }
+  label.field {
+    display: grid;
+    grid-template-columns: 92px 1fr 48px;
+    gap: 6px;
+    align-items: center;
+    margin-bottom: 6px;
+    font-size: 11px;
+  }
+  label.field.color { grid-template-columns: 92px 1fr; }
+  label.field input[type="range"] { width: 100%; }
+  label.field input[type="color"] {
+    width: 100%;
+    height: 28px;
+    padding: 0;
+    border: 2px solid #080a0c;
+    background: #111;
+  }
+  .val { text-align: right; color: #b7b3a8; }
+  #stage {
+    position: relative;
+    min-width: 0;
+    background: #1b2127;
+  }
+  #stage canvas { display: block; width: 100%; height: 100%; }
+  #hud {
+    position: absolute;
+    left: 14px;
+    bottom: 14px;
+    right: 14px;
+    display: flex;
+    justify-content: space-between;
+    gap: 8px;
+    pointer-events: none;
+    font-size: 11px;
+    color: #c8c4b8;
+    text-shadow: 0 1px 2px #000;
+  }
+  .part-list {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    padding-bottom: 10px;
+  }
+  .part-item {
+    display: grid;
+    grid-template-columns: 18px 1fr auto;
+    gap: 6px;
+    align-items: center;
+    padding: 4px 6px;
+    border: 1px solid transparent;
+    font-size: 11px;
+    cursor: pointer;
+  }
+  .part-item:hover { background: #262c32; }
+  .part-item.selected { border-color: var(--brass); background: #2a2618; }
+  .part-item.group { color: #8d9399; }
+  .status {
+    padding: 8px 14px 16px;
+    font-size: 11px;
+    color: #9ad67a;
+    min-height: 2.4em;
+  }
+  .hint { color: #8b9088; font-size: 10px; line-height: 1.45; }
+  @media (max-width: 1100px) {
+    #app { grid-template-columns: 300px 1fr; }
+    .rail { display: none; }
+  }
+</style>
+</head>
+<body>
+<div id="app">
+  <aside>
+    <header class="top">
+      <h1>캐릭터 작업실</h1>
+      <a class="back" href="./">게임으로</a>
+    </header>
+    <div class="scroll">
+    <div class="section">
+      <h2>보기</h2>
+      <div class="row" id="view-mode">
+        <button data-view="both" class="active">둘 다</button>
+        <button data-view="blue">청색</button>
+        <button data-view="red">적색</button>
+      </div>
+      <div class="row" id="camera-presets">
+        <button data-cam="game">게임</button>
+        <button data-cam="threeq">3/4</button>
+        <button data-cam="front">정면</button>
+        <button data-cam="side">측면</button>
+        <button data-cam="top">탑뷰</button>
+      </div>
+      <div class="row">
+        <button id="toggle-spin">회전</button>
+        <button id="toggle-walk">걷기</button>
+        <button id="toggle-lever">레버</button>
+      </div>
+    </div>
+    <div class="section">
+      <h2>팔레트 — <span id="palette-name">청색</span></h2>
+      <div class="row" id="palette-target">
+        <button data-palette="blue" class="active">청색</button>
+        <button data-palette="red">적색</button>
+      </div>
+      <div id="palette-fields"></div>
+    </div>
+    <div class="section">
+      <h2>전체 비율</h2>
+      <label class="field">스케일
+        <input id="scale" type="range" min="0.6" max="1.8" step="0.01">
+        <span class="val" data-for="scale"></span>
+      </label>
+      <p class="hint">작업실용입니다. 파츠를 눌러 형태를 다듬고, 아래 저장으로 soldier-data.js를 내려받아 소스에 덮어쓰면 게임에 반영됩니다.</p>
+    </div>
+    </div>
+    <div class="sticky-actions">
+    <div class="section">
+      <h2>소스 저장</h2>
+      <div class="row">
+        <button class="good" id="save">soldier-data.js 저장</button>
+        <button id="reset">소스 기본값</button>
+      </div>
+      <div class="row">
+        <button id="download-json">JSON 백업</button>
+        <button id="import-json">JSON 열기</button>
+        <input id="json-file" type="file" accept="application/json,.js" hidden>
+      </div>
+      <div class="row">
+        <button id="export-blue">청색 GLB</button>
+        <button id="export-red">적색 GLB</button>
+      </div>
+      <div class="status" id="status"></div>
+    </div>
+    </div>
+  </aside>
+  <div id="stage"></div>
+  <div class="rail">
+    <header class="top"><h1>파츠</h1></header>
+    <div class="scroll">
+    <div class="section">
+      <div class="part-list" id="part-list"></div>
+    </div>
+    </div>
+    <div class="sticky-actions">
+    <div class="section" id="part-edit">
+      <h2>선택 파츠</h2>
+      <p class="hint" id="part-empty">왼쪽 목록이나 모델을 클릭하세요.</p>
+      <div id="part-fields" hidden>
+        <label class="field">보이기
+          <input id="part-visible" type="checkbox" style="width:auto;justify-self:start">
+          <span></span>
+        </label>
+        <label class="field">위치 X <input id="part-px" type="range" min="-1.2" max="1.2" step="0.01"><span class="val" data-for="part-px"></span></label>
+        <label class="field">위치 Y <input id="part-py" type="range" min="-1.2" max="1.6" step="0.01"><span class="val" data-for="part-py"></span></label>
+        <label class="field">위치 Z <input id="part-pz" type="range" min="-1.4" max="1.6" step="0.01"><span class="val" data-for="part-pz"></span></label>
+        <label class="field">회전 X <input id="part-rx" type="range" min="-3.14" max="3.14" step="0.01"><span class="val" data-for="part-rx"></span></label>
+        <label class="field">회전 Y <input id="part-ry" type="range" min="-3.14" max="3.14" step="0.01"><span class="val" data-for="part-ry"></span></label>
+        <label class="field">회전 Z <input id="part-rz" type="range" min="-3.14" max="3.14" step="0.01"><span class="val" data-for="part-rz"></span></label>
+        <label class="field">크기 X <input id="part-sx" type="range" min="0.2" max="2.4" step="0.01"><span class="val" data-for="part-sx"></span></label>
+        <label class="field">크기 Y <input id="part-sy" type="range" min="0.2" max="2.4" step="0.01"><span class="val" data-for="part-sy"></span></label>
+        <label class="field">크기 Z <input id="part-sz" type="range" min="0.2" max="2.4" step="0.01"><span class="val" data-for="part-sz"></span></label>
+      </div>
+    </div>
+    </div>
+  </div>
+</div>
+<div id="hud">
+  <span>드래그 회전 · 우클릭 이동 · 휠 줌 · 파츠 클릭 선택</span>
+  <span id="hud-sel">선택 없음</span>
+</div>
+
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+    "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+  }
+}
+</script>
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { GLTFExporter } from 'three/addons/exporters/GLTFExporter.js';
+import {
+  MATERIAL_SLOTS,
+  hexToCss,
+  cssToHex,
+  emptyBundle,
+  sanitizeBundle,
+  findPart,
+  formatSoldierDataModule,
+} from './assets/characters/soldier-spec.js';
+import { createSoldier, disposeSoldier, applyPalette } from './js/soldier-asset.js';
+
+const stage = document.getElementById('stage');
+const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+renderer.outputColorSpace = THREE.SRGBColorSpace;
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.35;
+stage.appendChild(renderer.domElement);
+
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x1b2127);
+scene.fog = new THREE.Fog(0x1b2127, 18, 42);
+
+const camera = new THREE.PerspectiveCamera(38, 1, 0.1, 80);
+const controls = new OrbitControls(camera, renderer.domElement);
+controls.enableDamping = true;
+controls.target.set(0, 0.75, 0);
+
+scene.add(new THREE.HemisphereLight(0xe4eaf0, 0x3a3834, 1.2));
+const sun = new THREE.DirectionalLight(0xfff3dc, 2.2);
+sun.position.set(-6, 10, -4);
+sun.castShadow = true;
+sun.shadow.mapSize.set(1024, 1024);
+sun.shadow.camera.left = -6;
+sun.shadow.camera.right = 6;
+sun.shadow.camera.top = 6;
+sun.shadow.camera.bottom = -6;
+scene.add(sun);
+const fill = new THREE.DirectionalLight(0xa8bcc8, 0.45);
+fill.position.set(5, 4, 6);
+scene.add(fill);
+
+const floor = new THREE.Mesh(
+  new THREE.CircleGeometry(8, 48),
+  new THREE.MeshStandardMaterial({ color: 0x2a3036, roughness: 0.92, metalness: 0.08 })
+);
+floor.rotation.x = -Math.PI / 2;
+floor.receiveShadow = true;
+scene.add(floor);
+const grid = new THREE.GridHelper(10, 20, 0x4a5560, 0x2c333a);
+grid.position.y = 0.002;
+scene.add(grid);
+
+const platforms = new THREE.Group();
+scene.add(platforms);
+
+let bundle = emptyBundle();
+let viewMode = 'both';
+let paletteTarget = 'blue';
+let selectedId = null;
+let spin = false;
+let walk = false;
+let leverAnim = false;
+let walkT = 0;
+let leverT = 0;
+let soldiers = { blue: null, red: null };
+
+function setStatus(text, ok = true) {
+  const el = document.getElementById('status');
+  el.textContent = text;
+  el.style.color = ok ? '#9ad67a' : '#e0877e';
+}
+
+function clearSoldiers() {
+  for (const key of ['blue', 'red']) {
+    if (soldiers[key]) {
+      soldiers[key].group.removeFromParent();
+      disposeSoldier(soldiers[key]);
+      soldiers[key] = null;
+    }
+  }
+  platforms.clear();
+}
+
+function addPlatform(x, color) {
+  const disk = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.72, 0.78, 0.08, 28),
+    new THREE.MeshStandardMaterial({ color, roughness: 0.55, metalness: 0.18 })
+  );
+  disk.position.set(x, 0.04, 0);
+  disk.receiveShadow = true;
+  platforms.add(disk);
+}
+
+function rebuild() {
+  clearSoldiers();
+  const showBlue = viewMode !== 'red';
+  const showRed = viewMode !== 'blue';
+  const gap = showBlue && showRed ? 1.35 : 0;
+  if (showBlue) {
+    soldiers.blue = createSoldier(THREE, { spec: bundle.spec, palette: bundle.palettes.blue });
+    soldiers.blue.group.position.set(-gap, 0, 0);
+    scene.add(soldiers.blue.group);
+    addPlatform(-gap, 0x3d6ea8);
+  }
+  if (showRed) {
+    soldiers.red = createSoldier(THREE, { spec: bundle.spec, palette: bundle.palettes.red });
+    soldiers.red.group.position.set(gap, 0, 0);
+    scene.add(soldiers.red.group);
+    addPlatform(gap, 0xc24a42);
+  }
+  paintSelection();
+}
+
+function livePalette() {
+  for (const key of ['blue', 'red']) {
+    if (soldiers[key]) applyPalette(soldiers[key], bundle.palettes[key]);
+  }
+}
+
+function setCamera(preset) {
+  const map = {
+    game: { pos: [0, 7.4, 3.4], target: [0, 0.4, 0] },
+    threeq: { pos: [3.4, 2.6, 3.6], target: [0, 0.8, 0] },
+    front: { pos: [0, 1.3, 4.4], target: [0, 0.8, 0] },
+    side: { pos: [4.4, 1.3, 0], target: [0, 0.8, 0] },
+    top: { pos: [0, 7.2, 0.01], target: [0, 0, 0] },
+  };
+  const cam = map[preset] || map.threeq;
+  camera.position.set(...cam.pos);
+  controls.target.set(...cam.target);
+  controls.update();
+}
+
+function renderPaletteFields() {
+  const root = document.getElementById('palette-fields');
+  root.innerHTML = '';
+  document.getElementById('palette-name').textContent = bundle.palettes[paletteTarget].name;
+  for (const slot of MATERIAL_SLOTS) {
+    const label = document.createElement('label');
+    label.className = 'field color';
+    label.innerHTML = `${slot.label}<input type="color">`;
+    const input = label.querySelector('input');
+    input.value = hexToCss(bundle.palettes[paletteTarget][slot.id]);
+    input.addEventListener('input', () => {
+      bundle.palettes[paletteTarget][slot.id] = cssToHex(input.value);
+      livePalette();
+    });
+    root.appendChild(label);
+  }
+}
+
+function renderPartList() {
+  const root = document.getElementById('part-list');
+  root.innerHTML = '';
+  for (const part of bundle.spec.parts) {
+    const row = document.createElement('div');
+    row.className = `part-item${part.type === 'group' || !part.geo ? ' group' : ''}${selectedId === part.id ? ' selected' : ''}`;
+    row.innerHTML = `<input type="checkbox" ${part.visible === false ? '' : 'checked'}><span>${part.id}</span><span>${part.mat || 'group'}</span>`;
+    const box = row.querySelector('input');
+    box.addEventListener('click', ev => ev.stopPropagation());
+    box.addEventListener('change', () => {
+      part.visible = box.checked;
+      rebuild();
+      selectPart(part.id);
+    });
+    row.addEventListener('click', () => selectPart(part.id));
+    root.appendChild(row);
+  }
+}
+
+function fillVal(id, value) {
+  const el = document.querySelector(`[data-for="${id}"]`);
+  if (el) el.textContent = Number(value).toFixed(2);
+}
+
+function syncPartFields() {
+  const part = findPart(bundle.spec, selectedId);
+  const empty = document.getElementById('part-empty');
+  const fields = document.getElementById('part-fields');
+  if (!part) {
+    empty.hidden = false;
+    fields.hidden = true;
+    document.getElementById('hud-sel').textContent = '선택 없음';
+    return;
+  }
+  empty.hidden = true;
+  fields.hidden = false;
+  document.getElementById('hud-sel').textContent = `선택: ${part.id}`;
+  document.getElementById('part-visible').checked = part.visible !== false;
+  const map = {
+    'part-px': part.pos[0], 'part-py': part.pos[1], 'part-pz': part.pos[2],
+    'part-rx': part.rot[0], 'part-ry': part.rot[1], 'part-rz': part.rot[2],
+    'part-sx': part.scale[0], 'part-sy': part.scale[1], 'part-sz': part.scale[2],
+  };
+  for (const [id, value] of Object.entries(map)) {
+    const input = document.getElementById(id);
+    input.value = value;
+    fillVal(id, value);
+  }
+}
+
+function paintSelection() {
+  for (const soldier of Object.values(soldiers)) {
+    if (!soldier) continue;
+    for (const mesh of soldier.meshes) {
+      const on = mesh.name === selectedId;
+      mesh.material.emissive.setHex(on ? 0x5a4714 : 0x000000);
+      mesh.material.emissiveIntensity = on ? 0.55 : 0;
+    }
+  }
+}
+
+function selectPart(id) {
+  selectedId = id;
+  renderPartList();
+  syncPartFields();
+  paintSelection();
+}
+
+function bindPartSliders() {
+  const apply = () => {
+    const part = findPart(bundle.spec, selectedId);
+    if (!part) return;
+    part.pos = [
+      Number(document.getElementById('part-px').value),
+      Number(document.getElementById('part-py').value),
+      Number(document.getElementById('part-pz').value),
+    ];
+    part.rot = [
+      Number(document.getElementById('part-rx').value),
+      Number(document.getElementById('part-ry').value),
+      Number(document.getElementById('part-rz').value),
+    ];
+    part.scale = [
+      Number(document.getElementById('part-sx').value),
+      Number(document.getElementById('part-sy').value),
+      Number(document.getElementById('part-sz').value),
+    ];
+    part.visible = document.getElementById('part-visible').checked;
+    for (const id of ['part-px','part-py','part-pz','part-rx','part-ry','part-rz','part-sx','part-sy','part-sz']) {
+      fillVal(id, document.getElementById(id).value);
+    }
+    rebuild();
+  };
+  ['part-px','part-py','part-pz','part-rx','part-ry','part-rz','part-sx','part-sy','part-sz'].forEach(id => {
+    document.getElementById(id).addEventListener('input', apply);
+  });
+  document.getElementById('part-visible').addEventListener('change', apply);
+}
+
+function bindToggles(rootId, attr, current, onChange) {
+  document.getElementById(rootId).querySelectorAll('button').forEach(btn => {
+    btn.classList.toggle('active', btn.dataset[attr] === current);
+    btn.addEventListener('click', () => onChange(btn.dataset[attr]));
+  });
+}
+
+function refreshChrome() {
+  document.getElementById('scale').value = bundle.spec.scale;
+  fillVal('scale', bundle.spec.scale);
+  document.querySelectorAll('#view-mode button').forEach(btn => btn.classList.toggle('active', btn.dataset.view === viewMode));
+  document.querySelectorAll('#palette-target button').forEach(btn => btn.classList.toggle('active', btn.dataset.palette === paletteTarget));
+  renderPaletteFields();
+  renderPartList();
+  syncPartFields();
+}
+
+function downloadBlob(filename, blob) {
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = filename;
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 1500);
+}
+
+function exportGlb(key) {
+  const soldier = soldiers[key] || createSoldier(THREE, { spec: bundle.spec, palette: bundle.palettes[key] });
+  const exporter = new GLTFExporter();
+  exporter.parse(soldier.group, (buffer) => {
+    downloadBlob(`dozigeon-${key}.glb`, new Blob([buffer], { type: 'model/gltf-binary' }));
+    setStatus(`${key === 'blue' ? '청색' : '적색'} GLB를 저장했습니다.`);
+    if (!soldiers[key]) disposeSoldier(soldier);
+  }, (err) => {
+    console.error(err);
+    setStatus('GLB 내보내기에 실패했습니다.', false);
+  }, { binary: true });
+}
+
+bindToggles('view-mode', 'view', viewMode, (mode) => {
+  viewMode = mode;
+  refreshChrome();
+  rebuild();
+});
+bindToggles('palette-target', 'palette', paletteTarget, (mode) => {
+  paletteTarget = mode;
+  refreshChrome();
+});
+document.getElementById('camera-presets').addEventListener('click', ev => {
+  const cam = ev.target.dataset.cam;
+  if (cam) setCamera(cam);
+});
+document.getElementById('toggle-spin').addEventListener('click', ev => {
+  spin = !spin;
+  ev.currentTarget.classList.toggle('active', spin);
+});
+document.getElementById('toggle-walk').addEventListener('click', ev => {
+  walk = !walk;
+  ev.currentTarget.classList.toggle('active', walk);
+});
+document.getElementById('toggle-lever').addEventListener('click', ev => {
+  leverAnim = !leverAnim;
+  ev.currentTarget.classList.toggle('active', leverAnim);
+});
+document.getElementById('scale').addEventListener('input', ev => {
+  bundle.spec.scale = Number(ev.target.value);
+  fillVal('scale', bundle.spec.scale);
+  rebuild();
+});
+document.getElementById('save').addEventListener('click', () => {
+  const source = formatSoldierDataModule(bundle);
+  downloadBlob('soldier-data.js', new Blob([source], { type: 'text/javascript' }));
+  setStatus('soldier-data.js를 저장했습니다. assets/characters/ 에 덮어쓰면 게임에 반영됩니다.');
+});
+document.getElementById('reset').addEventListener('click', () => {
+  bundle = emptyBundle();
+  selectedId = null;
+  refreshChrome();
+  rebuild();
+  setStatus('소스에 들어 있는 기본 청/적 에셋으로 되돌렸습니다.');
+});
+document.getElementById('download-json').addEventListener('click', () => {
+  const blob = new Blob([JSON.stringify(bundle, null, 2)], { type: 'application/json' });
+  downloadBlob('dozigeon-soldier.json', blob);
+  setStatus('스펙 JSON 백업을 저장했습니다.');
+});
+document.getElementById('import-json').addEventListener('click', () => document.getElementById('json-file').click());
+document.getElementById('json-file').addEventListener('change', async ev => {
+  const file = ev.target.files?.[0];
+  if (!file) return;
+  try {
+    bundle = sanitizeBundle(JSON.parse(await file.text()));
+    selectedId = null;
+    refreshChrome();
+    rebuild();
+    setStatus(`${file.name}을 불러왔습니다.`);
+  } catch {
+    setStatus('JSON을 읽지 못했습니다.', false);
+  }
+  ev.target.value = '';
+});
+document.getElementById('export-blue').addEventListener('click', () => exportGlb('blue'));
+document.getElementById('export-red').addEventListener('click', () => exportGlb('red'));
+bindPartSliders();
+
+const raycaster = new THREE.Raycaster();
+const pointer = new THREE.Vector2();
+renderer.domElement.addEventListener('pointerdown', ev => {
+  if (ev.button !== 0) return;
+  const rect = renderer.domElement.getBoundingClientRect();
+  pointer.set(((ev.clientX - rect.left) / rect.width) * 2 - 1, -((ev.clientY - rect.top) / rect.height) * 2 + 1);
+  raycaster.setFromCamera(pointer, camera);
+  const meshes = Object.values(soldiers).flatMap(s => s ? s.meshes : []);
+  const hit = raycaster.intersectObjects(meshes, false)[0];
+  if (hit?.object?.name) selectPart(hit.object.name);
+});
+
+function resize() {
+  const w = stage.clientWidth, h = stage.clientHeight;
+  camera.aspect = w / Math.max(1, h);
+  camera.updateProjectionMatrix();
+  renderer.setSize(w, h, false);
+}
+addEventListener('resize', resize);
+
+const clock = new THREE.Clock();
+function tick() {
+  const dt = Math.min(clock.getDelta(), 0.05);
+  if (spin) {
+    for (const soldier of Object.values(soldiers)) {
+      if (soldier) soldier.group.rotation.y += dt * 0.7;
+    }
+  }
+  if (walk) walkT += dt;
+  leverT += dt;
+  for (const soldier of Object.values(soldiers)) {
+    if (!soldier) continue;
+    const sw = walk ? Math.sin(walkT * 11) * 0.5 : 0;
+    if (soldier.legs[0]) soldier.legs[0].rotation.x = sw;
+    if (soldier.legs[1]) soldier.legs[1].rotation.x = -sw;
+    if (soldier.lever) soldier.lever.rotation.x = leverAnim ? -Math.sin(leverT * 4) * 1.1 : 0;
+  }
+  controls.update();
+  renderer.render(scene, camera);
+  requestAnimationFrame(tick);
+}
+
+refreshChrome();
+rebuild();
+setCamera('threeq');
+resize();
+tick();
+setStatus('턴어라운드 기준 청/적 치비 병사입니다. 다듬은 뒤 soldier-data.js를 저장해 소스에 덮어쓰세요.');
+</script>
+</body>
+</html>

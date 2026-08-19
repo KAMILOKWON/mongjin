@@ -149,7 +149,7 @@ input:focus-visible {
   align-items: flex-start;
   justify-content: space-between;
   gap: 16px;
-  padding: 2px 14px 8px;
+  padding: 2px 6px 8px;
 }
 
 .ait-hero {
@@ -168,11 +168,11 @@ input:focus-visible {
 
 .ait-profile-chip {
   display: grid;
-  min-width: 94px;
-  min-height: 46px;
+  min-width: 112px;
+  min-height: 58px;
   max-width: 44%;
-  padding: 0 16px;
-  place-items: center;
+  padding: 7px 12px;
+  place-items: end;
   border: 1px solid var(--ait-line);
   border-radius: 14px;
   background: #fff;
@@ -189,16 +189,26 @@ input:focus-visible {
   white-space: nowrap;
 }
 
+.ait-profile-chip span {
+  max-width: 100%;
+  overflow: hidden;
+  color: var(--ait-ink-soft);
+  font-size: 11px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .ait-preview-wrap {
   display: flex;
   flex: 0 0 auto;
   align-items: center;
   justify-content: center;
-  padding: 8px 0 18px;
+  padding: 8px 12px 18px;
 }
 
 .ait-preview-board {
-  width: min(100%, 388px);
+  width: 100%;
   padding: 8px;
   overflow: hidden;
   border: 8px solid var(--ait-wood-edge);
@@ -270,19 +280,23 @@ input:focus-visible {
   display: flex;
   flex-direction: column;
   gap: 14px;
-  padding: 18px 18px 8px;
-  border: 1px solid var(--ait-line);
-  border-radius: 18px;
-  background: var(--ait-surface-strong);
+  padding: 0 6px 8px;
 }
 
 .ait-mode-tabs,
 .ait-choice-row {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
   overflow: hidden;
   border: 1px solid var(--ait-line);
-  border-radius: 13px;
+  border-radius: 999px;
+}
+
+.ait-mode-tabs {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.ait-choice-row {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
 .ait-mode-tabs button,
@@ -292,12 +306,17 @@ input:focus-visible {
   padding: 8px 4px;
   border: 0;
   border-right: 1px solid var(--ait-line-soft);
+  border-radius: 999px;
   background: transparent;
   color: var(--ait-ink);
-  font-size: 14px;
+  font-size: 13px;
   font-weight: 760;
   letter-spacing: -0.04em;
   cursor: pointer;
+}
+
+.ait-choice-row button {
+  font-size: 14px;
 }
 
 .ait-mode-tabs button:last-child,
@@ -352,8 +371,8 @@ input:focus-visible {
 
 /* Setup */
 .ait-setup-body {
-  justify-content: center;
-  padding-bottom: 90px;
+  justify-content: flex-start;
+  padding-bottom: 24px;
 }
 
 .ait-setup-panel,
@@ -367,6 +386,18 @@ input:focus-visible {
   border: 1px solid var(--ait-line-soft);
   border-radius: 16px;
   background: var(--ait-surface);
+}
+
+.ait-setup-panel {
+  flex: 1;
+  gap: 22px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+}
+
+.ait-setup-panel .ait-home-start {
+  margin-top: auto;
 }
 
 .ait-setup-group {
@@ -400,6 +431,23 @@ input:focus-visible {
 .ait-choice-row button {
   min-height: 46px;
   font-size: 13px;
+}
+
+.ait-setup-panel .ait-choice-row {
+  display: flex;
+  overflow: visible;
+  gap: 8px;
+  border: 0;
+  border-radius: 0;
+}
+
+.ait-setup-panel .ait-choice-row button {
+  flex: 1;
+  border: 1px solid var(--ait-line);
+}
+
+.ait-setup-panel .ait-choice-row button:last-child {
+  border-right: 1px solid var(--ait-line);
 }
 
 /* Match */
@@ -460,6 +508,25 @@ input:focus-visible {
   color: var(--ait-blue);
   font-size: 13px;
   font-weight: 700;
+}
+
+/* Friend match */
+.ait-friend-card {
+  text-align: left;
+}
+
+.ait-friend-code {
+  padding: 14px 22px;
+  border: 1px solid var(--ait-line);
+  border-radius: 14px;
+  background: var(--ait-surface);
+  color: var(--ait-blue);
+  font-size: 30px;
+  font-weight: 820;
+  letter-spacing: 0.22em;
+  text-align: center;
+  text-indent: 0.22em;
+  font-variant-numeric: tabular-nums;
 }
 
 /* Profile and tutorial */
@@ -777,6 +844,8 @@ input:focus-visible {
 
   .ait-preview-wrap {
     padding-top: 4px;
+    padding-right: 16px;
+    padding-left: 16px;
     padding-bottom: 12px;
   }
 
@@ -786,8 +855,9 @@ input:focus-visible {
   }
 
   .ait-mode-tabs button {
-    min-height: 48px;
-    font-size: 13px;
+    min-height: 44px;
+    padding: 8px 2px;
+    font-size: 12px;
   }
 
   .ait-home-start {

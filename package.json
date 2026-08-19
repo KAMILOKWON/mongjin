@@ -6,6 +6,12 @@
   "scripts": {
     "dev": "vite --host",
     "dev:app": "vite --host --open /?app=1",
+    "dev:mobile": "npm run start --prefix apps/mobile",
+    "build:mobile": "npm run build --prefix apps/mobile",
+    "typecheck:mobile": "npm run typecheck --prefix apps/mobile",
+    "device:doctor": "agent-device doctor",
+    "device:help": "agent-device help workflow",
+    "device:ios": "agent-device open com.studiozzg.mongjin.dev --platform ios --session mongjin-ios",
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview",
     "test": "vitest run",
@@ -18,18 +24,12 @@
     "test:ios": "swift test --package-path apps/ios",
     "build:ios": "xcodebuild -project apps/ios/Mongjin.xcodeproj -scheme Mongjin -configuration Release -destination 'generic/platform=iOS Simulator' CODE_SIGNING_ALLOWED=NO build",
     "upload:ios": "bash scripts/upload-ios-appstore.sh",
-    "sync:android": "npx cap sync android && node scripts/fix-android-project.mjs",
-    "build:android:debug": "npm run build && npm run sync:android && ./android/gradlew -p android assembleDebug",
-    "build:android": "node scripts/build-android-release.mjs",
     "build:steam-web": "vite build --config vite.config.steam.ts",
     "build:steam": "npm run build:steam-web && npm run package --prefix apps/steam"
   },
-  "dependencies": {
-    "@capacitor/android": "8.4.0",
-    "@capacitor/core": "^8.4.0"
-  },
+  "dependencies": {},
   "devDependencies": {
-    "@capacitor/cli": "^8.4.0",
+    "agent-device": "^0.20.3",
     "typescript": "^5.6.0",
     "vite": "^6.0.0",
     "vitest": "^3.0.0"

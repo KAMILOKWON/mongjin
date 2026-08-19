@@ -1,0 +1,932 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>도지뿡</title>
+<style>
+  :root {
+    color-scheme: dark;
+    --ink: #f4e3ad;
+    --muted: #b9b79b;
+    --panel: rgba(24, 31, 23, 0.94);
+    --line: rgba(219, 181, 91, 0.42);
+    --metal: #b68a43;
+    --metal-light: #e3c474;
+    --player: #78d7ff;
+    --enemy: #ff7891;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; width: 100%; height: 100%; overflow: hidden; background: #10140f; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+  body { user-select: none; }
+  canvas { position: fixed; inset: 0; width: 100%; height: 100%; display: block; cursor: crosshair; image-rendering: pixelated; }
+  #screenFx { position: fixed; inset: 0; pointer-events: none; z-index: 3; opacity: .16; background: repeating-linear-gradient(0deg, rgba(255,235,154,.2) 0 1px, transparent 1px 4px); mix-blend-mode: screen; }
+  #hud { position: fixed; top: 18px; left: 22px; right: 22px; display: flex; align-items: flex-start; justify-content: space-between; gap: 18px; pointer-events: none; color: var(--ink); text-shadow: 2px 2px 0 #090b08; z-index: 4; }
+  .cluster { display: flex; flex-direction: column; gap: 6px; min-width: 205px; padding: 9px 11px 10px; border: 3px solid var(--metal); outline: 1px solid rgba(238, 211, 131, .7); background: var(--panel); box-shadow: 4px 4px 0 #050705, inset 0 0 0 2px rgba(56, 67, 45, .8); }
+  .cluster.right { text-align: right; align-items: flex-end; }
+  .name { color: var(--muted); font-size: 11px; font-weight: 800; letter-spacing: .08em; }
+  .hp { font-size: 15px; letter-spacing: .02em; font-weight: 900; }
+  .hp.player { color: var(--player); }
+  .hp.enemy { color: var(--enemy); }
+  .hpTrack { width: 170px; height: 10px; padding: 1px; border: 2px solid #090b08; border-radius: 0; background: #11160f; box-shadow: inset 0 0 0 1px #667053; }
+  .hpFill { width: 100%; height: 100%; border-radius: 3px; transition: width .12s ease; }
+  .hpFill.player { background: linear-gradient(90deg, #4fbfff, #b7f0ff); box-shadow: 0 0 10px rgba(120,215,255,.6); }
+  .hpFill.enemy { background: linear-gradient(90deg, #ff4f77, #ffb0bd); box-shadow: 0 0 10px rgba(255,120,145,.6); }
+  #help { position: fixed; left: 50%; bottom: 15px; transform: translateX(-50%); color: #d0c38c; font-size: 11px; font-weight: 800; white-space: nowrap; pointer-events: none; text-shadow: 2px 2px 0 #090b08; z-index: 4; }
+  @media (max-width: 680px) {
+    #hud { top: 10px; left: 12px; right: 12px; }
+    .cluster { min-width: 130px; }
+    #help { bottom: 10px; font-size: 9px; }
+  }
+</style>
+</head>
+<body>
+<canvas id="game" aria-label="도지뿡 게임 화면"></canvas>
+<div id="screenFx" aria-hidden="true"></div>
+
+<div id="hud">
+  <div class="cluster">
+    <div class="name">PLAYER 1</div>
+    <div id="playerHp" class="hp player">HP 100 / 100</div>
+    <div class="hpTrack"><div id="playerHpBar" class="hpFill player"></div></div>
+  </div>
+  <div class="cluster right">
+    <div class="name">PLAYER 2</div>
+    <div id="enemyHp" class="hp enemy">HP 100 / 100</div>
+    <div class="hpTrack"><div id="enemyHpBar" class="hpFill enemy"></div></div>
+  </div>
+</div>
+
+<div id="help">WASD 이동 · 마우스 조준 · 왼쪽 버튼 홀드 차징 / 릴리즈 발사 · SPACE 재시작</div>
+
+<script>
+(() => {
+  'use strict';
+
+  // 화면은 실제 픽셀 비율과 무관하게 1280×760 가상 좌표로 처리한다.
+  const BASE_W = 1280;
+  const BASE_H = 760;
+  const PIXEL_FACTOR = 2; // 내부 해상도를 낮춰 큰 픽셀 블록으로 렌더링
+  const canvas = document.getElementById('game');
+  const ctx = canvas.getContext('2d');
+  const assets = {
+    player: new Image(),
+    enemy: new Image(),
+    playerCharge: new Image(),
+    enemyCharge: new Image(),
+    background: new Image(),
+    energyWave: new Image(),
+    wall: new Image(),
+  };
+  assets.player.src = 'assets/player-sprite.png';
+  assets.enemy.src = 'assets/enemy-sprite.png';
+  assets.playerCharge.src = 'assets/player-charge.png';
+  assets.enemyCharge.src = 'assets/enemy-charge.png';
+  assets.background.src = 'assets/eastern-garden-bg.png';
+  assets.energyWave.src = 'assets/energy-wave.png';
+  assets.wall.src = 'assets/eastern-wall.png';
+  const playerHpEl = document.getElementById('playerHp');
+  const enemyHpEl = document.getElementById('enemyHp');
+  const playerHpBarEl = document.getElementById('playerHpBar');
+  const enemyHpBarEl = document.getElementById('enemyHpBar');
+
+  const CFG = {
+    maxHP: 100,
+    moveSpeed: 260,
+    // 이동·벽 충돌용 반경과 공격 피격용 타원 히트박스를 분리한다.
+    fighterRadius: 23,
+    fighterHitbox: { rx: 34, ry: 46, offsetY: -8 },
+    chargeMax: 2.2,
+    chargeWhileMovingDecay: 2.8,
+    invulnerableAfterHit: 0.72,
+    arena: { x: 54, y: 82, w: 1172, h: 622 },
+  };
+
+  const WAVE_TYPES = [
+    // 짧게 쏴도 아레나 끝까지 갈 수 있도록 모든 단계의 기본 수명을 넉넉하게 둔다.
+    // 실제 소멸 시점은 수명보다 벽/아레나 경계에 먼저 닿는 쪽이다.
+    { min: 0,    label: '잔불 기탄', speed: 520, life: 3.2, radius: 7,  color: '#8de7ff', glow: '#43c9ff' },
+    { min: 0.35, label: '기본 장풍', speed: 585, life: 3.8, radius: 11, color: '#ffe18a', glow: '#ffad52' },
+    { min: 0.9,  label: '강장풍',   speed: 665, life: 4.5, radius: 16, color: '#ffb36b', glow: '#ff674f' },
+    { min: 1.5,  label: '폭장풍',   speed: 760, life: 5.2, radius: 22, color: '#ff7c9b', glow: '#ff3d70' },
+  ];
+
+  // 중앙의 45도 엄폐물과 좌우 엄폐물. 경계는 별도로 처리한다.
+  const walls = [
+    { a: { x: 640, y: 104 }, b: { x: 640, y: 248 }, t: 14 },
+    { a: { x: 640, y: 248 }, b: { x: 568, y: 320 }, t: 14 },
+    { a: { x: 640, y: 512 }, b: { x: 640, y: 660 }, t: 14 },
+    { a: { x: 640, y: 512 }, b: { x: 712, y: 440 }, t: 14 },
+    { a: { x: 188, y: 172 }, b: { x: 188, y: 278 }, t: 14 },
+    { a: { x: 188, y: 508 }, b: { x: 188, y: 614 }, t: 14 },
+    { a: { x: 1092, y: 172 }, b: { x: 1092, y: 278 }, t: 14 },
+    { a: { x: 1092, y: 508 }, b: { x: 1092, y: 614 }, t: 14 },
+  ];
+
+  let viewScale = 1;
+  let viewOffsetX = 0;
+  let viewOffsetY = 0;
+  let dpr = 1;
+  let lastTime = 0;
+  let walkTime = 0;
+  let gameTime = 0;
+  let nextParticleId = 0;
+
+  const keys = new Set();
+  const pointer = { x: BASE_W * 0.5, y: BASE_H * 0.5, down: false, id: null };
+  const waves = [];
+  const particles = [];
+
+  function makeFighter(name, color, accent, x, y, isPlayer) {
+    return {
+      name,
+      color,
+      accent,
+      x,
+      y,
+      spawnX: x,
+      spawnY: y,
+      aim: isPlayer ? 0 : Math.PI,
+      moving: false,
+      walk: 0,
+      hp: CFG.maxHP,
+      charge: 0,
+      fireHeld: false,
+      recoil: 0,
+      hitFlash: 0,
+      hitKick: 0,
+      invuln: 0,
+      knockbackX: 0,
+      knockbackY: 0,
+      dead: 0,
+      isPlayer,
+      aiState: 'move',
+      aiTimer: 0.8,
+      aiTarget: 0,
+      aiGoalX: x,
+      aiGoalY: y,
+    };
+  }
+
+  const player = makeFighter('PLAYER', '#78d7ff', '#2874b8', 300, 380, true);
+  const enemy = makeFighter('ENEMY', '#ff7891', '#a52f55', 980, 380, false);
+
+  function resize() {
+    dpr = Math.min(window.devicePixelRatio || 1, 2);
+    canvas.width = Math.max(1, Math.floor(window.innerWidth * dpr / PIXEL_FACTOR));
+    canvas.height = Math.max(1, Math.floor(window.innerHeight * dpr / PIXEL_FACTOR));
+    viewScale = Math.min(window.innerWidth / BASE_W, window.innerHeight / BASE_H);
+    viewOffsetX = (window.innerWidth - BASE_W * viewScale) * 0.5;
+    viewOffsetY = (window.innerHeight - BASE_H * viewScale) * 0.5;
+  }
+  window.addEventListener('resize', resize);
+  resize();
+
+  function pointerToWorld(clientX, clientY) {
+    return {
+      x: (clientX - viewOffsetX) / viewScale,
+      y: (clientY - viewOffsetY) / viewScale,
+    };
+  }
+
+  function setPointer(clientX, clientY) {
+    const p = pointerToWorld(clientX, clientY);
+    pointer.x = Math.max(0, Math.min(BASE_W, p.x));
+    pointer.y = Math.max(0, Math.min(BASE_H, p.y));
+  }
+
+  function beginCharge() {
+    if (player.dead > 0) return;
+    player.fireHeld = true;
+    player.charge = 0;
+  }
+
+  function releaseCharge() {
+    if (!player.fireHeld) return;
+    player.fireHeld = false;
+    if (player.dead <= 0) fireWave(player, false);
+    player.charge = 0;
+  }
+
+  canvas.addEventListener('pointermove', (e) => setPointer(e.clientX, e.clientY));
+  canvas.addEventListener('pointerdown', (e) => {
+    if (e.button !== 0) return;
+    e.preventDefault();
+    setPointer(e.clientX, e.clientY);
+    pointer.down = true;
+    pointer.id = e.pointerId;
+    canvas.setPointerCapture?.(e.pointerId);
+    beginCharge();
+  });
+  window.addEventListener('pointerup', (e) => {
+    if (e.button !== 0 || (pointer.id !== null && e.pointerId !== pointer.id)) return;
+    pointer.down = false;
+    pointer.id = null;
+    releaseCharge();
+  });
+  window.addEventListener('blur', () => {
+    pointer.down = false;
+    pointer.id = null;
+    releaseCharge();
+    keys.clear();
+  });
+  window.addEventListener('keydown', (e) => {
+    keys.add(e.code);
+    if (e.code === 'Space') {
+      e.preventDefault();
+      restartMatch();
+    }
+  });
+  window.addEventListener('keyup', (e) => keys.delete(e.code));
+
+  function clamp(v, min, max) { return Math.max(min, Math.min(max, v)); }
+  function distanceSq(ax, ay, bx, by) {
+    const dx = ax - bx;
+    const dy = ay - by;
+    return dx * dx + dy * dy;
+  }
+  function lerp(a, b, t) { return a + (b - a) * t; }
+
+  function waveHitsFighter(wave, fighter) {
+    const dx = wave.x - fighter.x;
+    const dy = wave.y - (fighter.y + CFG.fighterHitbox.offsetY);
+    const rx = CFG.fighterHitbox.rx + wave.radius;
+    const ry = CFG.fighterHitbox.ry + wave.radius;
+    return (dx * dx) / (rx * rx) + (dy * dy) / (ry * ry) < 1;
+  }
+
+  function resolveCircle(fighter) {
+    for (const wall of walls) {
+      const abx = wall.b.x - wall.a.x;
+      const aby = wall.b.y - wall.a.y;
+      const len2 = abx * abx + aby * aby;
+      let t = ((fighter.x - wall.a.x) * abx + (fighter.y - wall.a.y) * aby) / len2;
+      t = clamp(t, 0, 1);
+      const px = wall.a.x + abx * t;
+      const py = wall.a.y + aby * t;
+      let dx = fighter.x - px;
+      let dy = fighter.y - py;
+      let d = Math.hypot(dx, dy);
+      const minDistance = CFG.fighterRadius + wall.t;
+      if (d < minDistance) {
+        if (d < 0.0001) { dx = -aby; dy = abx; d = Math.hypot(dx, dy); }
+        fighter.x = px + (dx / d) * minDistance;
+        fighter.y = py + (dy / d) * minDistance;
+      }
+    }
+    fighter.x = clamp(fighter.x, CFG.arena.x + CFG.fighterRadius, CFG.arena.x + CFG.arena.w - CFG.fighterRadius);
+    fighter.y = clamp(fighter.y, CFG.arena.y + CFG.fighterRadius, CFG.arena.y + CFG.arena.h - CFG.fighterRadius);
+  }
+
+  function segmentHit(x, y, extra) {
+    if (x < CFG.arena.x - extra || x > CFG.arena.x + CFG.arena.w + extra || y < CFG.arena.y - extra || y > CFG.arena.y + CFG.arena.h + extra) return true;
+    for (const wall of walls) {
+      const abx = wall.b.x - wall.a.x;
+      const aby = wall.b.y - wall.a.y;
+      const len2 = abx * abx + aby * aby;
+      let t = ((x - wall.a.x) * abx + (y - wall.a.y) * aby) / len2;
+      t = clamp(t, 0, 1);
+      const px = wall.a.x + abx * t;
+      const py = wall.a.y + aby * t;
+      const dx = x - px;
+      const dy = y - py;
+      const hitRadius = wall.t + extra;
+      if (dx * dx + dy * dy < hitRadius * hitRadius) return true;
+    }
+    return false;
+  }
+
+  function segmentsCross(ax, ay, bx, by, cx, cy, dx, dy) {
+    const rx = bx - ax, ry = by - ay;
+    const sx = dx - cx, sy = dy - cy;
+    const denominator = rx * sy - ry * sx;
+    if (Math.abs(denominator) < 0.000001) return false;
+    const t = ((cx - ax) * sy - (cy - ay) * sx) / denominator;
+    const u = ((cx - ax) * ry - (cy - ay) * rx) / denominator;
+    return t >= 0 && t <= 1 && u >= 0 && u <= 1;
+  }
+
+  function losClear(x1, y1, x2, y2) {
+    for (const wall of walls) {
+      if (segmentsCross(x1, y1, x2, y2, wall.a.x, wall.a.y, wall.b.x, wall.b.y)) return false;
+    }
+    return true;
+  }
+
+  function waveTypeForCharge(charge) {
+    let result = WAVE_TYPES[0];
+    for (const type of WAVE_TYPES) if (charge >= type.min) result = type;
+    return result;
+  }
+
+  function damageForCharge(charge) {
+    const ratio = clamp(charge / CFG.chargeMax, 0, 1);
+    return Math.round(8 + (55 - 8) * ratio);
+  }
+
+  function spawnParticles(x, y, color, count, speed, life) {
+    for (let i = 0; i < count; i++) {
+      const angle = Math.random() * Math.PI * 2;
+      const velocity = speed * (0.35 + Math.random() * 0.8);
+      particles.push({
+        id: nextParticleId++, x, y,
+        vx: Math.cos(angle) * velocity,
+        vy: Math.sin(angle) * velocity,
+        life: life * (0.55 + Math.random() * 0.7),
+        maxLife: life,
+        size: 2 + Math.random() * 4,
+        color,
+      });
+    }
+  }
+
+  function fireWave(fighter, foe) {
+    const type = waveTypeForCharge(fighter.charge);
+    const damage = damageForCharge(fighter.charge);
+    const angle = fighter.aim;
+    const muzzleDistance = CFG.fighterRadius + 15;
+    const x = fighter.x + Math.cos(angle) * muzzleDistance;
+    const y = fighter.y + Math.sin(angle) * muzzleDistance;
+    waves.push({
+      x, y,
+      vx: Math.cos(angle) * type.speed,
+      vy: Math.sin(angle) * type.speed,
+      angle,
+      age: 0,
+      life: type.life,
+      radius: type.radius,
+      damage,
+      color: type.color,
+      glow: type.glow,
+      charge: fighter.charge,
+      foe,
+    });
+    fighter.recoil = 0.14;
+    fighter.hitFlash = 0.05;
+    spawnParticles(x, y, type.color, damage >= 34 ? 12 : 7, 90 + fighter.charge * 70, 0.32);
+  }
+
+  function moveFighter(fighter, dx, dy, dt) {
+    const length = Math.hypot(dx, dy);
+    fighter.moving = length > 0.001;
+    if (!fighter.moving) return;
+    dx /= length;
+    dy /= length;
+    fighter.x += dx * CFG.moveSpeed * dt;
+    fighter.y += dy * CFG.moveSpeed * dt;
+    fighter.walk += dt * 10;
+    resolveCircle(fighter);
+  }
+
+  function applyKnockback(fighter, dt) {
+    const active = Math.abs(fighter.knockbackX) + Math.abs(fighter.knockbackY) > 0.5;
+    if (!active || fighter.dead > 0) return false;
+    fighter.x += fighter.knockbackX * dt;
+    fighter.y += fighter.knockbackY * dt;
+    resolveCircle(fighter);
+    const damping = Math.pow(0.012, dt);
+    fighter.knockbackX *= damping;
+    fighter.knockbackY *= damping;
+    return true;
+  }
+
+  function updatePlayer(dt) {
+    if (player.dead > 0) return;
+    const knocked = applyKnockback(player, dt);
+    const dx = (keys.has('KeyD') ? 1 : 0) - (keys.has('KeyA') ? 1 : 0);
+    const dy = (keys.has('KeyS') ? 1 : 0) - (keys.has('KeyW') ? 1 : 0);
+    moveFighter(player, dx, dy, dt);
+    player.aim = Math.atan2(pointer.y - player.y, pointer.x - player.x);
+
+    if (player.fireHeld) {
+      if (player.moving || knocked) player.charge = Math.max(0, player.charge - dt * CFG.chargeWhileMovingDecay);
+      else player.charge = Math.min(CFG.chargeMax, player.charge + dt);
+    } else {
+      player.charge = Math.max(0, player.charge - dt * 4);
+    }
+  }
+
+  function chooseEnemyGoal() {
+    const close = distanceSq(enemy.x, enemy.y, player.x, player.y) < 225 * 225;
+    if (close) {
+      const awayX = enemy.x - player.x;
+      const awayY = enemy.y - player.y;
+      const length = Math.max(1, Math.hypot(awayX, awayY));
+      enemy.aiGoalX = clamp(enemy.x + awayX / length * 170, CFG.arena.x + 50, CFG.arena.x + CFG.arena.w - 50);
+      enemy.aiGoalY = clamp(enemy.y + awayY / length * 170, CFG.arena.y + 50, CFG.arena.y + CFG.arena.h - 50);
+    } else {
+      enemy.aiGoalX = 965 + (Math.random() - 0.5) * 100;
+      enemy.aiGoalY = 170 + Math.random() * 460;
+    }
+  }
+
+  function updateEnemy(dt) {
+    if (enemy.dead > 0) return;
+    const knocked = applyKnockback(enemy, dt);
+    enemy.aim = Math.atan2(player.y - enemy.y, player.x - enemy.x);
+    const clear = losClear(enemy.x, enemy.y, player.x, player.y);
+    const distance = Math.sqrt(distanceSq(enemy.x, enemy.y, player.x, player.y));
+
+    if (enemy.aiState === 'charge' && !knocked) {
+      enemy.moving = false;
+      enemy.charge = Math.min(CFG.chargeMax, enemy.charge + dt);
+      // 시야가 끊기거나 플레이어가 너무 가까이 들어오면 장풍을 포기하고 이동한다.
+      if (!clear || distance < 125) {
+        enemy.aiState = 'move';
+        enemy.aiTimer = 0.35;
+        enemy.charge = 0;
+      } else if (enemy.charge >= enemy.aiTarget) {
+        fireWave(enemy, true);
+        enemy.aiState = 'move';
+        enemy.aiTimer = 0.75 + Math.random() * 0.55;
+        enemy.charge = 0;
+      }
+      return;
+    }
+
+    if (knocked) {
+      enemy.aiState = 'move';
+      enemy.charge = 0;
+      enemy.aiTimer = Math.max(enemy.aiTimer, 0.4);
+    }
+    enemy.charge = 0;
+    enemy.aiTimer -= dt;
+    const goalDistance = Math.sqrt(distanceSq(enemy.x, enemy.y, enemy.aiGoalX, enemy.aiGoalY));
+    if (goalDistance < 28 || enemy.aiTimer <= 0) {
+      chooseEnemyGoal();
+      enemy.aiTimer = 1.4 + Math.random() * 1.3;
+    }
+
+    // 시야가 열리고 충분히 떨어져 있으면 정지 차징을 시도한다.
+    if (clear && distance > 155 && enemy.aiTimer < 0.95) {
+      enemy.aiState = 'charge';
+      enemy.aiTarget = 0.72 + Math.random() * 1.05;
+      enemy.charge = 0;
+      enemy.moving = false;
+      return;
+    }
+
+    moveFighter(enemy, enemy.aiGoalX - enemy.x, enemy.aiGoalY - enemy.y, dt);
+  }
+
+  function damageTarget(target, amount, source) {
+    if (target.dead > 0 || target.invuln > 0) return;
+    target.hp = Math.max(0, target.hp - amount);
+    target.hitFlash = 0.24;
+    target.hitKick = 1;
+    const awayX = target.x - source.x;
+    const awayY = target.y - source.y;
+    const awayLength = Math.max(1, Math.hypot(awayX, awayY));
+    // 피격 프레임에 크게 한 번 밀어내고, 이어서 빠른 속도 기반 넉백을 적용한다.
+    const push = 230 + amount * 3.8;
+    target.knockbackX = clamp(target.knockbackX + awayX / awayLength * push, -420, 420);
+    target.knockbackY = clamp(target.knockbackY + awayY / awayLength * push, -420, 420);
+    const instantPush = 14 + amount * 0.14;
+    target.x += awayX / awayLength * instantPush;
+    target.y += awayY / awayLength * instantPush;
+    resolveCircle(target);
+    spawnParticles(target.x, target.y, target.color, 11, 130, 0.4);
+    if (target.hp <= 0) {
+      target.dead = 1.05;
+      target.fireHeld = false;
+      target.charge = 0;
+      if (source === player) spawnParticles(target.x, target.y, '#fff3ae', 20, 220, 0.6);
+    }
+  }
+
+  function resetFighter(fighter) {
+    fighter.x = fighter.spawnX;
+    fighter.y = fighter.spawnY;
+    fighter.hp = CFG.maxHP;
+    fighter.dead = 0;
+    fighter.invuln = CFG.invulnerableAfterHit;
+    fighter.charge = 0;
+    fighter.recoil = 0;
+    fighter.hitFlash = 0;
+    fighter.hitKick = 0;
+    fighter.knockbackX = 0;
+    fighter.knockbackY = 0;
+    fighter.moving = false;
+    fighter.aiState = 'move';
+    fighter.aiTimer = 1.0 + Math.random() * 0.7;
+    chooseEnemyGoal();
+  }
+
+  function restartMatch() {
+    waves.splice(0, waves.length);
+    particles.splice(0, particles.length);
+    player.fireHeld = false;
+    pointer.down = false;
+    player.x = player.spawnX;
+    player.y = player.spawnY;
+    enemy.x = enemy.spawnX;
+    enemy.y = enemy.spawnY;
+    resetFighter(player);
+    resetFighter(enemy);
+  }
+
+  function updateWaves(dt) {
+    for (let i = waves.length - 1; i >= 0; i--) {
+      const wave = waves[i];
+      wave.x += wave.vx * dt;
+      wave.y += wave.vy * dt;
+      wave.age += dt;
+      let remove = wave.age >= wave.life || segmentHit(wave.x, wave.y, wave.radius * 0.55);
+      const target = wave.foe ? player : enemy;
+      if (!remove && target.dead <= 0 && target.invuln <= 0 && waveHitsFighter(wave, target)) {
+        damageTarget(target, wave.damage, wave.foe ? enemy : player);
+        remove = true;
+      }
+      if (remove) waves.splice(i, 1);
+    }
+  }
+
+  function updateParticles(dt) {
+    for (let i = particles.length - 1; i >= 0; i--) {
+      const particle = particles[i];
+      particle.x += particle.vx * dt;
+      particle.y += particle.vy * dt;
+      particle.vx *= Math.pow(0.04, dt);
+      particle.vy *= Math.pow(0.04, dt);
+      particle.life -= dt;
+      if (particle.life <= 0) particles.splice(i, 1);
+    }
+  }
+
+  function updateTimers(dt) {
+    for (const fighter of [player, enemy]) {
+      fighter.recoil = Math.max(0, fighter.recoil - dt);
+      fighter.hitFlash = Math.max(0, fighter.hitFlash - dt);
+      fighter.hitKick = Math.max(0, fighter.hitKick - dt * 5);
+      fighter.invuln = Math.max(0, fighter.invuln - dt);
+      if (fighter.dead > 0) {
+        fighter.dead -= dt;
+        if (fighter.dead <= 0) resetFighter(fighter);
+      }
+    }
+  }
+
+  function drawCover(image, x, y, width, height) {
+    if (!image.complete || image.naturalWidth === 0) return false;
+    const imageRatio = image.naturalWidth / image.naturalHeight;
+    const boxRatio = width / height;
+    let sourceX = 0;
+    let sourceY = 0;
+    let sourceWidth = image.naturalWidth;
+    let sourceHeight = image.naturalHeight;
+    if (imageRatio > boxRatio) {
+      sourceWidth = image.naturalHeight * boxRatio;
+      sourceX = (image.naturalWidth - sourceWidth) * 0.5;
+    } else {
+      sourceHeight = image.naturalWidth / boxRatio;
+      sourceY = (image.naturalHeight - sourceHeight) * 0.5;
+    }
+    ctx.drawImage(image, sourceX, sourceY, sourceWidth, sourceHeight, x, y, width, height);
+    return true;
+  }
+
+  function drawBackground() {
+    ctx.fillStyle = '#10140f';
+    ctx.fillRect(0, 0, BASE_W, BASE_H);
+    const hasBackground = drawCover(assets.background, 0, 0, BASE_W, BASE_H);
+    if (!hasBackground) {
+      ctx.fillStyle = '#273025';
+      ctx.fillRect(CFG.arena.x, CFG.arena.y, CFG.arena.w, CFG.arena.h);
+    }
+
+    // generated background 위에 플레이 가능한 영역만 살짝 어둡게 눌러 캐릭터 가독성을 확보한다.
+    ctx.fillStyle = 'rgba(20, 25, 14, .13)';
+    ctx.fillRect(CFG.arena.x, CFG.arena.y, CFG.arena.w, CFG.arena.h);
+
+    ctx.save();
+    ctx.strokeStyle = 'rgba(224, 190, 105, .56)';
+    ctx.lineWidth = 3;
+    ctx.strokeRect(CFG.arena.x, CFG.arena.y, CFG.arena.w, CFG.arena.h);
+    ctx.fillStyle = '#d7ae5a';
+    for (const [x, y] of [[CFG.arena.x + 9, CFG.arena.y + 9], [CFG.arena.x + CFG.arena.w - 13, CFG.arena.y + 9], [CFG.arena.x + 9, CFG.arena.y + CFG.arena.h - 13], [CFG.arena.x + CFG.arena.w - 13, CFG.arena.y + CFG.arena.h - 13]]) {
+      ctx.fillRect(x, y, 4, 4);
+    }
+    ctx.restore();
+  }
+
+  function drawWalls() {
+    for (const wall of walls) {
+      const dx = wall.b.x - wall.a.x;
+      const dy = wall.b.y - wall.a.y;
+      const length = Math.hypot(dx, dy);
+      const angle = Math.atan2(dy, dx);
+      ctx.save();
+      ctx.translate((wall.a.x + wall.b.x) * 0.5, (wall.a.y + wall.b.y) * 0.5);
+      ctx.rotate(angle);
+      ctx.imageSmoothingEnabled = false;
+      // 배경의 바위/나무와 섞이지 않도록 검은 픽셀 외곽선과 밝은 목재 캡을 가진 돌담을 사용한다.
+      ctx.fillStyle = 'rgba(7, 10, 8, .72)';
+      ctx.fillRect(-length * 0.5 - 3, -wall.t - 5, length + 6, wall.t * 2 + 10);
+      if (assets.wall.complete && assets.wall.naturalWidth > 0) {
+        ctx.drawImage(assets.wall, 0, 0, assets.wall.naturalWidth, assets.wall.naturalHeight, -length * 0.5, -wall.t * 2.8, length, wall.t * 5.6);
+      } else {
+        ctx.fillStyle = '#4f5947';
+        ctx.fillRect(-length * 0.5, -wall.t, length, wall.t * 2);
+        ctx.fillStyle = '#c7ad6a';
+        ctx.fillRect(-length * 0.5, -wall.t, length, 4);
+      }
+      ctx.restore();
+    }
+  }
+
+  function drawAimLine() {
+    if (player.dead > 0) return;
+    const type = waveTypeForCharge(player.charge);
+    const length = 110 + player.charge / CFG.chargeMax * 180;
+    ctx.save();
+    ctx.strokeStyle = player.fireHeld ? type.color : 'rgba(190, 210, 224, .34)';
+    ctx.globalAlpha = player.fireHeld ? 0.65 : 0.3;
+    ctx.lineWidth = player.fireHeld ? 2.5 : 1;
+    ctx.setLineDash([8, 8]);
+    ctx.beginPath();
+    ctx.moveTo(player.x + Math.cos(player.aim) * 24, player.y + Math.sin(player.aim) * 24);
+    ctx.lineTo(player.x + Math.cos(player.aim) * length, player.y + Math.sin(player.aim) * length);
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  function drawWave(wave) {
+    if (!assets.energyWave.complete || assets.energyWave.naturalWidth === 0) return;
+    const fade = Math.max(0, 1 - wave.age / wave.life);
+    const chargeRatio = clamp(wave.charge / CFG.chargeMax, 0, 1);
+    // 짧은 장풍도 얇은 광선으로 끝까지 날아가고, 차징할수록 화살촉과 폭이 커진다.
+    const drawWidth = 115 + chargeRatio * 300;
+    const drawHeight = 54 + chargeRatio * 74;
+    ctx.save();
+    ctx.translate(wave.x, wave.y);
+    ctx.rotate(wave.angle);
+    ctx.globalAlpha = 0.46 + fade * 0.54;
+    ctx.imageSmoothingEnabled = false;
+    // 원본 효과의 꼬리가 발사자 쪽에 남고, 밝은 화살촉이 진행 방향을 향하도록 배치한다.
+    ctx.drawImage(assets.energyWave, -drawWidth * 0.12, -drawHeight * 0.5, drawWidth, drawHeight);
+    ctx.restore();
+  }
+
+  function drawChibi(fighter) {
+    const pixel = (x, y, w, h, color, alpha = 1) => {
+      ctx.globalAlpha = alpha;
+      ctx.fillStyle = color;
+      ctx.fillRect(Math.round(x), Math.round(y), Math.round(w), Math.round(h));
+    };
+
+    if (fighter.dead > 0) {
+      ctx.save();
+      ctx.translate(fighter.x, fighter.y);
+      ctx.globalAlpha = clamp(fighter.dead / 0.6, 0, 1);
+      const burst = 20 + Math.floor((1.05 - fighter.dead) * 18);
+      pixel(-burst, -3, 10, 6, fighter.color);
+      pixel(burst - 10, -3, 10, 6, fighter.color);
+      pixel(-3, -burst, 6, 10, fighter.color);
+      pixel(-3, burst - 10, 6, 10, fighter.color);
+      pixel(-burst + 5, -burst + 5, 7, 7, fighter.color);
+      pixel(burst - 12, burst - 12, 7, 7, fighter.color);
+      ctx.restore();
+      return;
+    }
+
+    const charging = fighter.fireHeld || fighter.aiState === 'charge';
+    const chargeRatio = clamp(fighter.charge / CFG.chargeMax, 0, 1);
+    const type = waveTypeForCharge(fighter.charge);
+    const bob = fighter.moving ? Math.sin(fighter.walk) * 1.8 : 0;
+    const blink = fighter.invuln > 0 && Math.floor(fighter.invuln * 16) % 2 === 0;
+    if (blink) return;
+
+    ctx.save();
+    ctx.translate(fighter.x, fighter.y + bob);
+
+    // 차징 오라는 원형 광원 대신 계단식 픽셀 링으로 표현한다.
+    if (charging) {
+      const aura = 26 + Math.floor(chargeRatio * 18);
+      const auraAlpha = 0.16 + chargeRatio * 0.2;
+      pixel(-aura, -aura, 8, 8, type.color, auraAlpha);
+      pixel(aura - 8, -aura, 8, 8, type.color, auraAlpha);
+      pixel(-aura, aura - 8, 8, 8, type.color, auraAlpha);
+      pixel(aura - 8, aura - 8, 8, 8, type.color, auraAlpha);
+      pixel(-4, -aura - 5, 8, 5, type.color, auraAlpha);
+      pixel(-4, aura, 8, 5, type.color, auraAlpha);
+      pixel(-aura - 5, -4, 5, 8, type.color, auraAlpha);
+      pixel(aura, -4, 5, 8, type.color, auraAlpha);
+    }
+
+    ctx.save();
+    ctx.rotate(fighter.aim + Math.PI * 0.5);
+    ctx.translate(0, fighter.recoil > 0 ? 5 : 0);
+
+    // 픽셀 그림자, 부츠, 다리
+    pixel(-21, 26, 42, 5, '#090b08', .62);
+    pixel(-13, 18, 8, 10, fighter.accent);
+    pixel(5, 18, 8, 10, fighter.accent);
+    pixel(-15, 26, 11, 4, '#171d16');
+    pixel(4, 26, 11, 4, '#171d16');
+
+    // 외곽선이 있는 픽셀 몸통
+    pixel(-15, 0, 30, 25, '#10150f');
+    pixel(-12, 3, 24, 20, fighter.accent);
+    pixel(-9, 5, 18, 15, fighter.color);
+    pixel(-6, 5, 12, 3, 'rgba(255,255,255,.42)');
+    pixel(-3, 11, 6, 8, fighter.accent);
+    pixel(-12, 20, 24, 4, '#11160f');
+
+    // 팔은 대각선 대신 계단형 블록으로 만들어 스프라이트처럼 보이게 한다.
+    pixel(-20, -3, 8, 7, '#10150f');
+    pixel(-23, -10, 7, 9, '#10150f');
+    pixel(-18, -2, 5, 7, fighter.color);
+    pixel(-22, -9, 6, 7, fighter.accent);
+    pixel(12, -3, 8, 7, '#10150f');
+    pixel(16, -10, 7, 9, '#10150f');
+    pixel(13, -2, 5, 7, fighter.color);
+    pixel(16, -9, 6, 7, fighter.accent);
+
+    // 손 사이에 모이는 장풍 코어도 네모 도트로 표시
+    if (charging) {
+      const core = 6 + Math.floor(chargeRatio * 5) * 2;
+      pixel(-core * .5 - 2, -17, core + 4, core + 4, type.glow, .4);
+      pixel(-core * .5, -15, core, core, type.color);
+      pixel(-2, -15, 4, 4, '#fff8d0');
+    }
+
+    // 2등신 머리: 곡선 없이 계단식 픽셀 실루엣
+    pixel(-13, -38, 26, 3, '#10150f');
+    pixel(-17, -35, 34, 22, '#10150f');
+    pixel(-13, -13, 26, 4, '#10150f');
+    pixel(-12, -34, 24, 20, '#f3c7a4');
+    pixel(-15, -31, 30, 11, fighter.color);
+    pixel(-12, -35, 24, 5, fighter.color);
+    pixel(-15, -27, 4, 10, fighter.accent);
+    pixel(11, -27, 4, 10, fighter.accent);
+    pixel(-9, -23, 5, 4, '#19231c');
+    pixel(4, -23, 5, 4, '#19231c');
+    pixel(-8, -15, 16, 3, '#8f4f55');
+    pixel(-6, -16, 12, 2, '#f3c7a4');
+
+    // 머리카락/헬멧의 하이라이트 도트
+    pixel(-10, -34, 6, 3, 'rgba(255,255,255,.42)');
+    pixel(-15, -22, 3, 5, fighter.accent);
+
+    // 차징하지 않을 때도 픽셀 하이라이트로 바라보는 방향을 표시
+    if (!charging) {
+      pixel(-8, -31, 3, 3, 'rgba(255,255,255,.52)');
+    }
+    ctx.restore();
+
+    // 적 차징 게이지는 상대에게도 보인다.
+    if (!fighter.isPlayer && charging) {
+      ctx.save();
+      ctx.translate(-32, -65);
+      ctx.fillStyle = 'rgba(0,0,0,.6)'; ctx.fillRect(0, 0, 64, 5);
+      ctx.fillStyle = type.color; ctx.fillRect(0, 0, 64 * chargeRatio, 5);
+      ctx.restore();
+    }
+    ctx.restore();
+  }
+
+  // 실제 생성된 투명 픽셀 스프라이트를 사용한다. 캐릭터의 전신과 무기 자세가 그대로 보인다.
+  function drawSpriteChibi(fighter) {
+    const charging = fighter.fireHeld || fighter.aiState === 'charge';
+    const normalSprite = fighter.isPlayer ? assets.player : assets.enemy;
+    const chargeSprite = fighter.isPlayer ? assets.playerCharge : assets.enemyCharge;
+    const sprite = charging && chargeSprite.complete && chargeSprite.naturalWidth > 0 ? chargeSprite : normalSprite;
+    if (!sprite.complete || sprite.naturalWidth === 0) return;
+
+    const chargeRatio = clamp(fighter.charge / CFG.chargeMax, 0, 1);
+    const type = waveTypeForCharge(fighter.charge);
+    const bob = fighter.moving ? Math.sin(fighter.walk) * 1.8 : 0;
+    const chargePhase = gameTime * (9 + chargeRatio * 5);
+    const chargePulse = charging ? (Math.sin(chargePhase) + 1) * 0.5 : 0;
+    const blink = fighter.invuln > 0 && Math.floor(fighter.invuln * 16) % 2 === 0;
+    const pixel = (x, y, w, h, color, alpha = 1) => {
+      ctx.globalAlpha = alpha;
+      ctx.fillStyle = color;
+      ctx.fillRect(Math.round(x), Math.round(y), Math.round(w), Math.round(h));
+    };
+    if (blink) return;
+
+    ctx.save();
+    ctx.translate(fighter.x, fighter.y + bob);
+
+    if (fighter.dead > 0) {
+      ctx.globalAlpha = clamp(fighter.dead / 0.65, 0, 1);
+      const size = 155 + (1.05 - fighter.dead) * 20;
+      ctx.drawImage(sprite, -size * 0.5, -size * 0.56, size, size);
+      ctx.globalAlpha = 1;
+      const burst = 26 + Math.floor((1.05 - fighter.dead) * 18);
+      pixel(-burst, -3, 10, 6, type.color, .85);
+      pixel(burst - 10, -3, 10, 6, type.color, .85);
+      pixel(-3, -burst, 6, 10, type.color, .85);
+      pixel(-3, burst - 10, 6, 10, type.color, .85);
+      ctx.restore();
+      return;
+    }
+
+    if (charging) {
+      const aura = 58 + Math.floor(chargeRatio * 18) + Math.round(chargePulse * 4);
+      const auraAlpha = 0.12 + chargeRatio * 0.22 + chargePulse * 0.08;
+      pixel(-aura, -aura * .65, 8, 8, type.color, auraAlpha);
+      pixel(aura - 8, -aura * .65, 8, 8, type.color, auraAlpha);
+      pixel(-aura, aura * .35, 8, 8, type.color, auraAlpha);
+      pixel(aura - 8, aura * .35, 8, 8, type.color, auraAlpha);
+    }
+
+    const spriteSize = 155;
+    const recoil = fighter.recoil > 0 ? 5 : 0;
+    ctx.imageSmoothingEnabled = false;
+    ctx.globalAlpha = fighter.hitFlash > 0 ? .64 : 1;
+    if (fighter.hitKick > 0) {
+      ctx.rotate((fighter.isPlayer ? -1 : 1) * fighter.hitKick * 0.12);
+      ctx.translate((fighter.isPlayer ? -1 : 1) * fighter.hitKick * 4, 0);
+    }
+    ctx.drawImage(sprite, -spriteSize * 0.5 + recoil, -spriteSize * 0.56, spriteSize, spriteSize);
+    ctx.globalAlpha = 1;
+
+    if (charging) {
+      // 새 충전 전용 스프라이트의 양손 사이에만 에너지 코어를 그린다.
+      const core = 7 + Math.floor(chargeRatio * 5) * 2 + Math.round(chargePulse * 3);
+      const handX = fighter.isPlayer ? -29 : 27;
+      const coreY = 10 - Math.round(chargePulse * 2);
+      const orbit = 12 + chargeRatio * 10 + chargePulse * 4;
+      pixel(handX - core * .5 - 3, coreY - 3, core + 6, core + 6, type.glow, .35 + chargePulse * .18);
+      pixel(handX - core * .5, coreY, core, core, type.color, .95);
+      pixel(handX - 2, coreY + 2, 4, 4, '#fff8d0', .95);
+      pixel(handX - orbit, coreY + 2, 4, 4, type.color, .42 + chargePulse * .2);
+      pixel(handX + orbit - 4, coreY - 2, 4, 4, type.color, .42 + chargePulse * .2);
+      pixel(handX - 2, coreY - orbit, 4, 4, type.glow, .38 + chargePulse * .2);
+      pixel(handX - 2, coreY + orbit - 4, 4, 4, type.glow, .38 + chargePulse * .2);
+    }
+    ctx.restore();
+
+    if (!fighter.isPlayer && charging) {
+      ctx.save();
+      ctx.translate(fighter.x - 36, fighter.y - 120);
+      ctx.fillStyle = 'rgba(0,0,0,.72)';
+      ctx.fillRect(0, 0, 72, 6);
+      ctx.fillStyle = type.color;
+      ctx.fillRect(0, 0, 72 * chargeRatio, 6);
+      ctx.restore();
+    }
+  }
+
+  function drawParticles() {
+    for (const particle of particles) {
+      ctx.save();
+      ctx.globalAlpha = clamp(particle.life / particle.maxLife, 0, 1);
+      ctx.fillStyle = particle.color;
+      ctx.shadowColor = particle.color;
+      ctx.shadowBlur = 4;
+      const size = Math.max(2, Math.round(particle.size));
+      ctx.fillRect(Math.round(particle.x - size * 0.5), Math.round(particle.y - size * 0.5), size, size);
+      ctx.restore();
+    }
+  }
+
+  function render() {
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.imageSmoothingEnabled = false;
+    const renderScale = dpr * viewScale / PIXEL_FACTOR;
+    ctx.setTransform(renderScale, 0, 0, renderScale, dpr * viewOffsetX / PIXEL_FACTOR, dpr * viewOffsetY / PIXEL_FACTOR);
+    drawBackground();
+    drawWalls();
+    drawAimLine();
+    for (const wave of waves) drawWave(wave);
+    drawParticles();
+    drawSpriteChibi(enemy);
+    drawSpriteChibi(player);
+  }
+
+  function hpText(hp) {
+    return `HP ${Math.ceil(hp)} / ${CFG.maxHP}`;
+  }
+
+  function updateHUD() {
+    playerHpEl.textContent = hpText(player.hp);
+    enemyHpEl.textContent = hpText(enemy.hp);
+    playerHpBarEl.style.width = `${player.hp / CFG.maxHP * 100}%`;
+    enemyHpBarEl.style.width = `${enemy.hp / CFG.maxHP * 100}%`;
+  }
+
+  function tick(now) {
+    const dt = Math.min(0.05, (now - lastTime) / 1000 || 0);
+    lastTime = now;
+    gameTime += dt;
+    walkTime += dt;
+    updateTimers(dt);
+    updatePlayer(dt);
+    updateEnemy(dt);
+    updateWaves(dt);
+    updateParticles(dt);
+    updateHUD();
+    render();
+    requestAnimationFrame(tick);
+  }
+
+  chooseEnemyGoal();
+  requestAnimationFrame(tick);
+})();
+</script>
+</body>
+</html>

@@ -20,6 +20,7 @@ import {
   type OpponentProfile,
   type PlayerProfile,
 } from '../net/online';
+import { GhostController, GhostStore, ghostFromFinishedGame, type GhostTape } from '../ghost';
 import { exportGameMgn } from '../../bot/learning/gameRecord';
 import { localizeMessage, playerLabel, reasonLabel as localizedReasonLabel, t } from '../i18n';
 
@@ -44,6 +45,7 @@ export interface GameSnapshot {
   onlineWaiting: boolean;
   onlineMatchKind: 'random' | 'friend' | null;
   onlineOpponent: OpponentProfile | null;
+  ghostOpponent: { name: string; rating: number } | null;
   profile: PlayerProfile | null;
   canUndo: boolean;
   isMyTurn: boolean;
@@ -67,6 +69,9 @@ export class GameController {
   private onlineWaiting = false;
   private onlineMatchKind: 'random' | 'friend' | null = null;
   private onlineOpponent: OpponentProfile | null = null;
+  private ghostTape: GhostTape | null = null;
+  private ghost: GhostController | null = null;
+  private ghostStore = new GhostStore();
   private profile: PlayerProfile | null = null;
   private onlineStatus = '';
   private onlineError = false;
@@ -95,7 +100,8 @@ export class GameController {
     onMatchFound: (_roomId, side, opponent) => {
       this.onlineSide = side;
       this.onlineWaiting = false;
-      this.onlineMatchKind = 'random';
+      // 친구 방(CREATED/JOINED 이후)의 MATCH_FOUND면 친구 대전 라벨을 유지한다.
+      if (this.onlineMatchKind !== 'friend') this.onlineMatchKind = 'random';
       this.onlineOpponent = opponent;
       this.onlineStatus = `${opponent.name} 님과 매칭됐어요 — ${PLAYER_KO[side]}`;
       this.onlineError = false;
@@ -120,6 +126,7 @@ export class GameController {
       this.onlineStatus = '상대가 나갔습니다';
       this.notify();
     },
+    onMatchmakingTimeout: () => this.fallbackRandomMatch(),
     onError: (msg) => {
       this.onlineStatus = msg;
       this.onlineError = true;
@@ -193,6 +200,9 @@ export class GameController {
       onlineWaiting: this.onlineWaiting,
       onlineMatchKind: this.onlineMatchKind,
       onlineOpponent: this.onlineOpponent,
+      ghostOpponent: this.ghostTape
+        ? { name: this.ghostTape.ownerName, rating: this.ghostTape.ownerRating }
+        : null,
       profile: this.profile,
       canUndo: this.canUndo(),
       isMyTurn: this.isMyTurn(state),
@@ -205,6 +215,10 @@ export class GameController {
   setMode(mode: OpponentMode) {
     if (this.settings.mode === mode) return;
     this.cancelAiTurn();
+    if (mode !== 'ghost') {
+      this.ghostTape = null;
+      this.ghost = null;
+    }
     this.settings.mode = mode;
     if (this.isOnlineMode()) {
       this.online.disconnect();
@@ -310,9 +324,49 @@ export class GameController {
     try {
       await this.online.startMatchmaking();
     } catch {
-      this.onlineWaiting = false;
-      this.notify();
+      this.fallbackRandomMatch();
     }
+  }
+
+  private fallbackRandomMatch() {
+    if (!this.isOnlineMode() || this.onlineMatchKind !== 'random' || !this.onlineWaiting) return;
+    const tape = this.ghostStore.pickQuickMatchChallenge(this.profile?.rating ?? 1200);
+    if (tape) {
+      this.startGhostMatch(tape);
+      return;
+    }
+
+    // 번들 고스트가 손상된 경우에도 매칭 화면에서 멈추지 않도록 AI로 최종 폴백한다.
+    this.online.disconnect();
+    this.onlineWaiting = false;
+    this.onlineMatchKind = null;
+    this.onlineOpponent = null;
+    this.onlineSide = null;
+    this.onlineStatus = '상대를 찾지 못해 컴퓨터와 대결합니다';
+    this.onlineError = false;
+    this.settings.mode = 'ai';
+    this.newGame();
+  }
+
+  private startGhostMatch(tape: GhostTape) {
+    this.cancelAiTurn();
+    this.online.cancelMatchmaking();
+    this.online.disconnect();
+    this.settings.mode = 'ghost';
+    this.ghostTape = tape;
+    this.ghost = new GhostController(tape);
+    this.onlineSide = null;
+    this.onlineMatchKind = null;
+    this.onlineOpponent = null;
+    this.onlineWaiting = false;
+    this.onlineStatus = `${tape.ownerName} 님과 대국해요`;
+    this.onlineError = false;
+    this.states = [initialState(this.config)];
+    this.selected = null;
+    this.learningRecorded = false;
+    this.applySidesFromSettings();
+    this.notify();
+    this.maybeAiTurn();
   }
 
   cancelRandomMatch() {
@@ -359,22 +413,35 @@ export class GameController {
     return this.settings.mode === 'ai';
   }
 
+  private isGhostMode() {
+    return this.settings.mode === 'ghost' && this.ghostTape !== null;
+  }
+
+  private isComputerMode() {
+    return this.isAiMode() || this.isGhostMode();
+  }
+
   private isOnlineMode() {
     return this.settings.mode === 'online';
   }
 
   private isMyTurn(state: GameState): boolean {
-    if (this.isAiMode()) return state.turn === this.humanSide;
+    if (this.isComputerMode()) return state.turn === this.humanSide;
     if (this.isOnlineMode()) return this.onlineSide !== null && state.turn === this.onlineSide;
     return true;
   }
 
   private canUndo(): boolean {
-    if (this.isOnlineMode()) return false;
+    if (this.isOnlineMode() || this.isGhostMode()) return false;
     return this.states.length > 1;
   }
 
   private applySidesFromSettings() {
+    if (this.isGhostMode() && this.ghostTape) {
+      this.humanSide = opponentOf(this.ghostTape.side);
+      this.aiSide = this.ghostTape.side;
+      return;
+    }
     this.humanSide = resolveHumanSide(this.settings.humanColor);
     this.aiSide = opponentOf(this.humanSide);
   }
@@ -393,8 +460,23 @@ export class GameController {
     try {
       const state = this.current();
       const result = getResult(state, this.config);
-      if (!result || !this.isAiMode() || this.learningRecorded) return;
+      if (!result || (!this.isAiMode() && !this.isGhostMode()) || this.learningRecorded) return;
       this.learningRecorded = true;
+      if (this.isGhostMode() && this.ghostTape) {
+        const ownerName = this.profile?.name ?? '플레이어';
+        const ownerRating = this.profile?.rating ?? 1200;
+        const tape = ghostFromFinishedGame(
+          state,
+          result,
+          ownerName,
+          ownerRating,
+          this.humanSide,
+          'local',
+          '빠른 대전에서 남긴 고스트 기보',
+        );
+        this.ghostStore.recordMatch(result.winner === this.humanSide, this.ghostTape.ownerRating, tape);
+        return;
+      }
       getBotBrain(this.config).onGameEnd(
         { state, result, config: this.config, settings: this.settings, humanSide: this.humanSide },
         this.aiSide,
@@ -444,7 +526,7 @@ export class GameController {
 
   private maybeAiTurn() {
     const state = this.current();
-    if (!this.isAiMode() || this.aiThinking || state.turn !== this.aiSide || getResult(state, this.config)) {
+    if (!this.isComputerMode() || this.aiThinking || state.turn !== this.aiSide || getResult(state, this.config)) {
       return;
     }
     this.aiThinking = true;
@@ -456,12 +538,14 @@ export class GameController {
       if (aiTurnId !== this.aiTurnId) return;
       try {
         const cur = this.current();
-        if (!this.isAiMode() || getResult(cur, this.config) || cur.turn !== this.aiSide) return;
+        if (!this.isComputerMode() || getResult(cur, this.config) || cur.turn !== this.aiSide) return;
         const budget = Math.max(
           100,
           Math.min(preset.maxMs, wallDeadline - Date.now()),
         );
-        const move = this.pickAiMove(cur, budget, preset.maxDepth);
+        const move = this.isGhostMode()
+          ? this.ghost?.choose(cur, this.config)?.move ?? legalMoves(cur, this.config)[0] ?? null
+          : this.pickAiMove(cur, budget, preset.maxDepth);
         if (move) this.states.push(applyMove(this.current(), move));
         this.recordLearningIfEnded();
       } finally {
@@ -470,7 +554,7 @@ export class GameController {
         this.notify();
         const after = this.current();
         if (
-          this.isAiMode() &&
+          this.isComputerMode() &&
           !getResult(after, this.config) &&
           after.turn === this.aiSide &&
           legalMoves(after, this.config).length > 0
@@ -487,9 +571,11 @@ export class GameController {
     for (const fn of this.listeners) fn();
   }
 
-  private static readonly BOARD_BORDER = 12;
-  private static readonly BOARD_PADDING = 12;
-  private static readonly BOARD_GAP = 2;
+  // SwiftUI BoardView와 동일하게 7px 인셋을 두고 셀 사이 여백은 만들지 않는다.
+  // 외곽선은 inset으로 그려져 레이아웃 폭을 차지하지 않는다.
+  private static readonly BOARD_BORDER = 0;
+  private static readonly BOARD_PADDING = 14;
+  private static readonly BOARD_GAP = 0;
 
   /** 보드 테두리·패딩·칸 간격을 제외한 실제 사용 가능 영역 */
   private availableBoardBox(): { width: number; height: number } {

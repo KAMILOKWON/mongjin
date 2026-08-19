@@ -90,7 +90,11 @@ function makeRoomId(): string {
 }
 
 function defaultName(): string {
-  return `나그네${Math.floor(1000 + Math.random() * 9000)}`;
+  for (let attempt = 0; attempt < 100; attempt += 1) {
+    const candidate = `나그네${Math.floor(1000 + Math.random() * 9000)}`;
+    if (![...profiles.values()].some((profile) => profile.name === candidate)) return candidate;
+  }
+  return `나그네${randomBytes(3).toString('hex')}`;
 }
 
 function cleanName(value: unknown): string | null {
@@ -423,6 +427,22 @@ wss.on('connection', (ws) => {
           send(ws, { type: 'JOINED', roomId: id, side, state: room.state });
           const other = side === 'BLACK' ? room.white : room.black;
           if (other) send(other, { type: 'STATE', state: room.state });
+          if (room.black && room.white && room.blackPlayerId && room.whitePlayerId) {
+            send(room.black, {
+              type: 'MATCH_FOUND',
+              roomId: id,
+              side: 'BLACK',
+              state: room.state,
+              opponent: opponentSummary(room.whitePlayerId),
+            });
+            send(room.white, {
+              type: 'MATCH_FOUND',
+              roomId: id,
+              side: 'WHITE',
+              state: room.state,
+              opponent: opponentSummary(room.blackPlayerId),
+            });
+          }
         }
       }
       return;

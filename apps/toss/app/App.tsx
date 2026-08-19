@@ -26,7 +26,7 @@ import whiteKingUrl from '../assets/ui/stone-white-king.png';
 
 const game = new GameController();
 
-type Screen = 'home' | 'setup' | 'match' | 'game' | 'profile' | 'tutorial';
+type Screen = 'home' | 'setup' | 'match' | 'friend' | 'game' | 'profile' | 'tutorial';
 
 const TUTORIAL_STEPS = [
   {
@@ -61,11 +61,14 @@ const MODE_LABEL: Record<OpponentMode, string> = {
   online: '랜덤 대전',
 };
 
-const MODE_DESCRIPTION: Record<OpponentMode, string> = {
-  online: '접속 중인 상대와 자동 매칭',
-  ai: '난이도와 진영을 골라 연습',
-  local: '한 기기에서 흑·백을 번갈아',
-};
+type HomeTab = OpponentMode | 'friend';
+
+const HOME_TABS: Array<{ key: HomeTab; label: string; description: string; cta: string }> = [
+  { key: 'online', label: '빠른 대전', description: '접속 중인 상대와 자동 매칭', cta: '대국 시작' },
+  { key: 'friend', label: '친구', description: '입장코드로 친구와 대국합니다', cta: '코드 만들기' },
+  { key: 'ai', label: '컴퓨터', description: '난이도와 진영을 골라 연습합니다', cta: '대국 준비' },
+  { key: 'local', label: '같이 두기', description: '한 기기에서 흑·백을 번갈아 둡니다', cta: '대국 시작' },
+];
 
 function useGameSnapshot() {
   return useSyncExternalStore(
@@ -146,16 +149,24 @@ function HomeScreen({
   onSelect,
   onProfile,
   onTutorial,
+  onFriend,
   profileName,
   profileMeta,
 }: {
   onSelect: (mode: OpponentMode) => void;
   onProfile: () => void;
   onTutorial: () => void;
+  onFriend: () => void;
   profileName: string;
   profileMeta: string;
 }) {
-  const [mode, setMode] = useState<OpponentMode>('online');
+  const [tab, setTab] = useState<HomeTab>('online');
+  const current = HOME_TABS.find((item) => item.key === tab)!;
+
+  const start = () => {
+    if (tab === 'friend') onFriend();
+    else onSelect(tab);
+  };
 
   return (
     <div className="ait-screen ait-home">
@@ -170,6 +181,7 @@ function HomeScreen({
           aria-label={`${profileName}, ${profileMeta}. 프로필 열기`}
         >
           <strong>{profileName}</strong>
+          <span>{profileMeta}</span>
         </button>
       </div>
 
@@ -179,21 +191,21 @@ function HomeScreen({
 
       <section className="ait-home-dock" aria-label="대국 설정">
         <div className="ait-mode-tabs" role="group" aria-label="대국 방식">
-          {(['online', 'ai', 'local'] as OpponentMode[]).map((option) => (
+          {HOME_TABS.map((item) => (
             <button
-              key={option}
+              key={item.key}
               type="button"
-              className={mode === option ? 'is-active' : ''}
-              aria-pressed={mode === option}
-              onClick={() => setMode(option)}
+              className={tab === item.key ? 'is-active' : ''}
+              aria-pressed={tab === item.key}
+              onClick={() => setTab(item.key)}
             >
-              {MODE_LABEL[option]}
+              {item.label}
             </button>
           ))}
         </div>
-        <p className="ait-mode-description">{MODE_DESCRIPTION[mode]}</p>
-        <button type="button" className="ait-home-start" onClick={() => onSelect(mode)}>
-          대국 시작
+        <p className="ait-mode-description">{current.description}</p>
+        <button type="button" className="ait-home-start" onClick={start}>
+          {current.cta}
         </button>
         <button type="button" className="ait-text-btn" onClick={onTutorial}>
           튜토리얼
@@ -310,6 +322,95 @@ function MatchScreen({
   );
 }
 
+function FriendScreen({
+  onBack,
+  onCreate,
+  onJoin,
+}: {
+  onBack: () => void;
+  onCreate: () => void;
+  onJoin: (code: string) => void;
+}) {
+  const snap = useGameSnapshot();
+  const [code, setCode] = useState('');
+  const [copied, setCopied] = useState(false);
+  const inRoom = snap.onlineMatchKind === 'friend' && snap.onlineRoomId !== null;
+  const busy = snap.onlineWaiting && !snap.onlineError;
+
+  const copyCode = async () => {
+    if (!snap.onlineRoomId) return;
+    try {
+      await navigator.clipboard.writeText(snap.onlineRoomId);
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 1500);
+    } catch {
+      /* 클립보드를 쓸 수 없는 WebView에서는 코드를 화면에서 직접 확인 */
+    }
+  };
+
+  return (
+    <div className="ait-screen">
+      <ScreenNav title="친구와 두기" onBack={onBack} />
+      <div className="ait-screen-body ait-match-body">
+        {inRoom ? (
+          <>
+            <div className="ait-match-pulse" aria-hidden="true">
+              <span />
+              <span />
+              <span />
+            </div>
+            <p className="ait-lead">친구를 기다리는 중</p>
+            <div className="ait-friend-code" aria-label={`입장코드 ${snap.onlineRoomId}`}>
+              {snap.onlineRoomId}
+            </div>
+            <Paragraph typography="t6" color="adaptive-grey-600" style={{ textAlign: 'center' }}>
+              {snap.onlineStatus || '친구에게 입장코드를 알려주세요'}
+            </Paragraph>
+            <Button size="large" variant="weak" display="block" onClick={copyCode}>
+              {copied ? '복사했어요' : '입장코드 복사'}
+            </Button>
+            <Button size="large" variant="weak" display="block" onClick={onBack}>
+              대기 취소
+            </Button>
+          </>
+        ) : (
+          <>
+            <p className="ait-lead">입장코드로 친구와 대국해요</p>
+            <section className="ait-setup-card ait-friend-card">
+              <Button size="large" display="block" disabled={busy} onClick={onCreate}>
+                입장코드 만들기
+              </Button>
+              <TextField
+                variant="line"
+                label="입장코드"
+                labelOption="sustain"
+                placeholder="친구에게 받은 코드"
+                value={code}
+                onChange={(e) => setCode(e.target.value.toUpperCase())}
+              />
+              <Button
+                size="large"
+                variant="weak"
+                display="block"
+                disabled={busy}
+                onClick={() => onJoin(code)}
+              >
+                코드로 참가하기
+              </Button>
+              {snap.onlineStatus && (
+                <p className={`ait-online-note${snap.onlineError ? ' is-error' : ''}`}>
+                  {snap.onlineStatus}
+                </p>
+              )}
+              <p className="ait-field-help">친구 대전은 전적에 반영되지 않아요</p>
+            </section>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function GuardTray({
   player,
   count,
@@ -352,11 +453,12 @@ function GameScreen({ onLeave }: { onLeave: () => void }) {
     : null;
   const modeLabel = MODE_LABEL[snap.settings.mode];
   const chip =
-    snap.settings.mode === 'ai'
+    snap.onlineOpponent
+      ? snap.onlineOpponent.name
+      : snap.settings.mode === 'ai'
       ? `${modeLabel} · ${AI_DIFFICULTY_PRESETS[snap.settings.aiDifficulty].label}`
-      : snap.onlineOpponent
-        ? `${snap.onlineOpponent.name}`
-        : modeLabel;
+      : modeLabel;
+  const quickFallback = snap.onlineOpponent?.isBot === true;
 
   useLayoutEffect(() => {
     if (boardRef.current) game.attachBoard(boardRef.current);
@@ -376,7 +478,7 @@ function GameScreen({ onLeave }: { onLeave: () => void }) {
     };
   }, []);
 
-  const leaveLabel = snap.settings.mode === 'online' ? '대국 종료' : '새 게임';
+  const leaveLabel = snap.settings.mode === 'online' || quickFallback ? '대국 종료' : '새 게임';
 
   return (
     <div className="ait-screen ait-game">
@@ -424,7 +526,7 @@ function GameScreen({ onLeave }: { onLeave: () => void }) {
           size="large"
           variant="weak"
           display="block"
-          disabled={!snap.canUndo || snap.aiThinking}
+          disabled={quickFallback || !snap.canUndo || snap.aiThinking}
           onClick={() => game.undo()}
         >
           무르기
@@ -434,7 +536,7 @@ function GameScreen({ onLeave }: { onLeave: () => void }) {
           display="block"
           disabled={snap.aiThinking && snap.settings.mode !== 'online'}
           onClick={() => {
-            if (snap.settings.mode === 'online') onLeave();
+            if (snap.settings.mode === 'online' || quickFallback) onLeave();
             else game.reset();
           }}
         >
@@ -564,13 +666,22 @@ function MongjinApp() {
   }, [snap.profile, profileName]);
 
   useEffect(() => {
-    if (screen === 'match' && snap.onlineSide) setScreen('game');
-  }, [screen, snap.onlineSide]);
+    if (screen === 'match' && (snap.onlineSide || snap.onlineOpponent?.isBot)) setScreen('game');
+  }, [screen, snap.onlineSide, snap.onlineOpponent]);
+
+  useEffect(() => {
+    if (screen === 'friend' && snap.onlineMatchKind === 'friend' && snap.onlineOpponent) {
+      setScreen('game');
+    }
+  }, [screen, snap.onlineMatchKind, snap.onlineOpponent]);
 
   const leaveToMenu = () => {
     matchStarted.current = false;
     game.detachBoard();
-    if (snap.onlineWaiting) game.cancelRandomMatch();
+    if (snap.onlineWaiting) {
+      if (snap.onlineMatchKind === 'friend') game.cancelFriendRoom();
+      else game.cancelRandomMatch();
+    }
     game.setMode('local');
     setScreen('home');
   };
@@ -592,6 +703,12 @@ function MongjinApp() {
     matchStarted.current = false;
     game.setMode('online');
     setScreen('match');
+  };
+
+  const startFriend = () => {
+    matchStarted.current = false;
+    game.setMode('online');
+    setScreen('friend');
   };
 
   const startMatchmaking = () => {
@@ -621,6 +738,7 @@ function MongjinApp() {
           }}
           onProfile={() => setScreen('profile')}
           onTutorial={() => setScreen('tutorial')}
+          onFriend={startFriend}
           profileName={profileLabel}
           profileMeta={profileMeta}
         />
@@ -639,6 +757,13 @@ function MongjinApp() {
         <MatchScreen
           onBack={leaveToMenu}
           onRetry={startMatchmaking}
+        />
+      )}
+      {screen === 'friend' && (
+        <FriendScreen
+          onBack={leaveToMenu}
+          onCreate={() => void game.createRoom()}
+          onJoin={(code) => void game.joinRoom(code)}
         />
       )}
       {screen === 'game' && <GameScreen onLeave={leaveToMenu} />}

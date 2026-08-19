@@ -34,6 +34,7 @@ const translations: Record<Locale, TranslationTable> = {
     'piece.guard.white': '백 호위',
     'game.back': '홈으로',
     'mode.ai': '컴퓨터 대전',
+    'mode.ghost': '고스트 대전',
     'mode.local': '같이 두기',
     'mode.online': '온라인 대전',
     'mode.random': '랜덤 대전',
@@ -180,6 +181,7 @@ const translations: Record<Locale, TranslationTable> = {
     'piece.guard.white': '白の護衛',
     'game.back': 'ホームへ',
     'mode.ai': 'コンピューター対戦',
+    'mode.ghost': 'ゴースト対戦',
     'mode.local': '2人で対戦',
     'mode.online': 'オンライン対戦',
     'mode.random': 'ランダム対戦',
@@ -370,6 +372,7 @@ export function localizeMessage(message: string): string {
   const direct: Record<string, string> = {
     '상대를 찾고 있어요': 'online.opponentSearching',
     '랜덤 상대를 찾는 중…': 'online.opponentSearching',
+    '상대를 찾지 못해 컴퓨터와 대결합니다': 'mode.ai',
     '랜덤 매칭을 취소했어요': 'online.matchCanceled',
     '대전이 종료됐어요': 'online.ended',
     '상대가 나갔습니다': 'online.opponentLeft',

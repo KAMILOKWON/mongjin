@@ -4,8 +4,6 @@ export function useMobileShell(): boolean {
   if (params.get('desktop') === '1') return false;
   if (params.get('app') === '1') return true;
 
-  if (globalThis.window?.Capacitor?.isNativePlatform?.()) return true;
-
   const media = globalThis.window?.matchMedia?.bind(globalThis.window);
   if (!media) return false;
   if (media('(display-mode: standalone)').matches) return true;

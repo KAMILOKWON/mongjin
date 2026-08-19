@@ -3,7 +3,7 @@
   "id": "mongjin",
   "displayName": "몽진",
   "version": "1.0.0",
-  "build": 51,
+  "build": 53,
   "protocolVersion": 1,
   "submittedBaseline": "ios-1.0.0+5",
   "sharedSource": [
@@ -21,6 +21,18 @@
       "path": "apps/steam/package.json"
     },
     {
+      "type": "package-json",
+      "path": "apps/mobile/package.json"
+    },
+    {
+      "type": "expo-config",
+      "path": "apps/mobile/app.json"
+    },
+    {
+      "type": "package-json",
+      "path": "apps/toss/package.json"
+    },
+    {
       "type": "xcode",
       "path": "apps/ios/Mongjin.xcodeproj/project.pbxproj"
     }
@@ -28,9 +40,12 @@
   "platforms": {
     "ios": {
       "state": "submitted",
-      "identifier": "com.studiozzzg.mongjin",
-      "projectPath": "apps/ios/Mongjin.xcodeproj",
+      "identifier": "com.studiozzg.mongjin",
+      "projectPath": "apps/mobile",
       "requiredTools": [
+        "node",
+        "npm",
+        "pod",
         "swift",
         "xcodebuild"
       ],
@@ -39,63 +54,63 @@
         "build": {
           "cwd": ".",
           "run": [
-            "swift",
-            "test",
-            "--package-path",
-            "apps/ios"
+            "bash",
+            "scripts/build-expo-ios.sh"
           ]
         },
         "beta": {
           "cwd": ".",
           "requiredTools": [
+            "bundle",
             "xcodebuild"
           ],
           "requiredFiles": [
-            "apps/ios/ExportOptionsUpload.plist",
-            "scripts/upload-ios-appstore.sh"
+            "Gemfile.lock",
+            "apps/mobile/app.json",
+            "fastlane/Fastfile"
           ],
           "run": [
-            "bash",
-            "scripts/upload-ios-appstore.sh"
+            "bundle",
+            "exec",
+            "fastlane",
+            "ios",
+            "beta"
           ]
         }
       }
     },
     "android": {
       "state": "ready",
-      "identifier": "com.studiozzzg.mongjin",
-      "projectPath": "apps/android",
+      "identifier": "com.studiozzg.mongjin",
+      "projectPath": "apps/mobile",
       "requiredTools": [
-        "java"
+        "bundle",
+        "java",
+        "node",
+        "npm"
       ],
       "credentials": [
         "GOOGLE_PLAY_SERVICE_ACCOUNT_JSON"
       ],
       "actions": {
         "build": {
-          "cwd": ".",
-          "credentials": [
-            "ANDROID_KEYSTORE_PATH",
-            "ANDROID_KEYSTORE_PASSWORD",
-            "ANDROID_KEY_ALIAS",
-            "ANDROID_KEY_PASSWORD",
-            "ADMOB_ANDROID_APP_ID",
-            "ADMOB_ANDROID_BANNER_UNIT_ID"
-          ],
+          "cwd": "apps/mobile",
           "run": [
             "npm",
             "run",
-            "build:android"
+            "build"
           ]
         },
         "beta": {
           "cwd": ".",
           "requiredTools": [
-            "bundle"
+            "bundle",
+            "java"
           ],
           "requiredFiles": [
             "Gemfile.lock",
-            "apps/android/app/build/outputs/bundle/release/app-release.aab"
+            "apps/mobile/app.json",
+            "fastlane/Fastfile"
           ],
           "run": [
             "bundle",

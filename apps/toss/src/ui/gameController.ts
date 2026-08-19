@@ -23,8 +23,14 @@ import {
   type PlayerProfile,
 } from '../net/online';
 import { exportGameMgn } from '../../bot/learning/gameRecord';
+import {
+  BUILT_IN_GHOSTS,
+  GhostController,
+  withEphemeralGhostNickname,
+} from '../../../../packages/game-data/src';
 
 const PLAYER_KO: Record<Player, string> = { BLACK: '흑', WHITE: '백' };
+const LAST_QUICK_MATCH_NAME_KEY = 'mongjin.ait.last-quick-name.v1';
 const REASON_KO: Record<WinReason, string> = {
   goal: '왕이 목적지에 도달',
   capture: '상대 왕을 잡음',
@@ -79,6 +85,11 @@ export class GameController {
   private snapshot: GameSnapshot;
   private learningRecorded = false;
   private aiTurnId = 0;
+  private quickGhost: GhostController | null = null;
+  private lastQuickMatchGhostName = (() => {
+    try { return localStorage.getItem(LAST_QUICK_MATCH_NAME_KEY); }
+    catch { return null; }
+  })();
 
   private online = new OnlineClient({
     onState: (state) => {
@@ -99,7 +110,8 @@ export class GameController {
     onMatchFound: (_roomId, side, opponent) => {
       this.onlineSide = side;
       this.onlineWaiting = false;
-      this.onlineMatchKind = 'random';
+      // 입장코드(친구) 방의 MATCH_FOUND에서는 friend를 유지한다
+      if (this.onlineMatchKind !== 'friend') this.onlineMatchKind = 'random';
       this.onlineOpponent = opponent;
       this.onlineStatus = opponent.isBot
         ? `${opponent.name}와 대국해요 · ${PLAYER_KO[side]}`
@@ -127,6 +139,7 @@ export class GameController {
       this.onlineStatus = '상대가 나갔습니다';
       this.notify();
     },
+    onMatchmakingTimeout: () => this.fallbackRandomMatch(),
     onError: (msg) => {
       this.onlineStatus = msg;
       this.onlineError = true;
@@ -228,6 +241,7 @@ export class GameController {
   setMode(mode: OpponentMode) {
     if (this.settings.mode === mode) return;
     this.cancelAiTurn();
+    this.quickGhost = null;
     this.settings.mode = mode;
     if (this.isOnlineMode()) {
       this.online.disconnect();
@@ -292,7 +306,16 @@ export class GameController {
   }
 
   async createRoom() {
+    if (!this.isOnlineMode()) this.setMode('online');
     this.onlineMatchKind = 'friend';
+    this.onlineOpponent = null;
+    this.onlineSide = null;
+    this.onlineWaiting = true;
+    this.onlineStatus = '입장코드를 만드는 중…';
+    this.onlineError = false;
+    this.states = [initialState(this.config)];
+    this.selected = null;
+    this.notify();
     try {
       await this.online.createRoom();
     } catch {
@@ -301,13 +324,22 @@ export class GameController {
   }
 
   async joinRoom(code: string) {
-    this.onlineMatchKind = 'friend';
     if (!code.trim()) {
       this.onlineStatus = '입장코드를 입력하세요';
       this.onlineError = true;
       this.notify();
       return;
     }
+    if (!this.isOnlineMode()) this.setMode('online');
+    this.onlineMatchKind = 'friend';
+    this.onlineOpponent = null;
+    this.onlineSide = null;
+    this.onlineWaiting = true;
+    this.onlineStatus = '입장코드를 확인하는 중…';
+    this.onlineError = false;
+    this.states = [initialState(this.config)];
+    this.selected = null;
+    this.notify();
     try {
       await this.online.joinRoom(code);
     } catch {
@@ -329,15 +361,52 @@ export class GameController {
     try {
       await this.online.startMatchmaking();
     } catch {
-      this.onlineWaiting = false;
-      this.notify();
+      this.fallbackRandomMatch();
     }
+  }
+
+  private fallbackRandomMatch() {
+    if (this.onlineMatchKind !== 'random' || !this.onlineWaiting) return;
+    const rating = this.profile?.rating ?? 1200;
+    const baseTape = [...BUILT_IN_GHOSTS].sort(
+      (a, b) => Math.abs(a.ownerRating - rating) - Math.abs(b.ownerRating - rating),
+    )[0];
+    if (!baseTape) return;
+    const tape = withEphemeralGhostNickname(baseTape, {
+      previousName: this.lastQuickMatchGhostName,
+      playerName: this.profile?.name,
+    });
+    this.lastQuickMatchGhostName = tape.ownerName;
+    try { localStorage.setItem(LAST_QUICK_MATCH_NAME_KEY, tape.ownerName); } catch { /* session fallback */ }
+    this.online.cancelMatchmaking();
+    this.online.disconnect();
+    this.onlineSide = null;
+    this.onlineWaiting = false;
+    this.onlineOpponent = { name: tape.ownerName, rating: tape.ownerRating, isBot: true };
+    this.onlineStatus = `${tape.ownerName} 님과 대국해요`;
+    this.onlineError = false;
+    this.quickGhost = new GhostController(tape);
+    this.settings.mode = 'ai';
+    this.settings.humanColor = opponentOf(tape.side);
+    this.newGame();
   }
 
   cancelRandomMatch() {
     this.online.cancelMatchmaking();
     this.onlineWaiting = false;
     this.onlineStatus = '랜덤 매칭을 취소했어요';
+    this.notify();
+  }
+
+  /** 입장코드(친구) 방 대기를 취소하고 방을 닫는다 */
+  cancelFriendRoom() {
+    this.online.disconnect();
+    this.onlineSide = null;
+    this.onlineMatchKind = null;
+    this.onlineOpponent = null;
+    this.onlineWaiting = false;
+    this.onlineStatus = '친구 대전을 취소했어요';
+    this.onlineError = false;
     this.notify();
   }
 
@@ -422,7 +491,7 @@ export class GameController {
     try {
       const state = this.current();
       const result = getResult(state, this.config);
-      if (!result || !this.isAiMode() || this.learningRecorded) return;
+      if (!result || !this.isAiMode() || this.quickGhost || this.learningRecorded) return;
       this.learningRecorded = true;
       getBotBrain(this.config).onGameEnd(
         { state, result, config: this.config, settings: this.settings, humanSide: this.humanSide },
@@ -440,6 +509,10 @@ export class GameController {
   }
 
   private pickAiMove(state: GameState, maxMs: number, maxDepth: number): Move | null {
+    if (this.quickGhost) {
+      const decision = this.quickGhost.choose(state, this.config);
+      if (decision?.move) return decision.move;
+    }
     const preset = AI_DIFFICULTY_PRESETS[this.settings.aiDifficulty];
     const baseOpts = {
       maxMs,

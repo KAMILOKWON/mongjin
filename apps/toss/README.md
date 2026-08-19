@@ -17,4 +17,5 @@ npm run dev:ait      # ait dev
 npm run build:ait    # ait build
 ```
 
-온라인 서버는 기본 `ws://localhost:3001`입니다. 배포 시 `VITE_WS_URL`로 바꿉니다.
+로컬 개발에서는 기본 `ws://localhost:3001`을 사용합니다. 배포 빌드는 저장소 루트의
+`.env.production`에 있는 `VITE_WS_URL`을 사용하며, 값이 없더라도 몽진 운영 서버로 연결합니다.

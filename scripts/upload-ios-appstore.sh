@@ -2,19 +2,13 @@
 set -euo pipefail
 
 repo_root="$(cd "$(dirname "$0")/.." && pwd)"
-archive_path="$repo_root/artifacts/ios/Mongjin-1.0.0-51.xcarchive"
+mobile_root="$repo_root/apps/mobile"
+app_version="$(node -e 'const fs=require("fs"); const p=process.argv[1]; console.log(JSON.parse(fs.readFileSync(p, "utf8")).expo.version)' "$mobile_root/app.json")"
+build_number="$(node -e 'const fs=require("fs"); const p=process.argv[1]; console.log(JSON.parse(fs.readFileSync(p, "utf8")).expo.ios.buildNumber)' "$mobile_root/app.json")"
+archive_path="${IOS_ARCHIVE_PATH:-$repo_root/artifacts/ios/Mongjin-${app_version}-${build_number}.xcarchive}"
 upload_path="$repo_root/artifacts/ios/upload"
 
-xcodebuild \
-  -project "$repo_root/apps/ios/Mongjin.xcodeproj" \
-  -scheme Mongjin \
-  -configuration Release \
-  -destination 'generic/platform=iOS' \
-  -archivePath "$archive_path" \
-  CODE_SIGN_STYLE=Manual \
-  CODE_SIGN_IDENTITY='Apple Distribution' \
-  PROVISIONING_PROFILE_SPECIFIER='Mongjin App Store Distribution' \
-  clean archive
+bash "$repo_root/scripts/build-expo-ios.sh"
 
 xcodebuild \
   -exportArchive \

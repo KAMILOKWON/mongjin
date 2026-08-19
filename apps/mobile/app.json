@@ -1,0 +1,51 @@
+{
+  "expo": {
+    "name": "몽진",
+    "slug": "mongjin",
+    "version": "1.0.0",
+    "runtimeVersion": { "policy": "appVersion" },
+    "scheme": "mongjin",
+    "backgroundColor": "#FBFAF7",
+    "platforms": [
+      "ios",
+      "android"
+    ],
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "splash": {
+      "image": "./assets/splash-icon.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#FBFAF7"
+    },
+    "userInterfaceStyle": "light",
+    "ios": {
+      "supportsTablet": false,
+      "bundleIdentifier": "com.studiozzg.mongjin",
+      "buildNumber": "53",
+      "deploymentTarget": "17.0",
+      "backgroundColor": "#FBFAF7"
+    },
+    "android": {
+      "package": "com.studiozzg.mongjin",
+      "versionCode": 53,
+      "adaptiveIcon": {
+        "backgroundColor": "#E6F4FE",
+        "foregroundImage": "./assets/android-icon-foreground.png",
+        "backgroundImage": "./assets/android-icon-background.png",
+        "monochromeImage": "./assets/android-icon-monochrome.png"
+      },
+      "predictiveBackGestureEnabled": false
+    },
+    "web": {
+      "favicon": "./assets/favicon.png"
+    },
+    "plugins": [
+      "expo-router",
+      "expo-secure-store",
+      "./plugins/withSpaceSafeIosBuildScripts",
+      "./plugins/withMinimalAndroidPermissions",
+      "expo-splash-screen",
+      "./plugins/withSplashScreenResourceName"
+    ]
+  }
+}

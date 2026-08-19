@@ -93,9 +93,9 @@
         "title": "Android 네이티브 프로젝트 연결",
         "kind": "platform-test",
         "status": "done",
-        "link": "/Volumes/Studio ZZG/mongjin/apps/android",
-        "note": "Capacitor 래퍼가 canonical shared source를 사용하고, GMA Next-Gen SDK·UMP 배너 광고를 연결했습니다. 디버그 APK와 릴리스 AAB 컴파일 검증 완료; 실제 서명·Play 업로드는 인증값 대기",
-        "updatedAt": "2026-08-18T10:15:00Z"
+        "link": "/Volumes/Studio ZZG/mongjin/apps/mobile",
+        "note": "React Native + Expo 앱이 iOS·Android 공용 UI와 canonical TypeScript 게임 엔진을 사용합니다. Expo export와 iOS CocoaPods 구성을 검증했고, Android 스토어용 서명·EAS/Play 업로드는 후속 단계입니다.",
+        "updatedAt": "2026-08-18T11:00:00Z"
       },
       {
         "id": "release",
@@ -112,7 +112,7 @@
     "ios": {
       "platform": "ios",
       "stage": "ready",
-      "appId": "com.studiozzzg.mongjin",
+      "appId": "com.studiozzg.mongjin",
       "projectPath": "apps/ios/Mongjin.xcodeproj",
       "storeUrl": "",
       "sharedSource": [
@@ -134,8 +134,8 @@
     "android": {
       "platform": "android",
       "stage": "ready",
-      "appId": "com.studiozzzg.mongjin",
-      "projectPath": "apps/android",
+      "appId": "com.studiozzg.mongjin",
+      "projectPath": "apps/mobile",
       "storeUrl": "",
       "sharedSource": [
         "src",
@@ -152,11 +152,11 @@
         "GOOGLE_PLAY_SERVICE_ACCOUNT_JSON"
       ],
       "compatibilityNotes": [
-        "Capacitor WebView와 Android 터치 레이아웃 연결 완료",
-        "GMA Next-Gen SDK·UMP adaptive banner 연결 완료; 릴리즈 서명 키·AdMob Android IDs·Google Play 서비스 계정 준비 필요"
+        "React Native + Expo 네이티브 터치 UI와 Android 빌드 타깃",
+        "iPhone과 동일한 화면·게임 세션·WebSocket 경계를 공유; 운영 AdMob ID와 EAS/Play 서명 설정 필요"
       ],
-      "notes": "Android 래퍼와 AdMob 코드 설정 및 디버그 APK/릴리스 AAB 컴파일 검증을 완료했습니다. Play Console Internal testing 업로드와 심사는 서명 키, Android AdMob IDs, 서비스 계정 및 Play Console 콘텐츠/등급 정보가 채워진 뒤 진행합니다.",
-      "updatedAt": "2026-08-18T10:15:00Z"
+      "notes": "기존 Capacitor apps/android는 폐기했습니다. 새 apps/mobile은 Expo prebuild 기반 iOS·Android 공용 앱이며, 스토어 배포 전에 운영 광고 ID·서명·EAS 또는 Gradle 릴리스 파이프라인을 연결합니다.",
+      "updatedAt": "2026-08-18T11:00:00Z"
     },
     "appintoss": {
       "platform": "appintoss",
@@ -202,7 +202,7 @@
       "supportUrl": "https://mongjin-privacy.kwonoin.chatgpt.site/#support",
       "price": "무료",
       "ageRating": "미정",
-      "reviewNotes": "Capacitor WebView 기반 Android 앱이며, 빠른 대전은 wss://mongjin-api.onrender.com을 사용합니다. 홈 화면 하단에는 AdMob adaptive banner가 표시됩니다. Play Console Internal testing에서 먼저 검증하며, 앱 콘텐츠·등급·Data safety와 실제 광고 ID 설정이 필요합니다.",
+      "reviewNotes": "React Native + Expo 기반 Android 앱이며, 빠른 대전은 wss://mongjin-api.onrender.com을 사용합니다. 홈 화면 하단에는 AdMob 배너가 표시됩니다. Play Console Internal testing 전 운영 광고 ID, 서명, 앱 콘텐츠·등급·Data safety 설정이 필요합니다.",
       "screenshots": [],
       "locales": [
         "ko"

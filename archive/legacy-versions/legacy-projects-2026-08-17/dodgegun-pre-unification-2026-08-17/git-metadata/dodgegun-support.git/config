@@ -1,0 +1,16 @@
+[core]
+	repositoryformatversion = 0
+	filemode = true
+	bare = false
+	logallrefupdates = true
+	ignorecase = true
+	precomposeunicode = true
+[user]
+	name = Studio ZZG
+	email = diploin1026@gmail.com
+[remote "origin"]
+	url = https://git.chatgpt-team.site/4c5333fa-9029-43fd-a1e0-dba93435ffc9/appgprj_6a82ad3697ac8191adc209a99ad8d50b.git
+	fetch = +refs/heads/*:refs/remotes/origin/*
+[branch "main"]
+	remote = origin
+	merge = refs/heads/main

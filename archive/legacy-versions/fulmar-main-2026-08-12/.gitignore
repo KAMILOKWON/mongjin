@@ -1,0 +1,9 @@
+node_modules/
+dist/
+*.ait
+.ait/
+ios/DerivedData/
+.DS_Store
+._*
+*.local
+server/data/

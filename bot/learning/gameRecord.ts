@@ -17,6 +17,8 @@ function opponentLabel(settings: GameSettings): string {
   switch (settings.mode) {
     case 'ai':
       return 'Mongjin-AI';
+    case 'ghost':
+      return 'Mongjin-Ghost';
     case 'online':
       return 'Online-Opponent';
     case 'local':
@@ -25,7 +27,9 @@ function opponentLabel(settings: GameSettings): string {
 }
 
 function buildMeta(input: RecordGameInput): GameExportMeta {
-  const botSide = input.settings.mode === 'ai' ? (input.humanSide === 'BLACK' ? 'WHITE' : 'BLACK') : undefined;
+  const botSide = input.settings.mode === 'ai' || input.settings.mode === 'ghost'
+    ? (input.humanSide === 'BLACK' ? 'WHITE' : 'BLACK')
+    : undefined;
   const humanName = 'Human';
   const opponentName = opponentLabel(input.settings);
 
@@ -34,7 +38,7 @@ function buildMeta(input: RecordGameInput): GameExportMeta {
     white: input.humanSide === 'WHITE' ? humanName : opponentName,
     botSide,
     opponentId: input.settings.mode === 'online' ? 'online-peer' : opponentName.toLowerCase(),
-    event: input.settings.mode === 'ai' ? 'Human vs Mongjin' : input.settings.mode,
+    event: input.settings.mode === 'ai' || input.settings.mode === 'ghost' ? 'Human vs Mongjin' : input.settings.mode,
     site: typeof location !== 'undefined' ? location.hostname : 'mongjin',
   };
 }

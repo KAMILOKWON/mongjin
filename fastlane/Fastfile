@@ -12,12 +12,25 @@ platform :ios do
   desc "Archive Mongjin and upload it to TestFlight"
   lane :beta do
     setup_ci if ENV["CI"]
+    sh("cd ../apps/mobile && npx expo prebuild --clean --no-install")
+    sh("cd ../apps/mobile/ios && env -u BUNDLE_GEMFILE -u BUNDLE_BIN_PATH -u RUBYOPT -u GEM_HOME -u GEM_PATH pod install")
     build_app(
-      project: "apps/ios/Mongjin.xcodeproj",
-      scheme: "Mongjin",
+      workspace: "apps/mobile/ios/app.xcworkspace",
+      scheme: "app",
       clean: true,
       export_method: "app-store",
-      output_directory: "artifacts/ios"
+      output_directory: "artifacts/ios",
+      xcargs: "CODE_SIGN_STYLE=Manual CODE_SIGN_IDENTITY='Apple Distribution' DEVELOPMENT_TEAM=M9RZNRX9T4 PROVISIONING_PROFILE_SPECIFIER='Mongjin App Store Distribution' -allowProvisioningUpdates",
+      export_options: {
+        method: "app-store-connect",
+        signingStyle: "manual",
+        teamID: "M9RZNRX9T4",
+        signingCertificate: "Apple Distribution",
+        provisioningProfiles: {
+          "com.studiozzg.mongjin" => "Mongjin App Store Distribution"
+        },
+        uploadSymbols: true
+      }
     )
     upload_to_testflight(
       api_key: studio_api_key,
@@ -29,10 +42,12 @@ end
 platform :android do
   desc "Upload the signed Mongjin bundle to Google Play internal testing"
   lane :internal do
+    sh("cd ../apps/mobile && npx expo prebuild --clean --no-install")
+    sh("cd ../apps/mobile/android && ./gradlew bundleRelease")
     upload_to_play_store(
-      package_name: "com.studiozzzg.mongjin",
+      package_name: "com.studiozzg.mongjin",
       json_key: ENV.fetch("GOOGLE_PLAY_SERVICE_ACCOUNT_JSON"),
-      aab: "apps/android/app/build/outputs/bundle/release/app-release.aab",
+      aab: "apps/mobile/android/app/build/outputs/bundle/release/app-release.aab",
       track: "internal",
       release_status: "completed",
       skip_upload_apk: true,

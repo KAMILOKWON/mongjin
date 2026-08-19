@@ -1,6 +1,6 @@
 import type { Player } from '../core/types';
 
-export type OpponentMode = 'ai' | 'local' | 'online';
+export type OpponentMode = 'ai' | 'local' | 'online' | 'ghost';
 export type HumanColorChoice = 'BLACK' | 'WHITE' | 'random';
 /** 화면에 노출하는 쉬움 · 보통 · 어려움 3단계 */
 export type AiDifficulty = 'easy' | 'normal' | 'hard';

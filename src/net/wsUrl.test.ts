@@ -28,13 +28,10 @@ describe('resolveWsUrl', () => {
     expect(resolveWsUrl()).toBe('ws://localhost:3001');
   });
 
-  it('uses the production server inside the native app', () => {
-    vi.stubGlobal('window', {
-      Capacitor: { isNativePlatform: () => true },
-    });
+  it('uses the shared production server for any hosted client', () => {
     vi.stubGlobal('location', {
-      hostname: 'localhost',
-      protocol: 'capacitor:',
+      hostname: 'apps-in-toss.example.com',
+      protocol: 'https:',
     } as Location);
     expect(resolveWsUrl()).toBe(PRODUCTION_WS_URL);
   });

@@ -67,6 +67,7 @@ export interface OnlineCallbacks {
   onMatchResult: (winner: OnlineSide, reason: OnlineMatchReason) => void;
   onProfile: (profile: PlayerProfile) => void;
   onOpponentLeft: () => void;
+  onMatchmakingTimeout: () => void;
   onError: (message: string) => void;
   onStatus: (message: string) => void;
   /** 토스 연결 해제 등으로 서버가 세션을 무효화했을 때. identity는 이미 삭제된 상태다. */
@@ -75,6 +76,7 @@ export interface OnlineCallbacks {
 
 const CONNECT_TIMEOUT_MS = 45_000;
 const CONNECT_RETRIES = 3;
+export const MATCHMAKING_TIMEOUT_MS = 15_000;
 const IDENTITY_STORAGE_KEY = 'mongjin.online.identity.v1';
 
 function loadIdentity(): StoredIdentity | null {
@@ -127,6 +129,7 @@ export class OnlineClient {
   private roomId: string | null = null;
   private side: OnlineSide | null = null;
   private queued = false;
+  private matchmakingTimer: number | null = null;
 
   constructor(
     private callbacks: OnlineCallbacks,
@@ -194,6 +197,7 @@ export class OnlineClient {
             this.roomId = null;
             this.side = null;
             this.queued = false;
+            this.clearMatchmakingTimer();
             this.callbacks.onStatus('연결 끊김');
           }
         };
@@ -231,11 +235,16 @@ export class OnlineClient {
 
   disconnect() {
     this.connectionVersion += 1;
-    this.ws?.close();
+    const ws = this.ws;
     this.ws = null;
+    if (ws) {
+      ws.onclose = null;
+      ws.close();
+    }
     this.roomId = null;
     this.side = null;
     this.queued = false;
+    this.clearMatchmakingTimer();
   }
 
   async getProfile() {
@@ -250,12 +259,19 @@ export class OnlineClient {
 
   async startMatchmaking() {
     await this.connect();
+    this.clearMatchmakingTimer();
     this.queued = true;
     this.callbacks.onStatus('랜덤 상대를 찾는 중…');
     this.send({ type: 'MATCHMAKE' });
+    this.matchmakingTimer = window.setTimeout(() => {
+      if (!this.queued) return;
+      this.cancelMatchmaking();
+      this.callbacks.onMatchmakingTimeout();
+    }, MATCHMAKING_TIMEOUT_MS);
   }
 
   cancelMatchmaking() {
+    this.clearMatchmakingTimer();
     if (this.connected) this.send({ type: 'CANCEL_MATCHMAKING' });
     this.queued = false;
   }
@@ -282,6 +298,11 @@ export class OnlineClient {
     this.ws!.send(JSON.stringify(msg));
   }
 
+  private clearMatchmakingTimer() {
+    if (this.matchmakingTimer !== null) window.clearTimeout(this.matchmakingTimer);
+    this.matchmakingTimer = null;
+  }
+
   private handleMessage(msg: ServerMessage) {
     switch (msg.type) {
       case 'IDENTITY':
@@ -293,6 +314,7 @@ export class OnlineClient {
         break;
       case 'CREATED':
       case 'JOINED':
+        this.clearMatchmakingTimer();
         this.queued = false;
         this.roomId = msg.roomId;
         this.side = msg.side;
@@ -305,6 +327,7 @@ export class OnlineClient {
         );
         break;
       case 'MATCH_FOUND':
+        this.clearMatchmakingTimer();
         this.queued = false;
         this.roomId = msg.roomId;
         this.side = msg.side;
@@ -321,6 +344,7 @@ export class OnlineClient {
         this.callbacks.onMatchResult(msg.winner, msg.reason);
         break;
       case 'QUEUE_LEFT':
+        this.clearMatchmakingTimer();
         this.queued = false;
         this.callbacks.onStatus('랜덤 매칭을 취소했어요');
         break;
@@ -332,6 +356,7 @@ export class OnlineClient {
         break;
       case 'LOGGED_OUT':
       case 'UNLINKED': {
+        this.clearMatchmakingTimer();
         clearIdentity();
         this.roomId = null;
         this.side = null;
@@ -346,6 +371,7 @@ export class OnlineClient {
         break;
       }
       case 'ERROR':
+        this.clearMatchmakingTimer();
         this.queued = false;
         this.callbacks.onError(msg.message);
         break;

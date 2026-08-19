@@ -19,10 +19,25 @@
     "appId": "com.studiozzzg.mongjin.steam",
     "productName": "Mongjin",
     "icon": "../ios/Mongjin/Assets.xcassets/AppIcon.appiconset/AppIcon.png",
-    "files": ["main.mjs", "preload.mjs", "game/**/*"],
-    "directories": { "output": "release" },
+    "files": [
+      "main.mjs",
+      "preload.mjs",
+      "game/**/*"
+    ],
+    "directories": {
+      "output": "release"
+    },
     "asar": true,
-    "mac": { "category": "public.app-category.games", "target": ["dir"] },
-    "win": { "target": ["dir"] }
+    "mac": {
+      "category": "public.app-category.games",
+      "target": [
+        "dir"
+      ]
+    },
+    "win": {
+      "target": [
+        "dir"
+      ]
+    }
   }
 }
