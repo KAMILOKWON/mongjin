@@ -43,5 +43,7 @@ mongjin/
 - Run `npm test` after changing rules, AI, results, coordinates, or replay formats.
 - Mobile checks: `npm run typecheck:mobile`, `npm run build:mobile`; run Expo app via `npm run dev:mobile`.
 - Never edit generated folders such as `dist`, `.ait`, `.build`, `DerivedData`, `node_modules`, or the Expo-generated `apps/mobile/ios` / `apps/mobile/android` internals directly.
+- After completing each patch or change set, ask the user whether to increment the app version by one step. Do not change any version number until the user explicitly approves it.
 - Run releases through `/Volumes/Studio ZZG/studio-release/bin/studio-release.mjs`. Production publication always requires explicit user approval.
+- Android Play uploads for Mongjin use the macOS Keychain services `mongjin.android.keystore.path`, `mongjin.android.keystore.password`, `mongjin.android.key.alias`, and `mongjin.android.key.password`. The configured keystore is `/Volumes/Studio ZZG/.studio-secrets/mongjin-android-upload.p12`, alias `mongjin-upload`, with upload certificate SHA1 `74:F6:A8:02:9E:AF:48:D6:38:89:38:27:11:FE:67:5D:24:B1:6F:9E`. Never write the passwords to the repository; use `npm run build:android:release` to retrieve them from Keychain.
 - Follow `apps/mobile/AGENTS.md` when working inside the Expo app (read the exact versioned Expo docs before writing code).

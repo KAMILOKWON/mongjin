@@ -2,8 +2,8 @@
   "schemaVersion": 1,
   "id": "mongjin",
   "displayName": "몽진",
-  "version": "1.0.0",
-  "build": 53,
+  "version": "1.0.3",
+  "build": 57,
   "protocolVersion": 1,
   "submittedBaseline": "ios-1.0.0+5",
   "sharedSource": [
@@ -94,11 +94,10 @@
       ],
       "actions": {
         "build": {
-          "cwd": "apps/mobile",
+          "cwd": ".",
           "run": [
-            "npm",
-            "run",
-            "build"
+            "bash",
+            "scripts/build-mongjin-android-release.sh"
           ]
         },
         "beta": {

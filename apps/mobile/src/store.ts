@@ -54,6 +54,7 @@ function playerLabel(player: Player): string { return player === 'BLACK' ? '흑'
 function makeSession(mode: PlayMode, color: HumanColorChoice, set: (value: Partial<AppStore>) => void, get: () => AppStore): GameSession {
   const session = new GameSession(mode, color);
   session.onOnlineMove = (move: Move) => online.sendMove(move);
+  session.onOnlineResign = () => online.sendResign();
   session.subscribe(() => set({ snapshot: session.getSnapshot() }));
   set({ session, snapshot: session.getSnapshot(), route: mode.kind === 'tutorial' ? 'tutorial' : 'game' });
   session.start();
@@ -83,7 +84,23 @@ export const useAppStore = create<AppStore>((set, get) => {
       session.applyServerState(state);
     },
     onMatchResult: (winner, reason) => get().session?.applyServerResult(winner, reason as SessionResult['reason']),
-    onProfile: (profile) => set({ onlineProfile: profile, profileName: profile.name }),
+    onProfile: async (remoteProfile) => {
+      const onlineProfile = await profileStore.mergeOnlineProfile(remoteProfile);
+      let localProfile = profileStore.profile();
+
+      // Migrate an existing server nickname into the local source of truth on
+      // the first fixed-version launch. Afterwards the local name survives
+      // server restarts and is pushed to a replacement server identity.
+      if (localProfile.name === '나그네') {
+        await profileStore.updateName(remoteProfile.name);
+        localProfile = profileStore.profile();
+      }
+
+      set({ profile: localProfile, onlineProfile, profileName: localProfile.name });
+      if (online.connected && localProfile.name !== remoteProfile.name) {
+        await online.updateProfile(localProfile.name);
+      }
+    },
     onOpponentLeft: () => {
       get().showToast('상대가 연결을 끊었습니다');
       void get().leaveGame();
@@ -97,6 +114,8 @@ export const useAppStore = create<AppStore>((set, get) => {
       setTimeout(() => { if (generation === matchGeneration) get().openGhost(tape); }, 500);
     },
     onError: (message) => {
+      // 대국이 이미 끝난 뒤 오는 서버 오류(예: 구버전 서버가 RESIGN을 알지 못하는 경우)는 결과 화면을 방해하지 않는다
+      if (get().snapshot?.result) return;
       if (friendPending && !get().friendRoomId) {
         friendPending = null;
         set({ friendStatus: '', toast: message });
@@ -121,7 +140,11 @@ export const useAppStore = create<AppStore>((set, get) => {
     toast: null,
     hydrate: async () => {
       await profileStore.hydrate();
-      set({ profile: profileStore.profile(), profileName: profileStore.profile().name });
+      set({
+        profile: profileStore.profile(),
+        profileName: profileStore.profile().name,
+        onlineProfile: profileStore.onlineProfile(),
+      });
       void online.getProfile().catch(() => undefined);
     },
     openProfile: () => set({ route: 'profile' }),
@@ -185,8 +208,12 @@ export const useAppStore = create<AppStore>((set, get) => {
       const { session, snapshot } = get();
       if (session && snapshot?.result && snapshot.mode.kind === 'ghost') {
         const tape = session.makeGhostFromResult(profileStore.profile().name, profileStore.profile().rating);
-        await profileStore.recordMatch(snapshot.result.winner === snapshot.humanSide, snapshot.mode.tape.ownerRating, tape);
-        set({ profile: profileStore.profile() });
+        try {
+          await profileStore.recordMatch(snapshot.result.winner === snapshot.humanSide, snapshot.mode.tape.ownerRating, tape);
+          set({ profile: profileStore.profile() });
+        } catch {
+          get().showToast('전적을 기기에 저장하지 못했습니다');
+        }
       }
       if (snapshot?.mode.kind === 'online') online.disconnect();
       friendPending = null;
@@ -195,7 +222,12 @@ export const useAppStore = create<AppStore>((set, get) => {
     saveName: async (name) => {
       const trimmed = name.trim();
       if (trimmed.length < 2 || trimmed.length > 12) { get().showToast('닉네임은 2~12자로 적어 주세요'); return; }
-      await profileStore.updateName(trimmed);
+      try {
+        await profileStore.updateName(trimmed);
+      } catch {
+        get().showToast('닉네임을 기기에 저장하지 못했습니다');
+        return;
+      }
       set({ profile: profileStore.profile(), profileName: trimmed });
       if (online.connected) void online.updateProfile(trimmed);
       get().showToast('닉네임을 저장했어요');
@@ -224,7 +256,7 @@ export function selectVisibleProfile(local: ReturnType<MobileProfileStore['profi
   const losses = local.losses + (online?.losses ?? 0);
   const games = wins + losses;
   return {
-    name: online?.name ?? local.name,
+    name: local.name,
     rating: local.rating + (online?.rating ?? 1200) - 1200,
     wins,
     losses,

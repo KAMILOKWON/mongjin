@@ -3,6 +3,7 @@ import { Pressable, Text, View } from 'react-native';
 import { PreviewBoard, PrimaryButton, Screen, styles } from '../components';
 import { colors, spacing, typography } from '../theme';
 import { selectVisibleProfile, useAppStore } from '../store';
+import { HomeBannerAd } from '../ads';
 
 type HomeTab = 'quick' | 'ai' | 'local' | 'friend';
 
@@ -57,6 +58,7 @@ export function HomeScreen() {
         <PrimaryButton title={current.cta} onPress={onPressCta} />
         <Pressable onPress={openTutorial} style={{ alignItems: 'center', paddingVertical: 10 }}><Text style={{ color: colors.blue, fontSize: 15, fontWeight: '700' }}>튜토리얼</Text></Pressable>
       </Screen>
+      <HomeBannerAd />
     </View>
   );
 }

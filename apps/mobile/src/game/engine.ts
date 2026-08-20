@@ -161,6 +161,7 @@ export class GameSession {
   public readonly config = DEFAULT_CONFIG;
   public humanSide: Player;
   public onOnlineMove: ((move: Move) => void) | null = null;
+  public onOnlineResign: (() => void) | null = null;
 
   constructor(public readonly mode: PlayMode, humanColor: HumanColorChoice = 'BLACK') {
     this.humanSide = mode.kind === 'ghost'
@@ -203,6 +204,7 @@ export class GameSession {
   private state: GameState = initialState(DEFAULT_CONFIG);
 
   private get isQuickMatch(): boolean { return this.mode.kind === 'ghost' || this.mode.kind === 'online'; }
+  private get isOnlineQuick(): boolean { return this.mode.kind === 'online' && this.mode.matchKind !== 'friend'; }
   private get isMyTurn(): boolean {
     if (this.result) return false;
     if (this.mode.kind === 'local' || this.mode.kind === 'tutorial') return true;
@@ -230,6 +232,7 @@ export class GameSession {
 
   resign(): void {
     if (!this.isQuickMatch || this.result) return;
+    if (this.mode.kind === 'online') this.onOnlineResign?.();
     this.finishAsLoss('forfeit');
   }
 
@@ -257,6 +260,9 @@ export class GameSession {
     this.selected = null;
     this.thinking = next.turn !== this.humanSide && !this.result;
     this.refreshLegal();
+    if (this.isOnlineQuick && !this.result && next.turn === this.humanSide) this.startMoveClock();
+    else if (this.isOnlineQuick && !this.result) this.startPassiveClock();
+    else if (this.isOnlineQuick) this.clearTimeout();
     this.notify();
   }
 
@@ -265,7 +271,7 @@ export class GameSession {
     this.thinking = false;
     this.selected = null;
     this.legal = [];
-    this.moveDeadline = null;
+    this.clearTimeout();
     this.notify();
   }
 
@@ -312,7 +318,7 @@ export class GameSession {
 
   private playHuman(move: Move): void {
     if (this.mode.kind === 'online') {
-      this.selected = null; this.thinking = true; this.onOnlineMove?.(move); this.notify(); return;
+      this.selected = null; this.thinking = true; this.clearTimeout(); this.onOnlineMove?.(move); this.notify(); return;
     }
     if (this.mode.kind !== 'tutorial') this.undoStack.push(this.state);
     this.clearTimeout();
@@ -372,6 +378,12 @@ export class GameSession {
     this.moveDeadline = Date.now() + 60_000;
     const token = ++this.turnToken;
     this.timeout = setTimeout(() => { if (token === this.turnToken && !this.result) this.finishAsLoss('timeout'); }, 60_000);
+    this.notify();
+  }
+
+  private startPassiveClock(): void {
+    this.clearTimeout();
+    this.moveDeadline = Date.now() + 60_000;
     this.notify();
   }
 

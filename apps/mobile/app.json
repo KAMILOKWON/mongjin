@@ -2,8 +2,10 @@
   "expo": {
     "name": "몽진",
     "slug": "mongjin",
-    "version": "1.0.0",
-    "runtimeVersion": { "policy": "appVersion" },
+    "version": "1.0.3",
+    "runtimeVersion": {
+      "policy": "appVersion"
+    },
     "scheme": "mongjin",
     "backgroundColor": "#FBFAF7",
     "platforms": [
@@ -12,22 +14,17 @@
     ],
     "orientation": "portrait",
     "icon": "./assets/icon.png",
-    "splash": {
-      "image": "./assets/splash-icon.png",
-      "resizeMode": "contain",
-      "backgroundColor": "#FBFAF7"
-    },
     "userInterfaceStyle": "light",
     "ios": {
       "supportsTablet": false,
       "bundleIdentifier": "com.studiozzg.mongjin",
-      "buildNumber": "53",
+      "buildNumber": "57",
       "deploymentTarget": "17.0",
       "backgroundColor": "#FBFAF7"
     },
     "android": {
       "package": "com.studiozzg.mongjin",
-      "versionCode": 53,
+      "versionCode": 57,
       "adaptiveIcon": {
         "backgroundColor": "#E6F4FE",
         "foregroundImage": "./assets/android-icon-foreground.png",
@@ -44,8 +41,23 @@
       "expo-secure-store",
       "./plugins/withSpaceSafeIosBuildScripts",
       "./plugins/withMinimalAndroidPermissions",
-      "expo-splash-screen",
-      "./plugins/withSplashScreenResourceName"
+      "./plugins/withAndroidReleaseSigning",
+      "./plugins/withBlankAndroidSplash",
+      [
+        "expo-build-properties",
+        {
+          "android": {
+            "extraProguardRules": "-keep class com.google.android.gms.internal.consent_sdk.** { *; }"
+          }
+        }
+      ],
+      [
+        "expo-splash-screen",
+        {
+          "backgroundColor": "#FBFAF7"
+        }
+      ],
+      "react-native-google-mobile-ads"
     ]
   }
 }

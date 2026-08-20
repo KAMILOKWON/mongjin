@@ -4,6 +4,7 @@ import { Board, GuardTray, PrimaryButton, ScreenNav, SecondaryButton, PieceImage
 import { colors, typography } from '../theme';
 import { resultCopy, selectVisibleProfile, useAppStore } from '../store';
 import type { SessionSnapshot } from '../game/engine';
+import { showGameOverInterstitial } from '../ads';
 
 function modeTitle(snapshot: SessionSnapshot): string {
   switch (snapshot.mode.kind) {
@@ -58,6 +59,10 @@ export function GameScreen() {
   };
 
   const actionTitle = snapshot.result ? '나가기' : quick ? '항복' : '대국 종료';
+  const leaveFinishedGame = async () => {
+    await leave();
+    setTimeout(() => { void showGameOverInterstitial(); }, 0);
+  };
 
   return (
     <View style={styles.screen}>
@@ -88,11 +93,11 @@ export function GameScreen() {
       </View>
 
       <View style={{ flexDirection: 'row', gap: 10, padding: 16 }}>
-        {snapshot.mode.kind === 'ghost' ? <MoveClock remaining={remaining} /> : online ? <View style={{ flex: 1 }} /> : <View style={{ flex: 1 }}><SecondaryButton title="무르기" onPress={() => session.undo()} disabled={!snapshot.canUndo} /></View>}
+        {quick ? <MoveClock remaining={remaining} /> : online ? <View style={{ flex: 1 }} /> : <View style={{ flex: 1 }}><SecondaryButton title="무르기" onPress={() => session.undo()} disabled={!snapshot.canUndo} /></View>}
         <View style={{ flex: 1 }}><PrimaryButton title={actionTitle} onPress={onBack} /></View>
       </View>
 
-      {snapshot.result ? <ResultModal snapshot={snapshot} onConfirm={() => void leave()} /> : null}
+      {snapshot.result ? <ResultModal snapshot={snapshot} onConfirm={() => void leaveFinishedGame()} /> : null}
     </View>
   );
 }

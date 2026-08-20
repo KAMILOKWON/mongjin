@@ -3,7 +3,11 @@
     "target": "ES2022",
     "module": "ESNext",
     "moduleResolution": "bundler",
-    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "lib": [
+      "ES2022",
+      "DOM",
+      "DOM.Iterable"
+    ],
     "strict": true,
     "noUnusedLocals": true,
     "noUnusedParameters": true,
@@ -12,11 +16,22 @@
     "isolatedModules": true,
     "noEmit": true,
     "resolveJsonModule": true,
-    "types": ["vitest/globals", "vite/client"],
+    "types": [
+      "vitest/globals",
+      "vite/client"
+    ],
     "paths": {
-      "@apps-in-toss/web-framework": ["./src/stubs/apps-in-toss.ts"]
+      "@apps-in-toss/web-framework": [
+        "./src/stubs/apps-in-toss.ts"
+      ]
     }
   },
-  "include": ["src", "bot"],
-  "exclude": ["src/ait/**"]
+  "include": [
+    "src",
+    "bot"
+  ],
+  "exclude": [
+    "src/ait/**"
+  ],
+  "extends": "expo/tsconfig.base"
 }
