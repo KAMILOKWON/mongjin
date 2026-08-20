@@ -306,7 +306,7 @@ function detachPlayer(ws: WebSocket) {
         finishRandomMatch(room, side === 'BLACK' ? 'WHITE' : 'BLACK', 'forfeit');
         completedByForfeit = true;
       }
-      if (!completedByForfeit) send(other, { type: 'OPPONENT_LEFT' });
+      if (!completedByForfeit && !room.finished) send(other, { type: 'OPPONENT_LEFT' });
       const otherSession = sessions.get(other);
       if (otherSession) otherSession.roomId = null;
     }
@@ -445,6 +445,15 @@ wss.on('connection', (ws) => {
           }
         }
       }
+      return;
+    }
+
+    if (msg.type === 'RESIGN') {
+      const roomId = sessions.get(ws)?.roomId;
+      const room = roomId ? rooms.get(roomId) : undefined;
+      const side: Player | null = room && room.black === ws ? 'BLACK' : room && room.white === ws ? 'WHITE' : null;
+      if (!room || !side) send(ws, { type: 'ERROR', message: '방에 참가한 뒤 항복할 수 있습니다' });
+      else if (room.kind === 'random' && !room.finished) finishRandomMatch(room, side === 'BLACK' ? 'WHITE' : 'BLACK', 'forfeit');
       return;
     }
 
