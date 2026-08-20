@@ -62,6 +62,7 @@ function prepareInterstitial() {
   });
   interstitial.addAdEventListener(AdEventType.ERROR, () => {
     interstitialLoaded = false;
+    interstitial?.load();
   });
   interstitial.load();
 }

@@ -1,5 +1,5 @@
-import { useEffect, useState } from 'react';
-import { Alert, Modal, Pressable, Text, View } from 'react-native';
+import { useEffect, useRef, useState } from 'react';
+import { Alert, Modal, Platform, Pressable, Text, View } from 'react-native';
 import { Board, GuardTray, PrimaryButton, ScreenNav, SecondaryButton, PieceImage, styles } from '../components';
 import { colors, typography } from '../theme';
 import { resultCopy, selectVisibleProfile, useAppStore } from '../store';
@@ -29,6 +29,8 @@ export function GameScreen() {
   const profile = useAppStore((state) => state.profile);
   const onlineProfile = useAppStore((state) => state.onlineProfile);
   const [remaining, setRemaining] = useState(0);
+  const [resultModalVisible, setResultModalVisible] = useState(true);
+  const finishedGameExitStarted = useRef(false);
 
   useEffect(() => {
     const tick = () => setRemaining(snapshot?.moveDeadline ? Math.max(0, Math.ceil((snapshot.moveDeadline - Date.now()) / 1000)) : 0);
@@ -59,9 +61,24 @@ export function GameScreen() {
   };
 
   const actionTitle = snapshot.result ? '나가기' : quick ? '항복' : '대국 종료';
-  const leaveFinishedGame = async () => {
+  const showInterstitialThenLeave = async () => {
+    if (finishedGameExitStarted.current) return;
+    finishedGameExitStarted.current = true;
+    await showGameOverInterstitial();
+    await leave();
+  };
+  const leaveThenShowInterstitial = async () => {
+    if (finishedGameExitStarted.current) return;
+    finishedGameExitStarted.current = true;
     await leave();
     setTimeout(() => { void showGameOverInterstitial(); }, 0);
+  };
+  const leaveFinishedGame = () => {
+    if (Platform.OS === 'ios') {
+      setResultModalVisible(false);
+      return;
+    }
+    void leaveThenShowInterstitial();
   };
 
   return (
@@ -97,7 +114,7 @@ export function GameScreen() {
         <View style={{ flex: 1 }}><PrimaryButton title={actionTitle} onPress={onBack} /></View>
       </View>
 
-      {snapshot.result ? <ResultModal snapshot={snapshot} onConfirm={() => void leaveFinishedGame()} /> : null}
+      {snapshot.result ? <ResultModal snapshot={snapshot} visible={resultModalVisible} onConfirm={leaveFinishedGame} onDismiss={() => { void showInterstitialThenLeave(); }} /> : null}
     </View>
   );
 }
@@ -143,7 +160,7 @@ function MoveClock({ remaining }: { remaining: number }) {
   );
 }
 
-function ResultModal({ snapshot, onConfirm }: { snapshot: SessionSnapshot; onConfirm: () => void }) {
+function ResultModal({ snapshot, visible, onConfirm, onDismiss }: { snapshot: SessionSnapshot; visible: boolean; onConfirm: () => void; onDismiss: () => void }) {
   if (!snapshot.result) return null;
-  return <Modal transparent animationType="fade" visible onRequestClose={onConfirm}><View style={{ flex: 1, backgroundColor: '#00000061', alignItems: 'center', justifyContent: 'center', padding: 32 }}><View style={{ width: '100%', maxWidth: 340, backgroundColor: colors.panel, borderRadius: 22, paddingHorizontal: 22, paddingTop: 26, paddingBottom: 20, ...styles.resultCard }}><Text style={[typography.display, { color: colors.ink, fontSize: 23, textAlign: 'center' }]}>{resultTitle(snapshot)}</Text><Text style={{ color: colors.inkSoft, fontSize: 15, lineHeight: 21, textAlign: 'center', marginTop: 8 }}>{resultCopy(snapshot.result, snapshot)}</Text><View style={{ marginTop: 16 }}><PrimaryButton title="확인" onPress={onConfirm} /></View></View></View></Modal>;
+  return <Modal transparent animationType="fade" visible={visible} onRequestClose={onConfirm} onDismiss={onDismiss}><View style={{ flex: 1, backgroundColor: '#00000061', alignItems: 'center', justifyContent: 'center', padding: 32 }}><View style={{ width: '100%', maxWidth: 340, backgroundColor: colors.panel, borderRadius: 22, paddingHorizontal: 22, paddingTop: 26, paddingBottom: 20, ...styles.resultCard }}><Text style={[typography.display, { color: colors.ink, fontSize: 23, textAlign: 'center' }]}>{resultTitle(snapshot)}</Text><Text style={{ color: colors.inkSoft, fontSize: 15, lineHeight: 21, textAlign: 'center', marginTop: 8 }}>{resultCopy(snapshot.result, snapshot)}</Text><View style={{ marginTop: 16 }}><PrimaryButton title="확인" onPress={onConfirm} /></View></View></View></Modal>;
 }
