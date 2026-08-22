@@ -10,9 +10,9 @@ keychain_value() {
   security find-generic-password -s "$service_name" -w 2>/dev/null
 }
 
-export ADMOB_IOS_APP_ID="$(keychain_value 'mongjin.admob.ios.app.id')"
-export ADMOB_IOS_BANNER_UNIT_ID="$(keychain_value 'mongjin.admob.ios.banner.unit.id')"
-export ADMOB_IOS_INTERSTITIAL_UNIT_ID="$(keychain_value 'mongjin.admob.ios.interstitial.unit.id')"
+export ADMOB_IOS_APP_ID="${ADMOB_IOS_APP_ID:-$(keychain_value 'mongjin.admob.ios.app.id')}"
+export ADMOB_IOS_BANNER_UNIT_ID="${ADMOB_IOS_BANNER_UNIT_ID:-$(keychain_value 'mongjin.admob.ios.banner.unit.id')}"
+export ADMOB_IOS_INTERSTITIAL_UNIT_ID="${ADMOB_IOS_INTERSTITIAL_UNIT_ID:-$(keychain_value 'mongjin.admob.ios.interstitial.unit.id')}"
 
 if [[ -z "$ADMOB_IOS_APP_ID" || -z "$ADMOB_IOS_BANNER_UNIT_ID" || -z "$ADMOB_IOS_INTERSTITIAL_UNIT_ID" ]]; then
   echo "Mongjin iOS AdMob IDs were not found in the macOS keychain." >&2

@@ -18,7 +18,7 @@
     "ios": {
       "supportsTablet": false,
       "bundleIdentifier": "com.studiozzg.mongjin",
-      "buildNumber": "57",
+      "buildNumber": "58",
       "deploymentTarget": "17.0",
       "backgroundColor": "#FBFAF7"
     },
