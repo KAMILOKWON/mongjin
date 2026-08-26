@@ -88,6 +88,7 @@ platform :ios do
       automatic_release: false,
       skip_screenshots: true,
       force: true,
+      precheck_include_in_app_purchases: false,
       release_notes: { "ko" => ENV.fetch("MONGJIN_RELEASE_NOTES_KO") },
       submission_information: {
         add_id_info_uses_idfa: true,

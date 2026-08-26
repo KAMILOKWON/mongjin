@@ -44,13 +44,13 @@ Submit the uploaded build for App Store review
 
 Upload the signed Mongjin bundle to Google Play internal testing
 
-### android production
+### android alpha
 
 ```sh
-[bundle exec] fastlane android production
+[bundle exec] fastlane android alpha
 ```
 
-Promote the internal testing release to Google Play production
+Upload the signed Mongjin bundle to Google Play closed testing (비공개 테스트)
 
 ----
 
