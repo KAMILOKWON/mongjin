@@ -72,6 +72,25 @@
             "ios",
             "beta"
           ]
+        },
+        "production": {
+          "cwd": ".",
+          "requiredTools": [
+            "bundle",
+            "xcodebuild"
+          ],
+          "requiredFiles": [
+            "Gemfile.lock",
+            "apps/mobile/app.json",
+            "fastlane/Fastfile"
+          ],
+          "run": [
+            "bundle",
+            "exec",
+            "fastlane",
+            "ios",
+            "production"
+          ]
         }
       }
     },
@@ -113,6 +132,24 @@
             "fastlane",
             "android",
             "internal"
+          ]
+        },
+        "production": {
+          "cwd": ".",
+          "requiredTools": [
+            "bundle"
+          ],
+          "requiredFiles": [
+            "Gemfile.lock",
+            "apps/mobile/app.json",
+            "fastlane/Fastfile"
+          ],
+          "run": [
+            "bundle",
+            "exec",
+            "fastlane",
+            "android",
+            "production"
           ]
         }
       }

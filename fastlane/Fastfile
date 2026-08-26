@@ -75,6 +75,33 @@ platform :ios do
       skip_waiting_for_build_processing: true
     )
   end
+
+  desc "Submit the uploaded build for App Store review"
+  lane :production do
+    app_json = JSON.parse(File.read(File.expand_path("../apps/mobile/app.json", __dir__)))
+    deliver(
+      api_key: studio_api_key,
+      app_identifier: "com.studiozzg.mongjin",
+      app_version: app_json["expo"]["version"],
+      build_number: app_json["expo"]["ios"]["buildNumber"],
+      submit_for_review: true,
+      automatic_release: false,
+      skip_metadata: true,
+      skip_screenshots: true,
+      force: true,
+      release_notes: { "ko" => ENV.fetch("MONGJIN_RELEASE_NOTES_KO") },
+      submission_information: {
+        add_id_info_uses_idfa: true,
+        add_id_info_serves_ads: true,
+        add_id_info_tracks_install: true,
+        add_id_info_tracks_action: true,
+        add_id_info_limits_tracking: true,
+        export_compliance_uses_encryption: true,
+        export_compliance_encryption_updated: false,
+        export_compliance_is_exempt: true
+      }
+    )
+  end
 end
 
 platform :android do
@@ -87,6 +114,21 @@ platform :android do
       json_key: ENV.fetch("GOOGLE_PLAY_SERVICE_ACCOUNT_JSON"),
       aab: "apps/mobile/android/app/build/outputs/bundle/release/app-release.aab",
       track: "internal",
+      release_status: "completed",
+      skip_upload_apk: true,
+      skip_upload_metadata: true,
+      skip_upload_images: true,
+      skip_upload_screenshots: true
+    )
+  end
+
+  desc "Upload the signed Mongjin bundle to Google Play production"
+  lane :production do
+    upload_to_play_store(
+      package_name: "com.studiozzg.mongjin",
+      json_key: ENV.fetch("GOOGLE_PLAY_SERVICE_ACCOUNT_JSON"),
+      aab: ENV.fetch("MONGJIN_ANDROID_AAB", "apps/mobile/android/app/build/outputs/bundle/release/app-release.aab"),
+      track: "production",
       release_status: "completed",
       skip_upload_apk: true,
       skip_upload_metadata: true,
