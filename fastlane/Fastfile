@@ -86,7 +86,6 @@ platform :ios do
       build_number: app_json["expo"]["ios"]["buildNumber"],
       submit_for_review: true,
       automatic_release: false,
-      skip_metadata: true,
       skip_screenshots: true,
       force: true,
       release_notes: { "ko" => ENV.fetch("MONGJIN_RELEASE_NOTES_KO") },
