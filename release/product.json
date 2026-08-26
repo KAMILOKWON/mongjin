@@ -131,7 +131,7 @@
             "exec",
             "fastlane",
             "android",
-            "internal"
+            "alpha"
           ]
         },
         "production": {

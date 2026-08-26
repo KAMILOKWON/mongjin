@@ -50,7 +50,7 @@ Upload the signed Mongjin bundle to Google Play internal testing
 [bundle exec] fastlane android production
 ```
 
-Upload the signed Mongjin bundle to Google Play production
+Promote the internal testing release to Google Play production
 
 ----
 
