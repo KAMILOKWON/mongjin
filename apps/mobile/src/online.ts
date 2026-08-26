@@ -1,6 +1,7 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as SecureStore from 'expo-secure-store';
 import type { GameState, Move, Player } from '../../../packages/game-core/src';
+import { dict, getI18nLang } from './i18n';
 
 export const PRODUCTION_WS_URL = 'wss://mongjin-api.onrender.com';
 export const MATCHMAKING_TIMEOUT_MS = 15_000;
@@ -116,7 +117,7 @@ export class MobileOnlineClient {
     const generation = this.generation;
     this.connecting = new Promise<void>((resolve, reject) => {
       let settled = false;
-      this.callbacks.onStatus('서버 연결 중…');
+      this.callbacks.onStatus(dict(getI18nLang()).connecting);
       const ws = new WebSocket(this.url);
       this.ws = ws;
       const timeout = setTimeout(() => {
@@ -132,7 +133,7 @@ export class MobileOnlineClient {
         try {
           const identity = await loadIdentity();
           this.send({ type: 'HELLO', ...(identity ?? {}) });
-          this.callbacks.onStatus('서버에 연결됨');
+          this.callbacks.onStatus(dict(getI18nLang()).connectedStatus);
           resolve();
         } catch (error) {
           ws.close();
@@ -156,7 +157,7 @@ export class MobileOnlineClient {
         this.side = null;
         this.queued = false;
         this.clearTimer();
-        this.callbacks.onStatus('연결 끊김');
+        this.callbacks.onStatus(dict(getI18nLang()).disconnected);
       };
       ws.onmessage = (event) => {
         this.messageQueue = this.messageQueue
@@ -164,7 +165,7 @@ export class MobileOnlineClient {
             const message = JSON.parse(String(event.data)) as ServerMessage;
             await this.handle(message);
           })
-          .catch(() => { this.callbacks.onError('서버 응답을 읽을 수 없습니다'); });
+          .catch(() => { this.callbacks.onError(dict(getI18nLang()).parseFailed); });
       };
     }).finally(() => { this.connecting = null; });
 
@@ -194,7 +195,7 @@ export class MobileOnlineClient {
     await this.connect();
     this.clearTimer();
     this.queued = true;
-    this.callbacks.onStatus('랜덤 상대를 찾는 중…');
+    this.callbacks.onStatus(dict(getI18nLang()).searching);
     this.send({ type: 'MATCHMAKE' });
     this.timer = setTimeout(() => {
       if (!this.queued) return;
@@ -215,7 +216,7 @@ export class MobileOnlineClient {
   sendResign(): void { this.send({ type: 'RESIGN' }); }
 
   private send(message: ClientMessage): void {
-    if (!this.connected) { this.callbacks.onError('서버에 연결되어 있지 않습니다'); return; }
+    if (!this.connected) { this.callbacks.onError(dict(getI18nLang()).notConnected); return; }
     this.ws!.send(JSON.stringify(message));
   }
 
@@ -225,7 +226,7 @@ export class MobileOnlineClient {
         try {
           await persistIdentity({ playerId: message.playerId, token: message.token });
         } catch {
-          this.callbacks.onError('프로필 식별자를 기기에 저장하지 못했습니다');
+          this.callbacks.onError(dict(getI18nLang()).idSaveFailed);
         }
         await this.callbacks.onProfile(message.profile);
         break;
@@ -238,7 +239,7 @@ export class MobileOnlineClient {
         this.clearTimer(); this.queued = false; this.roomId = message.roomId; this.side = message.side;
         this.callbacks.onMatchFound(message.roomId, message.side, message.opponent, message.state); break;
       case 'MATCH_RESULT': await this.callbacks.onProfile(message.profile); this.callbacks.onMatchResult(message.winner, message.reason); break;
-      case 'QUEUE_LEFT': this.clearTimer(); this.queued = false; this.callbacks.onStatus('랜덤 매칭을 취소했어요'); break;
+      case 'QUEUE_LEFT': this.clearTimer(); this.queued = false; this.callbacks.onStatus(dict(getI18nLang()).queueCancelled); break;
       case 'STATE': this.callbacks.onState(message.state); break;
       case 'OPPONENT_LEFT': this.callbacks.onOpponentLeft(); break;
       case 'ERROR': this.clearTimer(); this.queued = false; this.callbacks.onError(message.message); break;

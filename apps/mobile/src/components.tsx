@@ -84,13 +84,24 @@ export function Board({ snapshot, getHighlight, onPress, tutorial = false }: { s
                 <Pressable
                   key={`${r}-${c}`}
                   onPress={() => onPress(coord)}
-                  style={[styles.cell, mark?.isGoalBlack && styles.goalBlack, mark?.isGoalWhite && styles.goalWhite, mark?.isLastMove && styles.lastMove, mark?.isSelected && styles.selected, mark?.isTarget && styles.target, mark?.isPlace && styles.placeHint, mark?.isCapture && styles.capture]}
+                  style={[
+                    styles.cell,
+                    mark?.isGoalBlack && styles.goalBlack,
+                    mark?.isGoalWhite && styles.goalWhite,
+                    mark?.isLastMove && styles.lastMove,
+                    mark?.isSelected && styles.selected,
+                    !mark?.isHint && mark?.isTarget && styles.target,
+                    !mark?.isHint && mark?.isPlace && styles.placeHint,
+                    Boolean(mark?.isHint && mark?.isPlace) && styles.tutPlace,
+                    Boolean(mark?.isHint && !mark?.isPlace && !mark?.isTarget) && styles.tutSource,
+                    Boolean(mark?.isHint && mark?.isTarget) && styles.tutTarget,
+                    mark?.isCapture && styles.capture,
+                  ]}
                 >
                   {piece ? <PieceImage piece={piece} ghostly={snapshot.mode.kind === 'ghost' && piece.player === snapshot.mode.tape.side} /> : null}
                   {r === 0 && c === 0 ? <Text style={styles.rankLabel}>9</Text> : null}
                   {c === 0 && r > 0 ? <Text style={styles.rankLabel}>{9 - r}</Text> : null}
                   {r === 8 ? <Text style={styles.fileLabel}>{'abcdefghi'[c]}</Text> : null}
-                  {mark?.isHint ? <View style={styles.hintDot} /> : null}
                 </Pressable>
               );
             })}
@@ -102,10 +113,10 @@ export function Board({ snapshot, getHighlight, onPress, tutorial = false }: { s
   );
 }
 
-export function GuardTray({ player, count, active }: { player: Player; count: number; active: boolean }) {
+export function GuardTray({ player, label, count, active }: { player: Player; label: string; count: number; active: boolean }) {
   return (
     <View style={[styles.tray, player === 'WHITE' ? styles.whiteTray : styles.blackTray, active && styles.activeTray]}>
-      <View style={styles.trayHeader}><Text style={[styles.trayLabel, player === 'BLACK' && styles.trayOnDark]}>{player === 'BLACK' ? '흑' : '백'} 호위</Text><Text style={[styles.trayCount, player === 'BLACK' && styles.trayOnDark]}>{count} / 8</Text></View>
+      <View style={styles.trayHeader}><Text style={[styles.trayLabel, player === 'BLACK' && styles.trayOnDark]}>{label}</Text><Text style={[styles.trayCount, player === 'BLACK' && styles.trayOnDark]}>{count} / 8</Text></View>
       <View style={styles.trayGrid}>{Array.from({ length: 8 }, (_, index) => <View key={index} style={styles.traySlot}>{index < count ? <PieceImage player={player} type="GUARD" /> : null}</View>)}</View>
     </View>
   );
@@ -171,7 +182,9 @@ export const styles = StyleSheet.create({
   target: { backgroundColor: '#8FB9D077' },
   placeHint: { backgroundColor: '#8FB9D055' },
   capture: { backgroundColor: `${colors.capture}66` },
-  hintDot: { position: 'absolute', width: 10, height: 10, borderRadius: 5, backgroundColor: colors.blue, opacity: 0.8 },
+  tutPlace: { borderWidth: 2, borderStyle: 'dashed', borderColor: colors.blue, backgroundColor: `${colors.blue}29` },
+  tutSource: { borderWidth: 3, borderColor: colors.blue },
+  tutTarget: { borderWidth: 3, borderColor: colors.blue, backgroundColor: `${colors.blue}24` },
   piece: { width: '82%', height: '82%' },
   ghostPiece: { opacity: 0.72 },
   rankLabel: { position: 'absolute', top: 2, left: 3, color: `${colors.ink}99`, fontSize: 8, fontWeight: '800' },

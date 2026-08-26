@@ -1,4 +1,4 @@
-import type { GameState, Move, Player } from '../core/types';
+import type { GameState, Move, Player } from '../../../../packages/game-core/src';
 import { resolveWsUrl } from './wsUrl';
 
 export type OnlineSide = Player;
@@ -58,7 +58,8 @@ export type ClientMessage =
   | { type: 'CANCEL_MATCHMAKING' }
   | { type: 'CREATE' }
   | { type: 'JOIN'; roomId: string }
-  | { type: 'MOVE'; move: Move };
+  | { type: 'MOVE'; move: Move }
+  | { type: 'RESIGN' };
 
 export interface OnlineCallbacks {
   onState: (state: GameState) => void;
@@ -288,6 +289,11 @@ export class OnlineClient {
 
   sendMove(move: Move) {
     this.send({ type: 'MOVE', move });
+  }
+
+  /** 서버에 항복을 알려 상대에게 패배로 기록한다 */
+  sendResign() {
+    this.send({ type: 'RESIGN' });
   }
 
   private send(msg: ClientMessage) {

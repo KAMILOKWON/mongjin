@@ -2,8 +2,8 @@
   "schemaVersion": 1,
   "id": "mongjin",
   "displayName": "몽진",
-  "version": "1.0.3",
-  "build": 58,
+  "version": "1.0.4",
+  "build": 59,
   "protocolVersion": 1,
   "submittedBaseline": "ios-1.0.0+5",
   "sharedSource": [
@@ -31,10 +31,6 @@
     {
       "type": "package-json",
       "path": "apps/toss/package.json"
-    },
-    {
-      "type": "xcode",
-      "path": "apps/ios/Mongjin.xcodeproj/project.pbxproj"
     }
   ],
   "platforms": {

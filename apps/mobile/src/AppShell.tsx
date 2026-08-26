@@ -1,9 +1,10 @@
-import { useEffect, useState } from 'react';
-import { StyleSheet, Text, View } from 'react-native';
+import { useEffect, useRef, useState } from 'react';
+import { Linking, StyleSheet, Text, View } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { SafeAreaProvider, SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAppStore } from './store';
 import { colors } from './theme';
+import { parseInviteUrl } from './links';
 import { FriendScreen } from './screens/FriendScreen';
 import { GameScreen } from './screens/GameScreen';
 import { HomeScreen } from './screens/HomeScreen';
@@ -27,6 +28,9 @@ function AppShellBody() {
   const toast = useAppStore((state) => state.toast);
   const hydrate = useAppStore((state) => state.hydrate);
   const insets = useSafeAreaInsets();
+  const openInvite = useAppStore((state) => state.openInvite);
+  const lastInvite = useRef<{ code: string; at: number } | null>(null);
+
   useEffect(() => {
     let mounted = true;
 
@@ -42,6 +46,29 @@ function AppShellBody() {
 
     return () => { mounted = false; };
   }, [hydrate]);
+
+  useEffect(() => {
+    if (!isReady) return;
+    let disposed = false;
+    // A cold start can deliver the URL twice (initial URL + event); ignore
+    // duplicates of the same code arriving within a few seconds.
+    const handleUrl = (url: string | null) => {
+      const code = parseInviteUrl(url);
+      if (!code) return;
+      const now = Date.now();
+      if (lastInvite.current && lastInvite.current.code === code && now - lastInvite.current.at < 5000) return;
+      lastInvite.current = { code, at: now };
+      openInvite(code);
+    };
+    void Linking.getInitialURL()
+      .then((url) => { if (!disposed) handleUrl(url); })
+      .catch(() => undefined);
+    const subscription = Linking.addEventListener('url', ({ url }) => handleUrl(url));
+    return () => {
+      disposed = true;
+      subscription.remove();
+    };
+  }, [isReady, openInvite]);
 
   useEffect(() => {
     if (isReady) void initializeAds();

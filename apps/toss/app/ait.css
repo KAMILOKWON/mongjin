@@ -622,6 +622,7 @@ input:focus-visible {
 .ait-tutorial-progress {
   display: flex;
   gap: 8px;
+  justify-content: center;
   margin-top: 4px;
 }
 
@@ -1030,4 +1031,146 @@ input:focus-visible {
   .ait-match-pulse span {
     animation: none;
   }
+}
+
+/* ─── 모바일 앱 정렬 추가 스타일 ─────────────────────────── */
+
+.ait-result {
+  margin-bottom: 8px;
+}
+
+.ait-result-sentence {
+  margin: 2px 0 0;
+  color: var(--ait-ink-soft);
+  font-size: 13px;
+  font-weight: 600;
+  text-align: center;
+  word-break: keep-all;
+}
+
+.ait-ghost-note {
+  margin: -4px 0 10px;
+  color: var(--ait-blue);
+  font-size: 12px;
+  font-weight: 700;
+  text-align: center;
+  word-break: keep-all;
+}
+
+.ait-confirm-note {
+  margin: 0;
+  padding: 0 16px 10px;
+  color: #b84c44;
+  font-size: 12px;
+  font-weight: 600;
+  text-align: center;
+  word-break: keep-all;
+}
+
+.ait-toast {
+  position: fixed;
+  top: calc(env(safe-area-inset-top, 0px) + 14px);
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 60;
+  max-width: min(86vw, 360px);
+  padding: 11px 18px;
+  border-radius: 999px;
+  background: rgba(32, 42, 51, 0.92);
+  color: #fff;
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  word-break: keep-all;
+  box-shadow: 0 6px 18px rgba(15, 23, 42, 0.25);
+  pointer-events: none;
+}
+
+.ait-tutorial-board {
+  display: flex;
+  justify-content: center;
+}
+
+.ait-tutorial-count {
+  margin: 0;
+  color: var(--ait-ink-soft);
+  font-size: 13px;
+  font-weight: 700;
+  text-align: center;
+}
+
+.ait-tutorial-count strong {
+  color: var(--ait-blue);
+  font-size: 20px;
+}
+
+.ait-tutorial-progress span {
+  width: 10px;
+  height: 10px;
+  border: 1px solid transparent;
+  border-radius: 50%;
+  background: #e3ded4;
+}
+
+.ait-tutorial-progress span.is-done {
+  background: rgba(49, 95, 137, 0.38);
+}
+
+.ait-tutorial-progress span.is-active {
+  border-color: var(--ait-blue);
+  background: var(--ait-blue);
+}
+
+.ait-tutorial-actions {
+  grid-template-columns: 1fr;
+}
+
+.ait-hint-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  align-items: center;
+  padding: 11px 14px;
+  border: 1px dashed var(--ait-line);
+  border-radius: 14px;
+  background: var(--ait-surface-strong);
+}
+
+.ait-hint-panel span {
+  color: var(--ait-blue);
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.ait-hint-panel strong {
+  color: var(--ait-ink);
+  font-size: 14px;
+  font-weight: 700;
+  text-align: center;
+  word-break: keep-all;
+}
+
+.cell.place-hint {
+  background: rgba(49, 95, 137, 0.16);
+  outline: 2px dashed rgba(49, 95, 137, 0.85);
+  outline-offset: -2px;
+}
+
+.cell.hint-source {
+  outline: 3px solid var(--ait-blue);
+  outline-offset: -3px;
+}
+
+.cell.hint-source::after {
+  content: '';
+  position: absolute;
+  inset: 4px;
+  border-radius: 6px;
+  background: rgba(49, 95, 137, 0.12);
+}
+
+.cell.hint-target {
+  background: rgba(49, 95, 137, 0.14);
+  outline: 3px solid var(--ait-blue);
+  outline-offset: -3px;
 }

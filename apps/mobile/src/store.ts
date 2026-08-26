@@ -9,11 +9,13 @@ import {
   type OpponentProfile,
   type PlayerProfile,
 } from './online';
+import { detectDeviceLang, dict, format, getI18nLang, loadStoredLang, persistLang, setI18nLang, type Lang } from './i18n';
 
 export type AppRoute = 'home' | 'setup' | 'match' | 'game' | 'tutorial' | 'profile' | 'friend';
 
 interface AppStore {
   route: AppRoute;
+  lang: Lang;
   profileName: string;
   profile: ReturnType<MobileProfileStore['profile']>;
   onlineProfile: PlayerProfile | null;
@@ -25,6 +27,7 @@ interface AppStore {
   friendStatus: string;
   toast: string | null;
   hydrate: () => Promise<void>;
+  setLang: (lang: Lang) => void;
   openProfile: () => void;
   openAISetup: () => void;
   openLocal: () => void;
@@ -37,6 +40,7 @@ interface AppStore {
   createFriendRoom: () => Promise<void>;
   joinFriendRoom: (code: string) => Promise<void>;
   cancelFriend: () => void;
+  openInvite: (code: string) => void;
   leaveGame: () => Promise<void>;
   saveName: (name: string) => Promise<void>;
   showToast: (message: string) => void;
@@ -48,8 +52,12 @@ let online!: MobileOnlineClient;
 let matchGeneration = 0;
 let friendPending: 'create' | 'join' | null = null;
 let toastTimer: ReturnType<typeof setTimeout> | null = null;
+const initialLang = detectDeviceLang();
+setI18nLang(initialLang);
 
-function playerLabel(player: Player): string { return player === 'BLACK' ? '흑' : '백'; }
+function sideLabel(player: Player, lang: Lang = getI18nLang()): string {
+  return player === 'BLACK' ? dict(lang).black : dict(lang).white;
+}
 
 function makeSession(mode: PlayMode, color: HumanColorChoice, set: (value: Partial<AppStore>) => void, get: () => AppStore): GameSession {
   const session = new GameSession(mode, color);
@@ -67,18 +75,20 @@ export const useAppStore = create<AppStore>((set, get) => {
     onJoined: (roomId, side) => {
       get().session?.bindOnlineSide(side);
       if (friendPending) {
+        const t = dict(get().lang);
         set({
           friendRoomId: friendPending === 'create' ? roomId : null,
-          friendStatus: friendPending === 'create' ? '상대가 입장하면 대국이 시작됩니다' : '상대를 기다리는 중',
+          friendStatus: friendPending === 'create' ? t.friendWaitingStart : t.friendWaiting,
         });
         return;
       }
-      set({ matchStatus: `${playerLabel(side)} · 상대를 기다리는 중` });
+      set({ matchStatus: format(dict(get().lang).waitingSideLine, { side: sideLabel(side, get().lang) }) });
     },
     onMatchFound: (_roomId, side, opponent, state) => {
       const matchKind = friendPending ? 'friend' : 'random';
       friendPending = null;
-      set({ matchFoundName: opponent.name, matchStatus: `${opponent.name} 님과 매칭됐어요 · ${playerLabel(side)}`, friendRoomId: null, friendStatus: '' });
+      const lang = get().lang;
+      set({ matchFoundName: opponent.name, matchStatus: format(dict(lang).matchFoundLine, { name: opponent.name, side: sideLabel(side, lang) }), friendRoomId: null, friendStatus: '' });
       const session = makeSession({ kind: 'online', opponentName: opponent.name, opponentRating: opponent.rating, isBot: false, matchKind }, 'BLACK', set, get);
       session.bindOnlineSide(side);
       session.applyServerState(state);
@@ -102,14 +112,17 @@ export const useAppStore = create<AppStore>((set, get) => {
       }
     },
     onOpponentLeft: () => {
-      get().showToast('상대가 연결을 끊었습니다');
+      get().showToast(dict(get().lang).opponentLeft);
       void get().leaveGame();
     },
     onMatchmakingTimeout: () => {
       online.disconnect();
       const tape = profileStore.pickChallenge();
-      if (!tape) { set({ route: 'home', matchStatus: '', toast: '대국할 상대를 찾지 못했어요' }); return; }
-      set({ matchFoundName: tape.ownerName, matchStatus: `${tape.ownerName} 님과 대국해요 · ${playerLabel(tape.side === 'BLACK' ? 'WHITE' : 'BLACK')}` });
+      if (!tape) { set({ route: 'home', matchStatus: '', toast: dict(get().lang).noMatchFound }); return; }
+      set({
+        matchFoundName: tape.ownerName,
+        matchStatus: format(dict(get().lang).ghostMatchLine, { name: tape.ownerName, side: sideLabel(tape.side === 'BLACK' ? 'WHITE' : 'BLACK', get().lang) }),
+      });
       const generation = matchGeneration;
       setTimeout(() => { if (generation === matchGeneration) get().openGhost(tape); }, 500);
     },
@@ -128,6 +141,7 @@ export const useAppStore = create<AppStore>((set, get) => {
 
   return {
     route: 'home',
+    lang: initialLang,
     profileName: '나그네',
     profile: profileStore.profile(),
     onlineProfile: null,
@@ -139,6 +153,8 @@ export const useAppStore = create<AppStore>((set, get) => {
     friendStatus: '',
     toast: null,
     hydrate: async () => {
+      const storedLang = await loadStoredLang();
+      if (storedLang && storedLang !== get().lang) { setI18nLang(storedLang); set({ lang: storedLang }); }
       await profileStore.hydrate();
       set({
         profile: profileStore.profile(),
@@ -146,6 +162,11 @@ export const useAppStore = create<AppStore>((set, get) => {
         onlineProfile: profileStore.onlineProfile(),
       });
       void online.getProfile().catch(() => undefined);
+    },
+    setLang: (lang) => {
+      setI18nLang(lang);
+      set({ lang });
+      void persistLang(lang);
     },
     openProfile: () => set({ route: 'profile' }),
     openAISetup: () => set({ route: 'setup' }),
@@ -156,7 +177,7 @@ export const useAppStore = create<AppStore>((set, get) => {
     openGhost: (tape) => makeSession({ kind: 'ghost', tape }, 'BLACK', set, get),
     startQuickMatch: async () => {
       matchGeneration += 1;
-      set({ route: 'match', matchFoundName: null, matchStatus: '상대를 찾는 중…' });
+      set({ route: 'match', matchFoundName: null, matchStatus: dict(get().lang).searching });
       const generation = matchGeneration;
       try {
         await online.connect();
@@ -165,8 +186,8 @@ export const useAppStore = create<AppStore>((set, get) => {
       } catch {
         online.disconnect();
         const tape = profileStore.pickChallenge();
-        if (generation !== matchGeneration || !tape) { set({ route: 'home', toast: '대국할 상대를 찾지 못했어요' }); return; }
-        set({ matchFoundName: tape.ownerName, matchStatus: `${tape.ownerName} 님과 대국해요` });
+        if (generation !== matchGeneration || !tape) { set({ route: 'home', toast: dict(get().lang).noMatchFound }); return; }
+        set({ matchFoundName: tape.ownerName, matchStatus: format(dict(get().lang).ghostMatchShort, { name: tape.ownerName }) });
         setTimeout(() => { if (generation === matchGeneration) get().openGhost(tape); }, 500);
       }
     },
@@ -177,32 +198,36 @@ export const useAppStore = create<AppStore>((set, get) => {
     },
     createFriendRoom: async () => {
       friendPending = 'create';
-      set({ friendRoomId: null, friendStatus: '서버 연결 중…' });
+      set({ friendRoomId: null, friendStatus: dict(get().lang).connecting });
       try {
         await online.createRoom();
       } catch {
         friendPending = null;
         online.disconnect();
-        set({ friendStatus: '', toast: '서버에 연결하지 못했어요' });
+        set({ friendStatus: '', toast: dict(get().lang).connectFailed });
       }
     },
     joinFriendRoom: async (code) => {
       const roomId = code.trim().toUpperCase();
-      if (roomId.length !== 6) { set({ toast: '6자리 입장코드를 입력해 주세요' }); return; }
+      if (roomId.length !== 6) { set({ toast: dict(get().lang).codeLengthError }); return; }
       friendPending = 'join';
-      set({ friendRoomId: null, friendStatus: '입장하는 중…' });
+      set({ friendRoomId: null, friendStatus: dict(get().lang).joining });
       try {
         await online.joinRoom(roomId);
       } catch {
         friendPending = null;
         online.disconnect();
-        set({ friendStatus: '', toast: '서버에 연결하지 못했어요' });
+        set({ friendStatus: '', toast: dict(get().lang).connectFailed });
       }
     },
     cancelFriend: () => {
       friendPending = null;
       online.disconnect();
       set({ route: 'home', friendRoomId: null, friendStatus: '' });
+    },
+    openInvite: (code) => {
+      void get().joinFriendRoom(code);
+      if (get().route !== 'friend') set({ route: 'friend' });
     },
     leaveGame: async () => {
       const { session, snapshot } = get();
@@ -212,7 +237,7 @@ export const useAppStore = create<AppStore>((set, get) => {
           await profileStore.recordMatch(snapshot.result.winner === snapshot.humanSide, snapshot.mode.tape.ownerRating, tape);
           set({ profile: profileStore.profile() });
         } catch {
-          get().showToast('전적을 기기에 저장하지 못했습니다');
+          get().showToast(dict(get().lang).saveRecordFailed);
         }
       }
       if (snapshot?.mode.kind === 'online') online.disconnect();
@@ -221,16 +246,17 @@ export const useAppStore = create<AppStore>((set, get) => {
     },
     saveName: async (name) => {
       const trimmed = name.trim();
-      if (trimmed.length < 2 || trimmed.length > 12) { get().showToast('닉네임은 2~12자로 적어 주세요'); return; }
+      const t = dict(get().lang);
+      if (trimmed.length < 2 || trimmed.length > 12) { get().showToast(t.nameLengthError); return; }
       try {
         await profileStore.updateName(trimmed);
       } catch {
-        get().showToast('닉네임을 기기에 저장하지 못했습니다');
+        get().showToast(t.saveNameFailed);
         return;
       }
       set({ profile: profileStore.profile(), profileName: trimmed });
       if (online.connected) void online.updateProfile(trimmed);
-      get().showToast('닉네임을 저장했어요');
+      get().showToast(t.savedName);
     },
     showToast: (message) => {
       if (toastTimer) clearTimeout(toastTimer);
@@ -264,15 +290,16 @@ export function selectVisibleProfile(local: ReturnType<MobileProfileStore['profi
   };
 }
 
-export function resultCopy(result: SessionResult, snapshot: SessionSnapshot): string {
+export function resultCopy(result: SessionResult, snapshot: SessionSnapshot, lang: Lang = getI18nLang()): string {
+  const t = dict(lang);
   const quick = snapshot.mode.kind === 'ghost' || snapshot.mode.kind === 'online';
   const won = quick && result.winner === snapshot.humanSide;
   switch (result.reason) {
-    case 'forfeit': return won ? '상대가 항복했습니다' : '항복했습니다';
-    case 'timeout': return won ? '상대가 시간 안에 두지 못했습니다' : '1분 안에 두지 못했습니다';
-    case 'goal': return quick ? (won ? '왕이 목적지에 도착했습니다' : '상대 왕이 목적지에 도착했습니다') : '왕이 목적지에 도착했습니다';
-    case 'capture': return quick ? (won ? '상대 왕을 잡았습니다' : '왕이 잡혔습니다') : '왕을 잡아 이겼습니다';
-    case 'surround': return quick ? (won ? '상대 왕을 포위했습니다' : '왕이 포위되었습니다') : '왕을 포위해 이겼습니다';
-    case 'no-moves': return quick ? (won ? '상대가 둘 수 없었습니다' : '둘 수 있는 수가 없었습니다') : '둘 수 있는 수가 없었습니다';
+    case 'forfeit': return won ? t.rForfeitWon : t.rForfeitLost;
+    case 'timeout': return won ? t.rTimeoutWon : t.rTimeoutLost;
+    case 'goal': return quick ? (won ? t.rGoalWon : t.rGoalLost) : t.rGoalLocal;
+    case 'capture': return quick ? (won ? t.rCaptureWon : t.rCaptureLost) : t.rCaptureLocal;
+    case 'surround': return quick ? (won ? t.rSurroundWon : t.rSurroundLost) : t.rSurroundLocal;
+    case 'no-moves': return won ? t.rNoMovesWon : t.rNoMovesLost;
   }
 }

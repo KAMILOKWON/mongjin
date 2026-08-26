@@ -54,19 +54,13 @@ export interface SessionSnapshot {
   moveDeadline: number | null;
   tutorialStep: number;
   tutorialFinished: boolean;
-  tutorialTitle: string;
-  tutorialCoach: string;
-  tutorialHint: string;
+  tutorialHintArmed: boolean;
   tutorialShowsGoals: boolean;
 }
 
 type Listener = () => void;
 
 interface TutorialLesson {
-  title: string;
-  coach: string;
-  hintIdle: string;
-  hintArmed: string;
   state: () => GameState;
   move: Move;
   showGoals: boolean;
@@ -97,36 +91,21 @@ function makeTutorialState(pieces: Array<[number, number, Player, Piece['type']]
 function tutorialLessons(): TutorialLesson[] {
   return [
     {
-      title: '호위를 놓아 볼까요?',
-      coach: '흑부터 시작해요. 검은 왕 바로 위에 파랗게 빛나는 칸을 눌러 호위를 놓아 보세요.',
-      hintIdle: '파란 칸을 눌러 호위를 놓아 보세요', hintArmed: '파란 칸을 눌러 호위를 놓아 보세요',
       state: () => initialState(DEFAULT_CONFIG), move: { kind: 'PLACE', to: { r: 7, c: 4 } }, showGoals: false,
     },
     {
-      title: '왕을 움직여 볼까요?',
-      coach: '한 번에 한 가지 행동만 할 수 있어요. 왕을 누른 다음 파란 칸으로 옮겨 보세요.',
-      hintIdle: '파란 왕을 먼저 눌러 보세요', hintArmed: '파란 칸으로 왕을 옮겨 보세요',
       state: () => { const state = applyMove(initialState(DEFAULT_CONFIG), { kind: 'PLACE', to: { r: 7, c: 4 } }); state.turn = 'BLACK'; return state; },
       move: { kind: 'MOVE', from: { r: 8, c: 4 }, to: { r: 7, c: 3 } }, showGoals: false,
     },
     {
-      title: '호위로 잡아 볼까요?',
-      coach: '호위는 상하좌우로 움직여요. 상대 호위가 있는 칸으로 이동하면 잡을 수 있어요.',
-      hintIdle: '파란 호위를 먼저 눌러 보세요', hintArmed: '흰 호위를 눌러 잡아 보세요',
       state: () => makeTutorialState([[8, 4, 'BLACK', 'KING'], [6, 4, 'BLACK', 'GUARD'], [0, 4, 'WHITE', 'KING'], [5, 4, 'WHITE', 'GUARD']], 7, 7),
       move: { kind: 'MOVE', from: { r: 6, c: 4 }, to: { r: 5, c: 4 } }, showGoals: false,
     },
     {
-      title: '왕을 잡으면 끝나요',
-      coach: '호위는 목적지에는 들어갈 수 없지만 그 칸에 왕이 있으면 잡을 수 있어요. 왕을 잡으면 대국이 끝나요.',
-      hintIdle: '파란 호위를 먼저 눌러 보세요', hintArmed: '흰 왕을 눌러 잡아 보세요',
       state: () => makeTutorialState([[8, 4, 'BLACK', 'KING'], [1, 4, 'BLACK', 'GUARD'], [0, 4, 'WHITE', 'KING']], 7, 8),
       move: { kind: 'MOVE', from: { r: 1, c: 4 }, to: { r: 0, c: 4 } }, showGoals: true,
     },
     {
-      title: '목적지로 가 볼까요?',
-      coach: '색이 다른 위쪽 가운데 세 칸이 목적지예요. 왕을 그중 한 칸으로 옮기면 이겨요.',
-      hintIdle: '파란 왕을 먼저 눌러 보세요', hintArmed: '파란 목적지 칸을 눌러 보세요',
       state: () => makeTutorialState([[1, 3, 'BLACK', 'KING'], [0, 4, 'WHITE', 'KING']]),
       move: { kind: 'MOVE', from: { r: 1, c: 3 }, to: { r: 0, c: 3 } }, showGoals: true,
     },
@@ -150,9 +129,7 @@ export class GameSession {
   private ghostController: GhostController | null = null;
   private tutorialIndex = 0;
   private tutorialFinished = false;
-  private tutorialTitle = '';
-  private tutorialCoach = '';
-  private tutorialHint = '';
+  private tutorialHintArmed = false;
   private tutorialShowsGoals = false;
   private tutorialSelected: Coord | null = null;
   private tutorialAllowed: Move | null = null;
@@ -194,9 +171,7 @@ export class GameSession {
       moveDeadline: this.moveDeadline,
       tutorialStep: this.tutorialIndex,
       tutorialFinished: this.tutorialFinished,
-      tutorialTitle: this.tutorialTitle,
-      tutorialCoach: this.tutorialCoach,
-      tutorialHint: this.tutorialHint,
+      tutorialHintArmed: this.tutorialHintArmed,
       tutorialShowsGoals: this.tutorialShowsGoals,
     };
   }
@@ -310,9 +285,9 @@ export class GameSession {
     const move = this.tutorialAllowed;
     if (move.kind === 'PLACE' && sameCoord(move.to, coord)) { this.playHuman(move); return; }
     if (move.kind === 'MOVE') {
-      if (!this.tutorialSelected && sameCoord(move.from, coord)) { this.tutorialSelected = coord; this.tutorialHint = this.lessons[this.tutorialIndex]!.hintArmed; this.notify(); }
+      if (!this.tutorialSelected && sameCoord(move.from, coord)) { this.tutorialSelected = coord; this.tutorialHintArmed = true; this.notify(); }
       else if (this.tutorialSelected && sameCoord(move.to, coord)) this.playHuman(move);
-      else if (this.tutorialSelected && sameCoord(move.from, coord)) { this.tutorialSelected = null; this.tutorialHint = this.lessons[this.tutorialIndex]!.hintIdle; this.notify(); }
+      else if (this.tutorialSelected && sameCoord(move.from, coord)) { this.tutorialSelected = null; this.tutorialHintArmed = false; this.notify(); }
     }
   }
 
@@ -397,13 +372,13 @@ export class GameSession {
   private loadTutorial(index: number): void {
     const lesson = this.lessons[index]!;
     this.tutorialIndex = index; this.tutorialFinished = false; this.tutorialSelected = null; this.tutorialAllowed = lesson.move;
-    this.tutorialTitle = lesson.title; this.tutorialCoach = lesson.coach; this.tutorialHint = lesson.hintIdle; this.tutorialShowsGoals = lesson.showGoals;
+    this.tutorialHintArmed = false; this.tutorialShowsGoals = lesson.showGoals;
     this.state = lesson.state(); this.selected = null; this.lastMove = null; this.result = null; this.refreshLegal(); this.notify();
   }
 
   private advanceTutorial(): void {
     if (this.tutorialIndex >= this.lessons.length - 1) {
-      this.tutorialFinished = true; this.tutorialAllowed = null; this.tutorialShowsGoals = true; this.tutorialTitle = '이제 기본 규칙을 모두 익혔어요'; this.tutorialCoach = '컴퓨터와 한 판 두면서 연습해 보세요.'; this.tutorialHint = ''; this.notify(); return;
+      this.tutorialFinished = true; this.tutorialAllowed = null; this.tutorialShowsGoals = true; this.notify(); return;
     }
     this.loadTutorial(this.tutorialIndex + 1);
   }
