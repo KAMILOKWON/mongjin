@@ -122,18 +122,14 @@ platform :android do
     )
   end
 
-  desc "Upload the signed Mongjin bundle to Google Play production"
+  desc "Promote the internal testing release to Google Play production"
   lane :production do
     upload_to_play_store(
       package_name: "com.studiozzg.mongjin",
       json_key: ENV.fetch("GOOGLE_PLAY_SERVICE_ACCOUNT_JSON"),
-      aab: ENV.fetch("MONGJIN_ANDROID_AAB", "apps/mobile/android/app/build/outputs/bundle/release/app-release.aab"),
-      track: "production",
-      release_status: "completed",
-      skip_upload_apk: true,
-      skip_upload_metadata: true,
-      skip_upload_images: true,
-      skip_upload_screenshots: true
+      track: "internal",
+      track_promote_to: ENV.fetch("MONGJIN_PLAY_PROMOTE_TO", "production"),
+      track_promote_release_status: "completed"
     )
   end
 end

@@ -23,6 +23,14 @@ For _fastlane_ installation instructions, see [Installing _fastlane_](https://do
 
 Archive Mongjin and upload it to TestFlight
 
+### ios production
+
+```sh
+[bundle exec] fastlane ios production
+```
+
+Submit the uploaded build for App Store review
+
 ----
 
 
@@ -35,6 +43,14 @@ Archive Mongjin and upload it to TestFlight
 ```
 
 Upload the signed Mongjin bundle to Google Play internal testing
+
+### android production
+
+```sh
+[bundle exec] fastlane android production
+```
+
+Upload the signed Mongjin bundle to Google Play production
 
 ----
 
