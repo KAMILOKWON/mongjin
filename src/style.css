@@ -360,8 +360,23 @@ p {
 
 .home-language-row {
   display: flex;
+  align-items: center;
+  gap: 12px;
   justify-content: flex-end;
   margin-top: auto;
+}
+
+.app-store-badge-link {
+  display: flex;
+  flex: 0 0 auto;
+  flex-shrink: 0;
+}
+
+.app-store-badge {
+  display: block;
+  width: 120px;
+  height: auto;
+  flex-shrink: 0;
 }
 
 .menu-button-tutorial {
@@ -1212,6 +1227,10 @@ input {
     margin-top: 6px;
   }
 
+  .app-store-badge {
+    width: 110px;
+  }
+
   .game-screen {
     display: flex;
     flex-direction: column-reverse;
@@ -1301,6 +1320,10 @@ input {
 
   .home-language-row {
     margin-top: 2px;
+  }
+
+  .app-store-badge {
+    width: 100px;
   }
 
   .menu-button i {
