@@ -499,32 +499,31 @@ export function reasonLabel(reason: 'goal' | 'capture' | 'surround' | 'no-moves'
 
 /** 서버와 온라인 클라이언트가 보관한 한국어 상태 메시지를 현재 언어로 표시한다. */
 export function localizeMessage(message: string): string {
-  if (currentLocale === 'ko') return message;
+  // Helper function for three-way locale mapping
+  const mapSide = (isBlack: boolean): string => {
+    if (currentLocale === 'ko') return isBlack ? '흑' : '백';
+    if (currentLocale === 'ja') return isBlack ? '黒' : '白';
+    return isBlack ? 'Black' : 'White';
+  };
 
   const retry = message.match(/^서버 연결 재시도 \((\d+)\/(\d+)\)…$/);
   if (retry) return t('server.retrying', { attempt: retry[1], total: retry[2] });
 
   const codeWaiting = message.match(/^입장코드 ([A-Z0-9]+) — (흑|백) \(상대 대기 중\)$/);
   if (codeWaiting) {
-    const side = codeWaiting[2] === '흑' 
-      ? (currentLocale === 'ja' ? '黒' : 'Black')
-      : (currentLocale === 'ja' ? '白' : 'White');
+    const side = mapSide(codeWaiting[2] === '흑');
     return t('status.code.waiting', { code: codeWaiting[1], side });
   }
 
   const code = message.match(/^입장코드 ([A-Z0-9]+) — (흑|백)$/);
   if (code) {
-    const side = code[2] === '흑' 
-      ? (currentLocale === 'ja' ? '黒' : 'Black')
-      : (currentLocale === 'ja' ? '白' : 'White');
+    const side = mapSide(code[2] === '흑');
     return t('status.code', { code: code[1], side });
   }
 
   const matched = message.match(/^(.+?) 님과 매칭됐어요 — (흑|백)$/);
   if (matched) {
-    const side = matched[2] === '흑' 
-      ? (currentLocale === 'ja' ? '黒' : 'Black')
-      : (currentLocale === 'ja' ? '白' : 'White');
+    const side = mapSide(matched[2] === '흑');
     return t('status.matched', { name: matched[1], side });
   }
 
@@ -537,13 +536,11 @@ export function localizeMessage(message: string): string {
       '상대가 둘 수 없음': 'no-moves',
       '상대가 대국을 떠남': 'forfeit',
     };
-    const player = result[1] === '흑' 
-      ? (currentLocale === 'ja' ? '黒' : 'Black')
-      : (currentLocale === 'ja' ? '白' : 'White');
+    const player = mapSide(result[1] === '흑');
     const reasonText = t(`reason.${reasonKeys[result[2]]}`);
-    return currentLocale === 'ja' 
-      ? `${player}の勝利 · ${reasonText}`
-      : `${player} wins · ${reasonText}`;
+    if (currentLocale === 'ko') return `${player} 승리 · ${reasonText}`;
+    if (currentLocale === 'ja') return `${player}の勝利 · ${reasonText}`;
+    return `${player} wins · ${reasonText}`;
   }
 
   const copied = message.match(/^입장코드 ([A-Z0-9]+) 복사됨 — 친구에게 공유하세요$/);
