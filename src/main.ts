@@ -53,6 +53,7 @@ app.innerHTML = `
       <div class="home-brand-tools">
         <div class="language-toggle" role="group" data-i18n-aria="language.selector">
           <button type="button" data-locale="ko" data-i18n="language.ko">한국어</button>
+          <button type="button" data-locale="en" data-i18n="language.en">English</button>
           <button type="button" data-locale="ja" data-i18n="language.ja">日本語</button>
         </div>
         <button class="profile-pill" id="profile-open" type="button" data-i18n-aria="profile.open" aria-label="내 프로필 열기">
@@ -106,6 +107,7 @@ app.innerHTML = `
         <div class="game-top-tools">
           <div class="language-toggle" role="group" data-i18n-aria="language.selector">
             <button type="button" data-locale="ko" data-i18n="language.ko">한국어</button>
+            <button type="button" data-locale="en" data-i18n="language.en">English</button>
             <button type="button" data-locale="ja" data-i18n="language.ja">日本語</button>
           </div>
           <div class="mode-chip" id="mode-chip">컴퓨터 대전</div>
@@ -259,8 +261,9 @@ function applyTranslations() {
 
   const whiteTray = document.querySelector<HTMLElement>('.guard-tray-white');
   const blackTray = document.querySelector<HTMLElement>('.guard-tray-black');
-  whiteTray?.setAttribute('aria-label', `${t('piece.guard.white')} 8${locale === 'ja' ? '個' : '개'}`);
-  blackTray?.setAttribute('aria-label', `${t('piece.guard.black')} 8${locale === 'ja' ? '個' : '개'}`);
+  const countSuffix = locale === 'ja' ? '個' : locale === 'en' ? '' : '개';
+  whiteTray?.setAttribute('aria-label', `${t('piece.guard.white')} 8${countSuffix}`);
+  blackTray?.setAttribute('aria-label', `${t('piece.guard.black')} 8${countSuffix}`);
   document.querySelector<HTMLImageElement>('.preview-piece-white')?.setAttribute('alt', t('piece.king.white'));
   document.querySelector<HTMLImageElement>('.preview-piece-black')?.setAttribute('alt', t('piece.king.black'));
 }
@@ -333,10 +336,13 @@ function renderStatus() {
   undoBtn.disabled = !snap.canUndo || snap.aiThinking;
   const profile = snap.profile;
   if (profile) {
+    const locale = getLocale();
+    const rankSuffix = locale === 'ja' ? '位' : locale === 'en' ? '' : '위';
+    const rankPrefix = locale === 'en' ? '#' : '';
     document.querySelector<HTMLElement>('#home-profile-name')!.textContent = profile.name;
     document.querySelector<HTMLElement>('#home-profile-rank')!.textContent =
-      `${profile.rank}${getLocale() === 'ja' ? '位' : '위'} · ${profile.wins}${t('profile.wins')} ${profile.losses}${t('profile.losses')}`;
-    document.querySelector<HTMLElement>('#profile-rank')!.textContent = `${profile.rank}${getLocale() === 'ja' ? '位' : '위'}`;
+      `${rankPrefix}${profile.rank}${rankSuffix} · ${profile.wins}${t('profile.wins')} ${profile.losses}${t('profile.losses')}`;
+    document.querySelector<HTMLElement>('#profile-rank')!.textContent = `${rankPrefix}${profile.rank}${rankSuffix}`;
     document.querySelector<HTMLElement>('#profile-rating')!.textContent =
       t('profile.rating', { rating: profile.rating, total: profile.totalPlayers });
     document.querySelector<HTMLElement>('#profile-wins')!.textContent = String(profile.wins);
@@ -484,7 +490,7 @@ const tutorialNext = document.querySelector<HTMLButtonElement>('#tutorial-next')
 document.querySelectorAll<HTMLButtonElement>('[data-locale]').forEach((button) => {
   button.addEventListener('click', () => {
     const locale = button.dataset.locale as Locale | undefined;
-    if (locale !== 'ko' && locale !== 'ja') return;
+    if (locale !== 'ko' && locale !== 'ja' && locale !== 'en') return;
     setLocale(locale);
     applyTranslations();
     if (tutorialDialog.open) renderTutorial();

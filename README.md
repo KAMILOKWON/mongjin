@@ -1,4 +1,59 @@
-# 몽진 (蒙塵)
+# Mongjin (蒙塵 / 몽진)
+
+[**한국어**](#한국어) | [**English**](#english)
+
+---
+
+## English
+
+An abstract strategy board game for 2 players: escort your king to the opponent's goal. Play against the computer (AI) or online opponents.
+
+**▶ Play now: https://kamilokwon.github.io/mongjin/**
+
+### How to Play
+
+- Each turn: **place one guard** OR **move one piece**, not both
+- Win by moving your **king (王)** to one of the three center goal squares on the opponent's back row
+- Guards can capture enemy guards and **the enemy king** — if your king is captured, you **lose immediately**; keep the king safe with your guards
+- **Quick Match** from the home screen automatically matches you with online players; your side (black/white) is randomly assigned each game
+- Anonymous device profiles track **wins, losses, win rate, Elo rating, and global rank**; you can change your nickname
+- **Friend Match** uses 6-digit room codes to play with friends (unofficial, does not affect your official record)
+- Computer play offers **Easy, Normal, Hard** difficulty levels with distinct search depth, near-optimal move tolerance, and king safety/blocking strategies. **Hard** difficulty searches up to 4.3 seconds for nearly optimal moves.
+
+### Online Play
+
+**Quick Match** (GitHub Pages): auto-connects you with another player from the server queue. **Friend Match** uses room codes. The online server is a WebSocket endpoint (`wss://mongjin-api.onrender.com`) hosted on [Render](https://render.com) (`mongjin-api`). After a one-time [Blueprint deploy](https://render.com/deploy?repo=https://github.com/KAMILOKWON/mongjin), set a `RENDER_DEPLOY_HOOK` GitHub secret for automatic redeploy when `server/` changes.
+
+Profiles and records are atomically saved to the server's JSON store. The default path is `server/data/profiles.json`; to persist it across redeployments and restarts, attach a persistent disk and set the environment variable `MONGJIN_PROFILE_DATA_FILE=/mount-path/profiles.json`.
+
+Design document: [PLAN.md](./PLAN.md)
+
+### Run Locally
+
+```bash
+npm install
+npm run dev          # http://localhost:5173
+npm run server:dev   # ws://localhost:3001 — online play (separate terminal)
+npm test
+npm run build
+```
+
+### Project Structure
+
+```
+src/
+├── core/      # Pure game logic (no DOM dependencies, unit-tested)
+│   ├── types.ts    # GameState, Move, Piece
+│   ├── config.ts   # RuleConfig — toggles for playtesting
+│   ├── rules.ts    # Legal move generation, initial position
+│   ├── apply.ts    # Move application (immutable state)
+│   └── result.ts   # Win/loss detection (goal/capture/surround/no-moves)
+└── main.ts    # Board UI, hot-seat play, rule configuration panel
+```
+
+---
+
+## 한국어
 
 왕을 호위하며 상대 진영의 목적지까지 피난시키는 추상 전략 보드게임. 컴퓨터(AI)와 1:1 대결.
 
