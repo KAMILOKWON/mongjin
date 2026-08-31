@@ -7,6 +7,7 @@ import woodTextureUrl from '../assets/ui/board-light-ash.png';
 import whiteGuardUrl from '../assets/ui/stone-white-guard.png';
 import blackGuardUrl from '../assets/ui/stone-black-guard.png';
 import blackKingUrl from '../assets/ui/stone-black-king.png';
+import appStoreBadgeUrl from '../assets/app-store-badge-black.svg';
 import tutorialGoalUrl from '../assets/tutorial/tutorial-goal.jpg';
 import tutorialPlaceUrl from '../assets/tutorial/tutorial-place.jpg';
 import tutorialMoveUrl from '../assets/tutorial/tutorial-move.jpg';
@@ -71,6 +72,9 @@ app.innerHTML = `
         <i class="ph ph-globe-hemisphere-east" aria-hidden="true"></i>
         <span><strong data-i18n="menu.friend.title">친구 대전</strong><small data-i18n="menu.friend.description">입장코드로 친구와 대국</small></span>
       </button>
+      <a href="https://apps.apple.com/app/id6802212694" target="_blank" rel="noopener noreferrer" class="app-store-badge-link" data-i18n-aria="appstore.badge.aria" aria-label="App Store에서 다운로드">
+        <img src="${appStoreBadgeUrl}" alt="Download on the App Store" class="app-store-badge" />
+      </a>
       <div class="home-language-row">
         <div class="language-toggle" role="group" data-i18n-aria="language.selector">
           <button type="button" data-locale="ko" data-i18n="language.ko">한국어</button>
