@@ -53,6 +53,7 @@ app.innerHTML = `
       <div class="home-brand-tools">
         <div class="language-toggle" role="group" data-i18n-aria="language.selector">
           <button type="button" data-locale="ko" data-i18n="language.ko">한국어</button>
+          <button type="button" data-locale="en" data-i18n="language.en">English</button>
           <button type="button" data-locale="ja" data-i18n="language.ja">日本語</button>
         </div>
         <button class="profile-pill" id="profile-open" type="button" data-i18n-aria="profile.open" aria-label="내 프로필 열기">
@@ -106,6 +107,7 @@ app.innerHTML = `
         <div class="game-top-tools">
           <div class="language-toggle" role="group" data-i18n-aria="language.selector">
             <button type="button" data-locale="ko" data-i18n="language.ko">한국어</button>
+            <button type="button" data-locale="en" data-i18n="language.en">English</button>
             <button type="button" data-locale="ja" data-i18n="language.ja">日本語</button>
           </div>
           <div class="mode-chip" id="mode-chip">컴퓨터 대전</div>
@@ -484,7 +486,7 @@ const tutorialNext = document.querySelector<HTMLButtonElement>('#tutorial-next')
 document.querySelectorAll<HTMLButtonElement>('[data-locale]').forEach((button) => {
   button.addEventListener('click', () => {
     const locale = button.dataset.locale as Locale | undefined;
-    if (locale !== 'ko' && locale !== 'ja') return;
+    if (locale !== 'ko' && locale !== 'ja' && locale !== 'en') return;
     setLocale(locale);
     applyTranslations();
     if (tutorialDialog.open) renderTutorial();
