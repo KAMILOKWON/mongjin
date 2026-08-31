@@ -79,7 +79,7 @@ app.innerHTML = `
         <div class="language-toggle" role="group" data-i18n-aria="language.selector">
           <button type="button" data-locale="ko" data-i18n="language.ko">한국어</button>
           <button type="button" data-locale="en" data-i18n="language.en">English</button>
-          <button type="button" data-locale="ja" data-i18n="language.ja">日본語</button>
+          <button type="button" data-locale="ja" data-i18n="language.ja">日本語</button>
         </div>
       </div>
       <button class="menu-button menu-button-tutorial" id="tutorial-open" type="button">
