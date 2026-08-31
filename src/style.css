@@ -360,21 +360,20 @@ p {
 
 .home-language-row {
   display: flex;
-  align-items: center;
-  gap: 12px;
   justify-content: flex-end;
   margin-top: auto;
 }
 
 .app-store-badge-link {
-  display: flex;
+  display: block;
+  margin: 0 0 20px;
   flex: 0 0 auto;
   flex-shrink: 0;
 }
 
 .app-store-badge {
   display: block;
-  width: 120px;
+  width: 135px;
   height: auto;
   flex-shrink: 0;
 }
@@ -1227,8 +1226,14 @@ input {
     margin-top: 6px;
   }
 
+  .app-store-badge-link {
+    order: 10;
+    margin: 24px auto 0;
+    text-align: center;
+  }
+
   .app-store-badge {
-    width: 110px;
+    width: 130px;
   }
 
   .game-screen {
@@ -1322,8 +1327,12 @@ input {
     margin-top: 2px;
   }
 
+  .app-store-badge-link {
+    margin: 20px auto 0;
+  }
+
   .app-store-badge {
-    width: 100px;
+    width: 120px;
   }
 
   .menu-button i {

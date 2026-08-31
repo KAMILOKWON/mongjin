@@ -72,14 +72,14 @@ app.innerHTML = `
         <i class="ph ph-globe-hemisphere-east" aria-hidden="true"></i>
         <span><strong data-i18n="menu.friend.title">친구 대전</strong><small data-i18n="menu.friend.description">입장코드로 친구와 대국</small></span>
       </button>
+      <a href="https://apps.apple.com/app/id6802212694" target="_blank" rel="noopener noreferrer" class="app-store-badge-link" data-i18n-aria="appstore.badge.aria" aria-label="App Store에서 다운로드">
+        <img src="${appStoreBadgeUrl}" alt="Download on the App Store" class="app-store-badge" />
+      </a>
       <div class="home-language-row">
-        <a href="https://apps.apple.com/app/id6802212694" target="_blank" rel="noopener noreferrer" class="app-store-badge-link" data-i18n-aria="appstore.badge.aria" aria-label="App Store에서 다운로드">
-          <img src="${appStoreBadgeUrl}" alt="Download on the App Store" class="app-store-badge" />
-        </a>
         <div class="language-toggle" role="group" data-i18n-aria="language.selector">
           <button type="button" data-locale="ko" data-i18n="language.ko">한국어</button>
           <button type="button" data-locale="en" data-i18n="language.en">English</button>
-          <button type="button" data-locale="ja" data-i18n="language.ja">日本語</button>
+          <button type="button" data-locale="ja" data-i18n="language.ja">日본語</button>
         </div>
       </div>
       <button class="menu-button menu-button-tutorial" id="tutorial-open" type="button">
