@@ -358,8 +358,13 @@ p {
   color: rgba(255, 255, 255, 0.72);
 }
 
-.menu-button-tutorial {
+.home-language-row {
+  display: flex;
+  justify-content: flex-end;
   margin-top: auto;
+}
+
+.menu-button-tutorial {
   background: var(--surface-muted);
 }
 
@@ -1203,7 +1208,7 @@ input {
     min-height: 62px;
   }
 
-  .menu-button-tutorial {
+  .home-language-row {
     margin-top: 6px;
   }
 
@@ -1294,7 +1299,7 @@ input {
     min-height: 58px;
   }
 
-  .menu-button-tutorial {
+  .home-language-row {
     margin-top: 2px;
   }
 

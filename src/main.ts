@@ -51,11 +51,6 @@ app.innerHTML = `
         <p class="brand-subtitle" data-i18n="brand.subtitle">왕의 피난길</p>
       </div>
       <div class="home-brand-tools">
-        <div class="language-toggle" role="group" data-i18n-aria="language.selector">
-          <button type="button" data-locale="ko" data-i18n="language.ko">한국어</button>
-          <button type="button" data-locale="en" data-i18n="language.en">English</button>
-          <button type="button" data-locale="ja" data-i18n="language.ja">日本語</button>
-        </div>
         <button class="profile-pill" id="profile-open" type="button" data-i18n-aria="profile.open" aria-label="내 프로필 열기">
           <span id="home-profile-name" data-i18n="profile.default">프로필</span>
           <small id="home-profile-rank" data-i18n="profile.loading">전적 불러오는 중</small>
@@ -76,6 +71,13 @@ app.innerHTML = `
         <i class="ph ph-globe-hemisphere-east" aria-hidden="true"></i>
         <span><strong data-i18n="menu.friend.title">친구 대전</strong><small data-i18n="menu.friend.description">입장코드로 친구와 대국</small></span>
       </button>
+      <div class="home-language-row">
+        <div class="language-toggle" role="group" data-i18n-aria="language.selector">
+          <button type="button" data-locale="ko" data-i18n="language.ko">한국어</button>
+          <button type="button" data-locale="en" data-i18n="language.en">English</button>
+          <button type="button" data-locale="ja" data-i18n="language.ja">日本語</button>
+        </div>
+      </div>
       <button class="menu-button menu-button-tutorial" id="tutorial-open" type="button">
         <i class="ph ph-book-open-text" aria-hidden="true"></i>
         <span><strong data-i18n="menu.tutorial.title">튜토리얼</strong><small data-i18n="menu.tutorial.description">4단계로 규칙 익히기</small></span>
