@@ -13,6 +13,7 @@ import blackGuardUrl from '../../assets/ui/stone-black-guard.png';
 import blackKingUrl from '../../assets/ui/stone-black-king.png';
 import whiteGuardUrl from '../../assets/ui/stone-white-guard.png';
 import whiteKingUrl from '../../assets/ui/stone-white-king.png';
+import appStoreBadgeUrl from '../../assets/app-store-badge-black.svg';
 
 type Route = 'home' | 'profile' | 'setup' | 'match' | 'game' | 'tutorial';
 type HomeTab = 'quick' | 'ai' | 'local';
@@ -84,6 +85,9 @@ app.innerHTML = `
           <p class="home-blurb" id="home-blurb">접속 중인 상대와 자동 매칭</p>
           <button class="primary-button" id="home-primary" type="button">대국 시작</button>
           <button class="text-link" id="open-tutorial" type="button">튜토리얼</button>
+          <a href="https://apps.apple.com/app/id6802212694" target="_blank" rel="noopener noreferrer" class="app-store-badge-link" data-i18n-aria="appstore.badge.aria" aria-label="App Store에서 다운로드">
+            <img src="${appStoreBadgeUrl}" alt="Download on the App Store" class="app-store-badge" />
+          </a>
         </div>
       </div>
       <div class="native-ad-space" aria-hidden="true"></div>
