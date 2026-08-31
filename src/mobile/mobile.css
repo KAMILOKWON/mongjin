@@ -320,6 +320,21 @@ input:focus-visible {
   cursor: pointer;
 }
 
+.app-store-badge-link {
+  display: block;
+  align-self: center;
+  margin: 20px 0 0;
+  flex: 0 0 auto;
+  flex-shrink: 0;
+}
+
+.app-store-badge {
+  display: block;
+  width: 120px;
+  height: auto;
+  flex-shrink: 0;
+}
+
 .native-ad-space {
   min-height: calc(66px + env(safe-area-inset-bottom));
   flex: 0 0 calc(66px + env(safe-area-inset-bottom));
