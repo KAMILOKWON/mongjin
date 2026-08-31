@@ -1,4 +1,4 @@
-export type Locale = 'ko' | 'ja';
+export type Locale = 'ko' | 'ja' | 'en';
 
 const LOCALE_STORAGE_KEY = 'mongjin.locale.v1';
 
@@ -10,6 +10,7 @@ const translations: Record<Locale, TranslationTable> = {
     'language.selector': '언어 선택',
     'language.ko': '한국어',
     'language.ja': '日本語',
+    'language.en': 'English',
     'meta.title': '몽진 — 왕의 피난길',
     'meta.description': '왕을 호위해 상대 진영까지 피난시키는 2인 추상 전략 게임',
     'brand.title': '몽진',
@@ -157,6 +158,7 @@ const translations: Record<Locale, TranslationTable> = {
     'language.selector': '言語を選択',
     'language.ko': '한국어',
     'language.ja': '日本語',
+    'language.en': 'English',
     'meta.title': '蒙塵 — 王の避難路',
     'meta.description': '王を護衛して相手陣地まで避難させる、2人用の抽象戦略ボードゲーム',
     'brand.title': '蒙塵',
@@ -300,16 +302,171 @@ const translations: Record<Locale, TranslationTable> = {
     'server.illegalMove': '不正な手です',
     'server.unknownRequest': '不明なリクエストです',
   },
+  en: {
+    'language.selector': 'Language',
+    'language.ko': '한국어',
+    'language.ja': '日本語',
+    'language.en': 'English',
+    'meta.title': 'Mongjin — The King\'s Escape',
+    'meta.description': 'A 2-player abstract strategy game: escort your king to the opponent\'s goal',
+    'brand.title': 'Mongjin',
+    'brand.subtitle': 'The King\'s Escape',
+    'profile.open': 'Open my profile',
+    'profile.default': 'Profile',
+    'profile.loading': 'Loading record',
+    'home.actions': 'Start Game',
+    'menu.random.title': 'Quick Match',
+    'menu.random.description': 'Auto-match with online players',
+    'menu.ai.title': 'VS Computer',
+    'menu.ai.description': 'Choose difficulty and side',
+    'menu.friend.title': 'VS Friend',
+    'menu.friend.description': 'Play with a friend via room code',
+    'menu.tutorial.title': 'Tutorial',
+    'menu.tutorial.description': 'Learn the rules in 4 steps',
+    'preview.aria': 'Mongjin initial setup preview',
+    'preview.caption': 'Escort your king to the goal squares in the opponent\'s territory.',
+    'piece.king.black': 'Black King',
+    'piece.king.white': 'White King',
+    'piece.guard.black': 'Black Guard',
+    'piece.guard.white': 'White Guard',
+    'game.back': 'Home',
+    'mode.ai': 'VS Computer',
+    'mode.ghost': 'VS Ghost',
+    'mode.local': 'Local Play',
+    'mode.online': 'Online Match',
+    'mode.random': 'Quick Match',
+    'settings.aiDifficulty': 'Bot Difficulty',
+    'settings.humanColor': 'My Side',
+    'difficulty.easy': 'Easy',
+    'difficulty.normal': 'Normal',
+    'difficulty.hard': 'Hard',
+    'color.black.first': 'Black · First',
+    'color.white.second': 'White · Second',
+    'color.black': 'Black',
+    'color.white': 'White',
+    'color.random': 'Random',
+    'friend.or': 'or',
+    'friend.shareHint': 'Share the room code with your friend',
+    'online.create': 'Create Room Code',
+    'online.copy': 'Copy',
+    'online.code.placeholder': '6-digit code',
+    'online.code.aria': 'Room code',
+    'online.join': 'Join',
+    'online.opponent': '{name} · Rating {rating}',
+    'online.searching': 'Searching for opponent',
+    'online.cancel': 'Cancel Match',
+    'game.undo': 'Undo',
+    'game.reset': 'New Game',
+    'rules.open': 'View Rules',
+    'setup.eyebrow': 'GAME SETUP',
+    'setup.title': 'VS Computer',
+    'dialog.close': 'Close',
+    'setup.difficulty': 'Difficulty',
+    'setup.easy.option': 'Easy · Learn basic moves and immediate tactics',
+    'setup.normal.option': 'Normal · Reads beginner tactics and basic defense',
+    'setup.hard.option': 'Hard · Deeply reads best moves for up to 4.3 seconds',
+    'setup.side': 'My Side',
+    'setup.start': 'Start Game',
+    'setup.local': 'Play together on one device',
+    'profile.eyebrow': 'PLAYER PROFILE',
+    'profile.title': 'My Profile',
+    'profile.nickname': 'Nickname',
+    'profile.placeholder': '2–12 characters',
+    'profile.save': 'Save',
+    'profile.stats': 'Quick Match Record',
+    'profile.rank': 'Rank',
+    'profile.rankPlaceholder': '-',
+    'profile.ratingPlaceholder': 'Rating -',
+    'profile.rating': 'Rating {rating} · {total} total',
+    'profile.wins': 'Wins',
+    'profile.losses': 'Losses',
+    'profile.winRate': 'Win Rate',
+    'profile.note': 'Only Quick Match results count toward official record.',
+    'profile.loadingRecord': 'Loading your record',
+    'tutorial.eyebrow': 'HOW TO PLAY',
+    'tutorial.title': 'Escort the King',
+    'tutorial.progress': 'Tutorial progress',
+    'tutorial.previous': 'Previous',
+    'tutorial.next': 'Next',
+    'tutorial.startPractice': 'Start Practice Game',
+    'tutorial.step1.title': 'Escort the King',
+    'tutorial.step1.copy': 'Move your king to one of the three center squares on the opponent\'s back row to win.',
+    'tutorial.step1.alt': 'The Black king moving toward the center goal on the opponent\'s back row',
+    'tutorial.step2.title': 'Place Guards',
+    'tutorial.step2.copy': 'Each turn, you may place one guard on an empty square adjacent (up/down/left/right) to any of your pieces. Each side has 8 guards.',
+    'tutorial.step2.alt': 'Placing a new guard adjacent to the king and existing guards',
+    'tutorial.step3.title': 'Place or Move',
+    'tutorial.step3.copy': 'Each turn: place one new guard OR move one piece, not both. The king moves in 8 directions; guards move orthogonally (4 directions) one square at a time.',
+    'tutorial.step3.alt': 'Diagram showing king moves 8 ways, guards move 4 ways',
+    'tutorial.step4.title': 'Protect the King',
+    'tutorial.step4.copy': 'Guards can capture enemy guards and the enemy king. Losing your king means instant defeat, so do not let the king advance alone.',
+    'tutorial.step4.alt': 'Three guards surrounding the king, blocking enemy guards',
+    'status.turn': '{player} to move',
+    'status.aiThinking': 'Computer ({difficulty}) thinking…',
+    'status.waiting': 'Waiting for opponent…',
+    'status.opponentTurn': 'Opponent\'s turn',
+    'status.hand': '{player} guards',
+    'result.win': '{player} wins! — {reason}',
+    'reason.goal': 'King reached the goal',
+    'reason.capture': 'Captured the enemy king',
+    'reason.surround': 'Surrounded the enemy king',
+    'reason.no-moves': 'Opponent has no legal moves',
+    'reason.forfeit': 'Opponent left the game',
+    'status.code': 'Room {code} — {side}',
+    'status.code.waiting': 'Room {code} — {side} (waiting for opponent)',
+    'status.matched': 'Matched with {name} — {side}',
+    'profile.saved': 'Saved',
+    'profile.saving': 'Saving…',
+    'profile.invalid': 'Nickname must be 2–12 characters',
+    'clipboard.copied': 'Room code {code} copied — share it with your friend',
+    'clipboard.manual': 'Please select and copy the code manually',
+    'online.setupHint': 'Create a room code or enter one to join',
+    'online.noCode': 'Please enter a room code',
+    'online.opponentSearching': 'Searching for opponent',
+    'online.matchCanceled': 'Match canceled',
+    'online.ended': 'Game ended',
+    'online.opponentLeft': 'Opponent left',
+    'server.connecting': 'Connecting to server…',
+    'server.retrying': 'Retrying connection ({attempt}/{total})…',
+    'server.connected': 'Connected to server',
+    'server.disconnected': 'Disconnected',
+    'server.badResponse': 'Server response cannot be read',
+    'server.unavailable': 'Cannot connect to online server. Please try again later.',
+    'server.notConnected': 'Not connected to server',
+    'server.profileRequired': 'Please complete profile connection first',
+    'server.invalidMessage': 'Invalid message format',
+    'server.duplicateName': 'Nickname already in use',
+    'server.alreadyPlaying': 'Already in a game',
+    'server.roomCodeRequired': 'Room code required',
+    'server.roomNotFound': 'Room not found',
+    'server.notFriendRoom': 'Cannot join this room',
+    'server.alreadyInRoom': 'Already in this room',
+    'server.roomFull': 'Room is full',
+    'server.joinBeforeMove': 'You must join the room before moving',
+    'server.roomMissing': 'Room does not exist',
+    'server.notRoomPlayer': 'You are not a player in this room',
+    'server.notYourTurn': 'Not your turn',
+    'server.gameOver': 'Game is already over',
+    'server.illegalMove': 'Illegal move',
+    'server.unknownRequest': 'Unknown request',
+  },
 };
 
 let currentLocale: Locale = loadLocale();
 
 function loadLocale(): Locale {
   try {
-    return localStorage.getItem(LOCALE_STORAGE_KEY) === 'ja' ? 'ja' : 'ko';
+    const saved = localStorage.getItem(LOCALE_STORAGE_KEY);
+    if (saved === 'ja' || saved === 'en' || saved === 'ko') return saved;
   } catch {
-    return 'ko';
+    // fallthrough
   }
+  
+  // Detect browser language
+  const browserLang = navigator.language.toLowerCase();
+  if (browserLang.startsWith('en')) return 'en';
+  if (browserLang.startsWith('ja')) return 'ja';
+  return 'ko';
 }
 
 export function getLocale(): Locale {
@@ -331,7 +488,9 @@ export function t(key: string, params: Record<string, string | number> = {}): st
 }
 
 export function playerLabel(player: 'BLACK' | 'WHITE'): string {
-  return currentLocale === 'ja' ? (player === 'BLACK' ? '黒' : '白') : player === 'BLACK' ? '흑' : '백';
+  if (currentLocale === 'en') return player === 'BLACK' ? 'Black' : 'White';
+  if (currentLocale === 'ja') return player === 'BLACK' ? '黒' : '白';
+  return player === 'BLACK' ? '흑' : '백';
 }
 
 export function reasonLabel(reason: 'goal' | 'capture' | 'surround' | 'no-moves' | 'forfeit'): string {
@@ -340,19 +499,33 @@ export function reasonLabel(reason: 'goal' | 'capture' | 'surround' | 'no-moves'
 
 /** 서버와 온라인 클라이언트가 보관한 한국어 상태 메시지를 현재 언어로 표시한다. */
 export function localizeMessage(message: string): string {
-  if (currentLocale === 'ko') return message;
+  // Helper function for three-way locale mapping
+  const mapSide = (isBlack: boolean): string => {
+    if (currentLocale === 'ko') return isBlack ? '흑' : '백';
+    if (currentLocale === 'ja') return isBlack ? '黒' : '白';
+    return isBlack ? 'Black' : 'White';
+  };
 
   const retry = message.match(/^서버 연결 재시도 \((\d+)\/(\d+)\)…$/);
   if (retry) return t('server.retrying', { attempt: retry[1], total: retry[2] });
 
   const codeWaiting = message.match(/^입장코드 ([A-Z0-9]+) — (흑|백) \(상대 대기 중\)$/);
-  if (codeWaiting) return t('status.code.waiting', { code: codeWaiting[1], side: codeWaiting[2] === '흑' ? '黒' : '白' });
+  if (codeWaiting) {
+    const side = mapSide(codeWaiting[2] === '흑');
+    return t('status.code.waiting', { code: codeWaiting[1], side });
+  }
 
   const code = message.match(/^입장코드 ([A-Z0-9]+) — (흑|백)$/);
-  if (code) return t('status.code', { code: code[1], side: code[2] === '흑' ? '黒' : '白' });
+  if (code) {
+    const side = mapSide(code[2] === '흑');
+    return t('status.code', { code: code[1], side });
+  }
 
   const matched = message.match(/^(.+?) 님과 매칭됐어요 — (흑|백)$/);
-  if (matched) return t('status.matched', { name: matched[1], side: matched[2] === '흑' ? '黒' : '白' });
+  if (matched) {
+    const side = mapSide(matched[2] === '흑');
+    return t('status.matched', { name: matched[1], side });
+  }
 
   const result = message.match(/^(흑|백) 승리 · (왕이 목적지에 도달|상대 왕을 잡음|상대 왕을 포위|상대가 둘 수 없음|상대가 대국을 떠남)$/);
   if (result) {
@@ -363,7 +536,11 @@ export function localizeMessage(message: string): string {
       '상대가 둘 수 없음': 'no-moves',
       '상대가 대국을 떠남': 'forfeit',
     };
-    return `${result[1] === '흑' ? '黒' : '白'}の勝利 · ${t(`reason.${reasonKeys[result[2]]}`)}`;
+    const player = mapSide(result[1] === '흑');
+    const reasonText = t(`reason.${reasonKeys[result[2]]}`);
+    if (currentLocale === 'ko') return `${player} 승리 · ${reasonText}`;
+    if (currentLocale === 'ja') return `${player}の勝利 · ${reasonText}`;
+    return `${player} wins · ${reasonText}`;
   }
 
   const copied = message.match(/^입장코드 ([A-Z0-9]+) 복사됨 — 친구에게 공유하세요$/);
