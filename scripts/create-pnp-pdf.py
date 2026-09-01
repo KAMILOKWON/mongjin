@@ -196,12 +196,8 @@ def draw_page1_cover(c):
     y -= 4*mm
     c.drawString(left_col + 7*mm, y, "대체 가능.")
     
-    # Also play online box - MUST be clear region, NO overlap
-    # Ensure we're above footer zone (footer starts at 28mm, so stay above 45mm minimum)
-    y -= 8*mm
-    if y < 50*mm:
-        y = 50*mm  # Force minimum position
-    
+    # Also play online box - BELOW step 4 with 8mm empty space
+    y -= 8*mm  # 8mm clearance
     c.setFont(CJK_FONT, 10)
     c.drawString(left_col, y, "Also play online · 온라인으로도 플레이하세요")
     y -= 5.5*mm
@@ -213,8 +209,9 @@ def draw_page1_cover(c):
     c.drawString(left_col + 3*mm, y, "https://kamilokwon.github.io/mongjin/")
     c.setFillColorRGB(0, 0, 0)
     
-    # Footer - MUST be below all body content with generous clearance
-    footer_y = 28*mm
+    # Footer - BELOW online box with 8mm empty space (calculated, not hardcoded)
+    y -= 8*mm  # 8mm clearance from last online line
+    footer_y = y
     c.setFont(LATIN_FONT, 7)
     c.drawString(30*mm, footer_y, "Mongjin print-and-play · Oin Kwon, 2026")
     c.drawRightString(WIDTH - 30*mm, footer_y, "Rules v0.3")
