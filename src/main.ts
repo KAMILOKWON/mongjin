@@ -76,6 +76,7 @@ app.innerHTML = `
         <img src="${appStoreBadgeUrl}" alt="Download on the App Store" class="app-store-badge" />
       </a>
       <div class="home-language-row">
+        <a href="./mongjin-print-and-play.pdf" target="_blank" rel="noopener noreferrer" class="home-pnp-link" data-i18n="menu.pnp.title">인쇄해서 두기</a>
         <div class="language-toggle" role="group" data-i18n-aria="language.selector">
           <button type="button" data-locale="ko" data-i18n="language.ko">한국어</button>
           <button type="button" data-locale="en" data-i18n="language.en">English</button>

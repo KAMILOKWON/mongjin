@@ -374,8 +374,23 @@ p {
 
 .home-language-row {
   display: flex;
-  justify-content: flex-end;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
   margin-top: auto;
+}
+
+.home-pnp-link {
+  padding: 4px 8px;
+  color: var(--blue);
+  font-size: 14px;
+  font-weight: 500;
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.home-pnp-link:hover {
+  text-decoration: underline;
 }
 
 .app-store-badge-link {

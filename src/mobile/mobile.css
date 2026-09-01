@@ -320,6 +320,26 @@ input:focus-visible {
   cursor: pointer;
 }
 
+.home-links {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  align-self: center;
+}
+
+.home-links .text-link {
+  margin: 0;
+  padding: 2px 8px 0;
+  font-size: 14px;
+}
+
+.link-separator {
+  color: var(--ink-soft);
+  font-size: 14px;
+  user-select: none;
+}
+
 .language-toggle {
   display: inline-flex;
   align-self: center;
