@@ -311,6 +311,9 @@ function modeLabel(mode: OpponentMode): string {
 function renderStatus() {
   const snap = game.getSnapshot();
   const { state, result, settings } = snap;
+  const quickOpponent = snap.onlineOpponent ?? snap.ghostOpponent;
+  const isQuickMatch = settings.mode === 'ghost'
+    || (settings.mode === 'online' && snap.onlineMatchKind === 'random');
   const handRow = (player: 'BLACK' | 'WHITE') => `
     <div class="hand-row">
       <span class="hand-label"><b>${t('status.hand', { player: playerLabel(player) })}</b><span>${state.guardsInHand[player]} / 8</span></span>
@@ -321,18 +324,18 @@ function renderStatus() {
     ? `<div class="result-banner">${snap.resultLabel}</div>${handRow('BLACK')}${handRow('WHITE')}`
     : `<div class="turn-banner"><span class="turn-stone ${state.turn.toLowerCase()}"></span><span>${snap.turnLabel}</span></div>${handRow('BLACK')}${handRow('WHITE')}`;
 
-  modeChipEl.textContent = settings.mode === 'online' && snap.onlineMatchKind === 'random'
+  modeChipEl.textContent = isQuickMatch
     ? t('mode.random')
     : modeLabel(settings.mode);
   aiSettingsEl.classList.toggle('hidden', settings.mode !== 'ai');
   onlinePanelEl.classList.toggle('hidden', settings.mode !== 'online' || snap.onlineMatchKind === 'random');
-  randomPanelEl.classList.toggle('hidden', settings.mode !== 'online' || snap.onlineMatchKind !== 'random');
+  randomPanelEl.classList.toggle('hidden', !isQuickMatch);
   onlineStatusEl.textContent = snap.onlineStatus;
   onlineStatusEl.classList.toggle('error', snap.onlineError);
   randomStatusEl.textContent = snap.onlineStatus;
   randomStatusEl.classList.toggle('error', snap.onlineError);
-  randomOpponentEl.textContent = snap.onlineOpponent
-    ? t('online.opponent', { name: snap.onlineOpponent.name, rating: snap.onlineOpponent.rating })
+  randomOpponentEl.textContent = quickOpponent
+    ? t('online.opponent', { name: quickOpponent.name, rating: quickOpponent.rating })
     : t('online.searching');
 
   const showCode = settings.mode === 'online' && !!snap.onlineRoomId;

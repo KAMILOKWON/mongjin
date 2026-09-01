@@ -370,12 +370,12 @@ export class GameController {
     this.onlineMatchKind = null;
     this.onlineOpponent = null;
     this.onlineWaiting = false;
-    this.onlineStatus = `${tape.ownerName} 님과 대국해요`;
     this.onlineError = false;
     this.states = [initialState(this.config)];
     this.selected = null;
     this.learningRecorded = false;
     this.applySidesFromSettings();
+    this.onlineStatus = `${tape.ownerName} 님과 매칭됐어요 — ${PLAYER_KO[this.humanSide]}`;
     this.notify();
     this.maybeAiTurn();
   }

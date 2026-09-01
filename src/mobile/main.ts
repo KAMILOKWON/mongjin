@@ -355,7 +355,7 @@ function playerName(player: Player): string { return player === 'BLACK' ? '흑' 
 function modeTitle(): string {
   const snap = game.getSnapshot();
   if (snap.settings.mode === 'online') return '빠른 대전';
-  if (snap.settings.mode === 'ghost') return `고스트 · ${snap.ghostOpponent?.name ?? '상대'}`;
+  if (snap.settings.mode === 'ghost') return '빠른 대전';
   if (snap.settings.mode === 'local') return '같이 두기';
   const labels: Record<AiDifficulty, string> = { easy: '쉬움', normal: '보통', hard: '어려움' };
   return `컴퓨터 · ${labels[snap.settings.aiDifficulty]}`;
@@ -378,7 +378,7 @@ function renderGame() {
   renderProfile();
   if (route === 'match') {
     matchTitleEl.textContent = snap.settings.mode === 'ghost'
-      ? '고스트를 찾았어요'
+      ? '매칭됐어요'
       : snap.onlineSide ? '매칭됐어요' : '상대를 찾는 중';
     matchStatusEl.textContent = snap.onlineStatus;
     if (snap.settings.mode === 'ghost' || (snap.onlineMatchKind === 'random' && snap.onlineSide && !snap.onlineWaiting)) {
