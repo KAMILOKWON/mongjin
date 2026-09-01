@@ -65,4 +65,26 @@ describe('온라인 매칭 제한시간', () => {
     expect(sent.map((message) => JSON.parse(message).type)).toContain('CANCEL_MATCHMAKING');
     client.disconnect();
   });
+
+  it('기존 웹 프로필 Elo를 서버 승계 메시지로 보낸다', async () => {
+    const client = new OnlineClient({
+      onState: () => {},
+      onJoined: () => {},
+      onMatchFound: () => {},
+      onMatchResult: () => {},
+      onProfile: () => {},
+      onOpponentLeft: () => {},
+      onMatchmakingTimeout: () => {},
+      onError: () => {},
+      onStatus: () => {},
+    }, 'ws://test');
+
+    await client.migrateLegacyProfile({ name: '웹고수', wins: 9, losses: 3, rating: 1310 });
+
+    expect(sent.map((message) => JSON.parse(message))).toContainEqual({
+      type: 'MIGRATE_LEGACY_PROFILE',
+      legacyProfile: { name: '웹고수', wins: 9, losses: 3, rating: 1310 },
+    });
+    client.disconnect();
+  });
 });

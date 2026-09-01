@@ -23,6 +23,7 @@ import {
 import { GhostController, GhostStore, ghostFromFinishedGame, type GhostTape } from '../ghost';
 import { exportGameMgn } from '../../bot/learning/gameRecord';
 import { localizeMessage, playerLabel, reasonLabel as localizedReasonLabel, t } from '../i18n';
+import { buildLegacyProfileClaim } from '../profile/legacyProfile';
 
 const PLAYER_KO: Record<Player, string> = { BLACK: '흑', WHITE: '백' };
 const REASON_KO: Record<WinReason, string> = {
@@ -73,6 +74,7 @@ export class GameController {
   private ghost: GhostController | null = null;
   private ghostStore = new GhostStore();
   private profile: PlayerProfile | null = null;
+  private legacyMigrationRequested = false;
   private onlineStatus = '';
   private onlineError = false;
   private listeners = new Set<Listener>();
@@ -119,6 +121,15 @@ export class GameController {
     },
     onProfile: (profile) => {
       this.profile = profile;
+      if (profile.legacyMigrationComplete) {
+        this.legacyMigrationRequested = true;
+      } else if (!this.legacyMigrationRequested && this.online.connected) {
+        this.legacyMigrationRequested = true;
+        const legacyProfile = buildLegacyProfileClaim(this.ghostStore.profile(), profile);
+        void this.online.migrateLegacyProfile(legacyProfile).catch(() => {
+          this.legacyMigrationRequested = false;
+        });
+      }
       this.notify();
     },
     onOpponentLeft: () => {
