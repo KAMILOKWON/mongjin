@@ -1,13 +1,18 @@
 import { createServer } from 'node:http';
 import { randomBytes } from 'node:crypto';
-import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
+import { join } from 'node:path';
 import { WebSocketServer, type WebSocket } from 'ws';
 import type { GameState, Move, Player } from '../src/core/types';
 import { DEFAULT_CONFIG } from '../src/core/config';
 import { initialState, legalMoves } from '../src/core/rules';
 import { applyMove } from '../src/core/apply';
 import { getResult, type WinReason } from '../src/core/result';
+import {
+  createProfileRepository,
+  loadProfilesForMigration,
+  type StoredProfile,
+} from './profileRepository';
+import { buildLeaderboard } from './leaderboard';
 
 const PORT = Number(process.env.PORT ?? 3001);
 const HOST = process.env.HOST ?? '0.0.0.0';
@@ -15,17 +20,6 @@ const PROFILE_DATA_FILE = process.env.MONGJIN_PROFILE_DATA_FILE ?? join(process.
 const config = { ...DEFAULT_CONFIG };
 
 type MatchReason = WinReason | 'forfeit';
-
-interface StoredProfile {
-  playerId: string;
-  token: string;
-  name: string;
-  wins: number;
-  losses: number;
-  rating: number;
-  createdAt: string;
-  updatedAt: string;
-}
 
 interface PublicProfile {
   playerId: string;
@@ -40,6 +34,7 @@ interface PublicProfile {
 
 interface Room {
   id: string;
+  matchId: string;
   kind: 'friend' | 'random';
   state: GameState;
   black: WebSocket | null;
@@ -57,29 +52,19 @@ interface ClientSession {
 const rooms = new Map<string, Room>();
 const sessions = new Map<WebSocket, ClientSession>();
 const matchmakingQueue: WebSocket[] = [];
-const profiles = loadProfiles();
-
-function loadProfiles(): Map<string, StoredProfile> {
+const profileRepository = await createProfileRepository(PROFILE_DATA_FILE);
+let loadedProfiles = await profileRepository.loadProfiles();
+if (profileRepository.kind === 'postgres' && loadedProfiles.length === 0) {
   try {
-    if (!existsSync(PROFILE_DATA_FILE)) return new Map();
-    const parsed = JSON.parse(readFileSync(PROFILE_DATA_FILE, 'utf8')) as StoredProfile[];
-    return new Map(parsed.map((profile) => [profile.playerId, profile]));
+    const legacyProfiles = loadProfilesForMigration(PROFILE_DATA_FILE);
+    const imported = await profileRepository.importProfiles(legacyProfiles);
+    if (imported > 0) console.log(`[profiles] 기존 JSON 프로필 ${imported}명을 Postgres로 가져왔습니다`);
+    loadedProfiles = await profileRepository.loadProfiles();
   } catch (error) {
-    console.error('[profiles] 저장 파일을 읽지 못했습니다:', error);
-    return new Map();
+    console.error('[profiles] 기존 JSON 프로필을 가져오지 못했습니다:', error);
   }
 }
-
-function saveProfiles() {
-  try {
-    mkdirSync(dirname(PROFILE_DATA_FILE), { recursive: true });
-    const tempFile = `${PROFILE_DATA_FILE}.tmp`;
-    writeFileSync(tempFile, JSON.stringify([...profiles.values()], null, 2), 'utf8');
-    renameSync(tempFile, PROFILE_DATA_FILE);
-  } catch (error) {
-    console.error('[profiles] 전적 저장에 실패했습니다:', error);
-  }
-}
+const profiles = new Map(loadedProfiles.map((profile) => [profile.playerId, profile]));
 
 function makeId(bytes = 12): string {
   return randomBytes(bytes).toString('hex');
@@ -148,7 +133,7 @@ function sendProfileToPlayer(playerId: string) {
   }
 }
 
-function authenticate(ws: WebSocket, playerId?: string, token?: string) {
+async function authenticate(ws: WebSocket, playerId?: string, token?: string) {
   let profile = playerId ? profiles.get(playerId) : undefined;
   if (!profile || !token || profile.token !== token) {
     const now = new Date().toISOString();
@@ -162,8 +147,8 @@ function authenticate(ws: WebSocket, playerId?: string, token?: string) {
       createdAt: now,
       updatedAt: now,
     };
+    await profileRepository.saveProfile(profile);
     profiles.set(profile.playerId, profile);
-    saveProfiles();
   }
   sessions.get(ws)!.playerId = profile.playerId;
   send(ws, {
@@ -207,37 +192,33 @@ function removeFromQueue(ws: WebSocket) {
   }
 }
 
-function expectedScore(rating: number, opponentRating: number): number {
-  return 1 / (1 + 10 ** ((opponentRating - rating) / 400));
-}
-
-function recordResult(winnerId: string, loserId: string) {
-  const winner = profiles.get(winnerId);
-  const loser = profiles.get(loserId);
-  if (!winner || !loser) return;
-  const k = 24;
-  const winnerExpected = expectedScore(winner.rating, loser.rating);
-  const loserExpected = expectedScore(loser.rating, winner.rating);
-  winner.wins += 1;
-  loser.losses += 1;
-  winner.rating = Math.round(winner.rating + k * (1 - winnerExpected));
-  loser.rating = Math.max(100, Math.round(loser.rating + k * (0 - loserExpected)));
-  winner.updatedAt = new Date().toISOString();
-  loser.updatedAt = winner.updatedAt;
-  saveProfiles();
-}
-
-function finishRandomMatch(room: Room, winner: Player, reason: MatchReason) {
+async function finishRandomMatch(room: Room, winner: Player, reason: MatchReason) {
   if (room.kind !== 'random' || room.finished) return;
   const winnerId = winner === 'BLACK' ? room.blackPlayerId : room.whitePlayerId;
   const loserId = winner === 'BLACK' ? room.whitePlayerId : room.blackPlayerId;
   if (!winnerId || !loserId) return;
   room.finished = true;
-  recordResult(winnerId, loserId);
-  if (room.black) send(room.black, { type: 'MATCH_RESULT', winner, reason, profile: publicProfile(room.blackPlayerId!) });
-  if (room.white) send(room.white, { type: 'MATCH_RESULT', winner, reason, profile: publicProfile(room.whitePlayerId!) });
-  sendProfileToPlayer(winnerId);
-  sendProfileToPlayer(loserId);
+  try {
+    const result = await profileRepository.recordMatch({
+      matchId: room.matchId,
+      roomId: room.id,
+      winnerId,
+      loserId,
+      reason,
+      completedAt: new Date().toISOString(),
+    });
+    if (result.recorded && result.winner && result.loser) {
+      profiles.set(result.winner.playerId, result.winner);
+      profiles.set(result.loser.playerId, result.loser);
+    }
+    if (room.black) send(room.black, { type: 'MATCH_RESULT', winner, reason, profile: publicProfile(room.blackPlayerId!) });
+    if (room.white) send(room.white, { type: 'MATCH_RESULT', winner, reason, profile: publicProfile(room.whitePlayerId!) });
+    sendProfileToPlayer(winnerId);
+    sendProfileToPlayer(loserId);
+  } catch (error) {
+    console.error('[profiles] 경기 결과 저장에 실패했습니다:', error);
+    broadcastRoom(room, { type: 'ERROR', message: '경기 결과를 저장하지 못했습니다. 잠시 후 다시 시도해 주세요' });
+  }
 }
 
 function startRandomMatch(first: WebSocket, second: WebSocket) {
@@ -248,6 +229,7 @@ function startRandomMatch(first: WebSocket, second: WebSocket) {
   const firstIsBlack = Math.random() < 0.5;
   const room: Room = {
     id,
+    matchId: makeId(16),
     kind: 'random',
     state: initialState(config),
     black: firstIsBlack ? first : second,
@@ -303,7 +285,7 @@ function detachPlayer(ws: WebSocket) {
     if (other) {
       let completedByForfeit = false;
       if (room.kind === 'random' && !room.finished && room.state.history.length > 0 && side) {
-        finishRandomMatch(room, side === 'BLACK' ? 'WHITE' : 'BLACK', 'forfeit');
+        void finishRandomMatch(room, side === 'BLACK' ? 'WHITE' : 'BLACK', 'forfeit');
         completedByForfeit = true;
       }
       if (!completedByForfeit && !room.finished) send(other, { type: 'OPPONENT_LEFT' });
@@ -315,10 +297,44 @@ function detachPlayer(ws: WebSocket) {
   sessions.delete(ws);
 }
 
+function setCorsHeaders(res: import('node:http').ServerResponse) {
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'GET,OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+}
+
+function sendJson(res: import('node:http').ServerResponse, status: number, payload: unknown) {
+  res.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8' });
+  res.end(JSON.stringify(payload));
+}
+
 const httpServer = createServer((req, res) => {
-  if (req.url === '/health') {
-    res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
-    res.end(JSON.stringify({ ok: true, rooms: rooms.size, queued: matchmakingQueue.length, players: profiles.size }));
+  setCorsHeaders(res);
+  if (req.method === 'OPTIONS') {
+    res.writeHead(204);
+    res.end();
+    return;
+  }
+  const url = new URL(req.url ?? '/', `http://${req.headers.host ?? 'localhost'}`);
+  if (url.pathname === '/health') {
+    sendJson(res, 200, {
+      ok: true,
+      rooms: rooms.size,
+      queued: matchmakingQueue.length,
+      players: profiles.size,
+      registeredProfiles: profiles.size,
+      activeSessions: sessions.size,
+      profileStore: profileRepository.kind,
+    });
+    return;
+  }
+  if (url.pathname === '/leaderboard' && req.method === 'GET') {
+    const limit = Math.min(100, Math.max(1, Number(url.searchParams.get('limit') ?? 100) || 100));
+    const offset = Math.max(0, Number(url.searchParams.get('offset') ?? 0) || 0);
+    sendJson(res, 200, {
+      totalPlayers: profiles.size,
+      entries: buildLeaderboard(profiles.values(), limit, offset),
+    });
     return;
   }
   res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8' });
@@ -331,6 +347,7 @@ wss.on('connection', (ws) => {
   sessions.set(ws, { playerId: null, roomId: null });
 
   ws.on('message', (raw) => {
+    void (async () => {
     let msg: { type: string; playerId?: string; token?: string; name?: string; roomId?: string; move?: Move };
     try {
       msg = JSON.parse(String(raw));
@@ -340,7 +357,7 @@ wss.on('connection', (ws) => {
     }
 
     if (msg.type === 'HELLO') {
-      authenticate(ws, msg.playerId, msg.token);
+      await authenticate(ws, msg.playerId, msg.token);
       return;
     }
 
@@ -363,10 +380,13 @@ wss.on('connection', (ws) => {
         send(ws, { type: 'ERROR', message: '이미 사용 중인 닉네임입니다' });
         return;
       }
-      const profile = profiles.get(playerId)!;
-      profile.name = name;
-      profile.updatedAt = new Date().toISOString();
-      saveProfiles();
+      const profile = {
+        ...profiles.get(playerId)!,
+        name,
+        updatedAt: new Date().toISOString(),
+      };
+      await profileRepository.saveProfile(profile);
+      profiles.set(playerId, profile);
       send(ws, { type: 'PROFILE', profile: publicProfile(playerId) });
       return;
     }
@@ -397,6 +417,7 @@ wss.on('connection', (ws) => {
       const id = makeRoomId();
       const room: Room = {
         id,
+        matchId: makeId(16),
         kind: 'friend',
         state: initialState(config),
         black: null,
@@ -453,7 +474,7 @@ wss.on('connection', (ws) => {
       const room = roomId ? rooms.get(roomId) : undefined;
       const side: Player | null = room && room.black === ws ? 'BLACK' : room && room.white === ws ? 'WHITE' : null;
       if (!room || !side) send(ws, { type: 'ERROR', message: '방에 참가한 뒤 항복할 수 있습니다' });
-      else if (room.kind === 'random' && !room.finished) finishRandomMatch(room, side === 'BLACK' ? 'WHITE' : 'BLACK', 'forfeit');
+      else if (room.kind === 'random' && !room.finished) await finishRandomMatch(room, side === 'BLACK' ? 'WHITE' : 'BLACK', 'forfeit');
       return;
     }
 
@@ -472,13 +493,17 @@ wss.on('connection', (ws) => {
           room.state = applyMove(room.state, msg.move);
           broadcastRoom(room, { type: 'STATE', state: room.state });
           const result = getResult(room.state, config);
-          if (result) finishRandomMatch(room, result.winner, result.reason);
+          if (result) await finishRandomMatch(room, result.winner, result.reason);
         }
       }
       return;
     }
 
     send(ws, { type: 'ERROR', message: '알 수 없는 요청입니다' });
+    })().catch((error) => {
+      console.error('[server] 메시지 처리 실패:', error);
+      send(ws, { type: 'ERROR', message: '서버에서 요청을 처리하지 못했습니다' });
+    });
   });
 
   ws.on('close', () => detachPlayer(ws));
@@ -486,5 +511,5 @@ wss.on('connection', (ws) => {
 
 httpServer.listen(PORT, HOST, () => {
   console.log(`몽진 온라인 서버 — ws://${HOST}:${PORT}`);
-  console.log(`프로필 저장 경로 — ${PROFILE_DATA_FILE}`);
+  console.log(`프로필 저장소 — ${profileRepository.kind === 'postgres' ? 'Postgres' : PROFILE_DATA_FILE}`);
 });
