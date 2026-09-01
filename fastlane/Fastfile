@@ -118,7 +118,7 @@ platform :ios do
         add_id_info_tracks_install: true,
         add_id_info_tracks_action: true,
         add_id_info_limits_tracking: true,
-        export_compliance_uses_encryption: true,
+        export_compliance_uses_encryption: false,
         export_compliance_encryption_updated: false,
         export_compliance_is_exempt: true
       }

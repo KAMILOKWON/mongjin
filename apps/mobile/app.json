@@ -20,7 +20,10 @@
       "bundleIdentifier": "com.studiozzg.mongjin",
       "buildNumber": "62",
       "deploymentTarget": "17.0",
-      "backgroundColor": "#FBFAF7"
+      "backgroundColor": "#FBFAF7",
+      "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false
+      }
     },
     "android": {
       "package": "com.studiozzg.mongjin",
