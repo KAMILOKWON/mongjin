@@ -16,6 +16,20 @@ export interface StoredProfile {
   tossRefreshToken?: string;
   tossTokenExpiresAt?: string;
   unlinkedAt?: string;
+  legacyMigratedAt?: string;
+}
+
+export interface LegacyProfileClaim {
+  name: string;
+  wins: number;
+  losses: number;
+  rating: number;
+  migratedAt: string;
+}
+
+export interface LegacyProfileMigrationResult {
+  migrated: boolean;
+  profile: StoredProfile;
 }
 
 export interface RecordedMatch {
@@ -38,6 +52,7 @@ export interface ProfileRepository {
   loadProfiles(): Promise<StoredProfile[]>;
   importProfiles(profiles: StoredProfile[]): Promise<number>;
   saveProfile(profile: StoredProfile): Promise<void>;
+  migrateLegacyProfile(playerId: string, claim: LegacyProfileClaim): Promise<LegacyProfileMigrationResult>;
   recordMatch(match: RecordedMatch): Promise<MatchResult>;
   close(): Promise<void>;
 }
@@ -120,6 +135,27 @@ export class FileProfileRepository implements ProfileRepository {
     this.persistProfiles();
   }
 
+  async migrateLegacyProfile(
+    playerId: string,
+    claim: LegacyProfileClaim,
+  ): Promise<LegacyProfileMigrationResult> {
+    const current = this.profiles.get(playerId);
+    if (!current) throw new Error('승계할 프로필이 없습니다');
+    if (current.legacyMigratedAt) return { migrated: false, profile: cloneProfile(current) };
+    const profile: StoredProfile = {
+      ...current,
+      name: claim.name,
+      wins: claim.wins,
+      losses: claim.losses,
+      rating: claim.rating,
+      updatedAt: claim.migratedAt,
+      legacyMigratedAt: claim.migratedAt,
+    };
+    this.profiles.set(playerId, profile);
+    this.persistProfiles();
+    return { migrated: true, profile: cloneProfile(profile) };
+  }
+
   async recordMatch(match: RecordedMatch): Promise<MatchResult> {
     if (this.recordedMatchIds.has(match.matchId)) return { recorded: false };
     const winner = this.profiles.get(match.winnerId);
@@ -155,6 +191,7 @@ interface ProfileRow {
   toss_refresh_token: string | null;
   toss_token_expires_at: Date | string | null;
   unlinked_at: Date | string | null;
+  legacy_migrated_at: Date | string | null;
 }
 
 function iso(value: Date | string): string {
@@ -180,12 +217,14 @@ function rowToProfile(row: ProfileRow): StoredProfile {
     ...(row.toss_refresh_token === null ? {} : { tossRefreshToken: row.toss_refresh_token }),
     ...(optionalIso(row.toss_token_expires_at) ? { tossTokenExpiresAt: optionalIso(row.toss_token_expires_at) } : {}),
     ...(optionalIso(row.unlinked_at) ? { unlinkedAt: optionalIso(row.unlinked_at) } : {}),
+    ...(optionalIso(row.legacy_migrated_at) ? { legacyMigratedAt: optionalIso(row.legacy_migrated_at) } : {}),
   };
 }
 
 const PROFILE_COLUMNS = `
   player_id, token, name, wins, losses, rating, created_at, updated_at,
-  toss_user_key, toss_access_token, toss_refresh_token, toss_token_expires_at, unlinked_at
+  toss_user_key, toss_access_token, toss_refresh_token, toss_token_expires_at, unlinked_at,
+  legacy_migrated_at
 `;
 
 export class PostgresProfileRepository implements ProfileRepository {
@@ -214,8 +253,12 @@ export class PostgresProfileRepository implements ProfileRepository {
         toss_access_token TEXT,
         toss_refresh_token TEXT,
         toss_token_expires_at TIMESTAMPTZ,
-        unlinked_at TIMESTAMPTZ
+        unlinked_at TIMESTAMPTZ,
+        legacy_migrated_at TIMESTAMPTZ
       );
+
+      ALTER TABLE mongjin_profiles
+        ADD COLUMN IF NOT EXISTS legacy_migrated_at TIMESTAMPTZ;
 
       CREATE INDEX IF NOT EXISTS mongjin_profiles_rating_idx
         ON mongjin_profiles (rating DESC, created_at ASC);
@@ -235,6 +278,19 @@ export class PostgresProfileRepository implements ProfileRepository {
 
       CREATE INDEX IF NOT EXISTS mongjin_matches_completed_at_idx
         ON mongjin_matches (completed_at DESC);
+
+      CREATE TABLE IF NOT EXISTS mongjin_legacy_profile_migrations (
+        player_id TEXT PRIMARY KEY REFERENCES mongjin_profiles(player_id),
+        claimed_name TEXT NOT NULL,
+        claimed_wins INTEGER NOT NULL,
+        claimed_losses INTEGER NOT NULL,
+        claimed_rating INTEGER NOT NULL,
+        previous_name TEXT NOT NULL,
+        previous_wins INTEGER NOT NULL,
+        previous_losses INTEGER NOT NULL,
+        previous_rating INTEGER NOT NULL,
+        migrated_at TIMESTAMPTZ NOT NULL
+      );
     `);
   }
 
@@ -265,6 +321,68 @@ export class PostgresProfileRepository implements ProfileRepository {
 
   async saveProfile(profile: StoredProfile): Promise<void> {
     await this.upsertProfile(this.pool, profile, false);
+  }
+
+  async migrateLegacyProfile(
+    playerId: string,
+    claim: LegacyProfileClaim,
+  ): Promise<LegacyProfileMigrationResult> {
+    const client = await this.pool.connect();
+    try {
+      await client.query('BEGIN');
+      const locked = await client.query<ProfileRow>(
+        `SELECT ${PROFILE_COLUMNS}
+           FROM mongjin_profiles
+          WHERE player_id = $1
+          FOR UPDATE`,
+        [playerId],
+      );
+      const row = locked.rows[0];
+      if (!row) throw new Error('승계할 프로필이 없습니다');
+      const current = rowToProfile(row);
+      if (current.legacyMigratedAt) {
+        await client.query('COMMIT');
+        return { migrated: false, profile: current };
+      }
+
+      await client.query(
+        `INSERT INTO mongjin_legacy_profile_migrations (
+           player_id, claimed_name, claimed_wins, claimed_losses, claimed_rating,
+           previous_name, previous_wins, previous_losses, previous_rating, migrated_at
+         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+        [
+          playerId,
+          claim.name,
+          claim.wins,
+          claim.losses,
+          claim.rating,
+          current.name,
+          current.wins,
+          current.losses,
+          current.rating,
+          claim.migratedAt,
+        ],
+      );
+      const updated = await client.query<ProfileRow>(
+        `UPDATE mongjin_profiles
+            SET name = $2,
+                wins = $3,
+                losses = $4,
+                rating = $5,
+                updated_at = $6,
+                legacy_migrated_at = $6
+          WHERE player_id = $1
+          RETURNING ${PROFILE_COLUMNS}`,
+        [playerId, claim.name, claim.wins, claim.losses, claim.rating, claim.migratedAt],
+      );
+      await client.query('COMMIT');
+      return { migrated: true, profile: rowToProfile(updated.rows[0]!) };
+    } catch (error) {
+      await client.query('ROLLBACK');
+      throw error;
+    } finally {
+      client.release();
+    }
   }
 
   async recordMatch(match: RecordedMatch): Promise<MatchResult> {
@@ -349,10 +467,11 @@ export class PostgresProfileRepository implements ProfileRepository {
            toss_access_token = EXCLUDED.toss_access_token,
            toss_refresh_token = EXCLUDED.toss_refresh_token,
            toss_token_expires_at = EXCLUDED.toss_token_expires_at,
-           unlinked_at = EXCLUDED.unlinked_at`;
+           unlinked_at = EXCLUDED.unlinked_at,
+           legacy_migrated_at = COALESCE(mongjin_profiles.legacy_migrated_at, EXCLUDED.legacy_migrated_at)`;
     return executor.query(
       `INSERT INTO mongjin_profiles (${PROFILE_COLUMNS})
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
        ${conflict}`,
       [
         profile.playerId,
@@ -368,6 +487,7 @@ export class PostgresProfileRepository implements ProfileRepository {
         profile.tossRefreshToken ?? null,
         profile.tossTokenExpiresAt ?? null,
         profile.unlinkedAt ?? null,
+        profile.legacyMigratedAt ?? null,
       ],
     );
   }

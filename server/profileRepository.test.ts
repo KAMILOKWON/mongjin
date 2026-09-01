@@ -53,3 +53,24 @@ test('기존 JSON 프로필을 ID 기준으로 중복 없이 가져온다', asyn
   assert.equal(await repository.importProfiles([profile('a'), profile('b')]), 0);
   assert.equal((await repository.loadProfiles()).length, 2);
 });
+
+test('기존 기기 Elo는 한 프로필에 한 번만 승계한다', async () => {
+  const directory = mkdtempSync(join(tmpdir(), 'mongjin-profile-legacy-'));
+  const repository = new FileProfileRepository(join(directory, 'profiles.json'));
+  await repository.importProfiles([profile('legacy')]);
+  const claim = {
+    name: '따뜻보스',
+    wins: 42,
+    losses: 18,
+    rating: 1799,
+    migratedAt: '2026-09-15T00:00:00.000Z',
+  };
+
+  const first = await repository.migrateLegacyProfile('legacy', claim);
+  const second = await repository.migrateLegacyProfile('legacy', { ...claim, rating: 2000 });
+  assert.equal(first.migrated, true);
+  assert.equal(first.profile.rating, 1799);
+  assert.equal(first.profile.name, '따뜻보스');
+  assert.equal(second.migrated, false);
+  assert.equal(second.profile.rating, 1799);
+});

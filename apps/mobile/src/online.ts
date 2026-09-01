@@ -15,6 +15,14 @@ export interface PlayerProfile {
   rating: number;
   rank: number;
   totalPlayers: number;
+  legacyMigrationComplete?: boolean;
+}
+
+export interface LegacyProfileClaim {
+  name: string;
+  wins: number;
+  losses: number;
+  rating: number;
 }
 
 export interface OpponentProfile {
@@ -41,6 +49,7 @@ export type ClientMessage =
   | { type: 'HELLO'; playerId?: string; token?: string }
   | { type: 'GET_PROFILE' }
   | { type: 'UPDATE_PROFILE'; name: string }
+  | { type: 'MIGRATE_LEGACY_PROFILE'; legacyProfile: LegacyProfileClaim }
   | { type: 'MATCHMAKE' }
   | { type: 'CANCEL_MATCHMAKING' }
   | { type: 'CREATE' }
@@ -190,6 +199,10 @@ export class MobileOnlineClient {
 
   async getProfile(): Promise<void> { await this.connect(); this.send({ type: 'GET_PROFILE' }); }
   async updateProfile(name: string): Promise<void> { await this.connect(); this.send({ type: 'UPDATE_PROFILE', name }); }
+  async migrateLegacyProfile(legacyProfile: LegacyProfileClaim): Promise<void> {
+    await this.connect();
+    this.send({ type: 'MIGRATE_LEGACY_PROFILE', legacyProfile });
+  }
 
   async startMatchmaking(): Promise<void> {
     await this.connect();

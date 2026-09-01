@@ -29,3 +29,12 @@ DATABASE_URL='postgresql://...' npm run migrate:profiles
 - `GET /leaderboard?limit=100&offset=0`: Elo 경쟁 순위. 동점자는 공동 순위이며 다음 순위는 건너뛴다.
 
 경기 결과는 `match_id`를 고유 키로 저장한다. 같은 결과 요청이 다시 처리돼도 승패와 Elo는 한 번만 갱신된다.
+
+## Device Elo handoff
+
+기존 iOS·Android·앱인토스 설치본의 기기 누적 Elo는 업데이트된 클라이언트가 첫 연결 때
+`MIGRATE_LEGACY_PROFILE`로 한 번만 공식 프로필에 승계한다. 서버는 프로필별 최초 요청만
+트랜잭션으로 반영하고, 승계 전후 값은 `mongjin_legacy_profile_migrations`에 보관한다.
+
+기본 승계 마감은 2026-12-01이며 `LEGACY_PROFILE_MIGRATION_DEADLINE`로 조정할 수 있다.
+승계 후에는 서버 Elo가 유일한 공식 랭킹 원본이다.

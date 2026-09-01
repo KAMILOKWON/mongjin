@@ -6,6 +6,7 @@ export interface RemoteProfileProgress {
   rating: number;
   rank: number;
   totalPlayers: number;
+  legacyMigrationComplete?: boolean;
 }
 
 export interface StoredOnlineProgress {
@@ -19,6 +20,7 @@ export interface StoredOnlineProgress {
   currentRating: number;
   rank: number;
   totalPlayers: number;
+  legacyMigrationComplete?: boolean;
 }
 
 function nonNegativeInteger(value: number): number {
@@ -37,6 +39,24 @@ export function mergeOnlineProgress(
   const currentLosses = nonNegativeInteger(remote.losses);
   const currentRating = validRating(remote.rating);
 
+  // 승계가 끝난 뒤에는 서버가 유일한 공식 원본이다. 과거 identity 구간을
+  // 다시 더하지 않고 승계된 서버 스냅샷 하나로 접는다.
+  if (remote.legacyMigrationComplete) {
+    return {
+      playerId: remote.playerId,
+      name: remote.name,
+      carriedWins: 0,
+      carriedLosses: 0,
+      carriedRatingDelta: 0,
+      currentWins,
+      currentLosses,
+      currentRating,
+      rank: nonNegativeInteger(remote.rank),
+      totalPlayers: nonNegativeInteger(remote.totalPlayers),
+      legacyMigrationComplete: true,
+    };
+  }
+
   if (!previous) {
     return {
       playerId: remote.playerId,
@@ -49,6 +69,7 @@ export function mergeOnlineProgress(
       currentRating,
       rank: nonNegativeInteger(remote.rank),
       totalPlayers: nonNegativeInteger(remote.totalPlayers),
+      legacyMigrationComplete: remote.legacyMigrationComplete,
     };
   }
 
@@ -63,6 +84,7 @@ export function mergeOnlineProgress(
       currentRating,
       rank: nonNegativeInteger(remote.rank),
       totalPlayers: nonNegativeInteger(remote.totalPlayers),
+      legacyMigrationComplete: remote.legacyMigrationComplete,
     };
   }
 
@@ -80,6 +102,7 @@ export function mergeOnlineProgress(
     currentRating,
     rank: nonNegativeInteger(remote.rank),
     totalPlayers: nonNegativeInteger(remote.totalPlayers),
+    legacyMigrationComplete: remote.legacyMigrationComplete,
   };
 }
 
@@ -94,5 +117,6 @@ export function onlineProgressSnapshot(progress: StoredOnlineProgress): RemotePr
     rating: Math.max(100, 1200 + progress.carriedRatingDelta + progress.currentRating - 1200),
     rank: progress.rank,
     totalPlayers: progress.totalPlayers,
+    legacyMigrationComplete: progress.legacyMigrationComplete,
   };
 }

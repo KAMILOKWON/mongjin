@@ -15,6 +15,7 @@ import {
   type StoredProfile,
 } from './profileRepository';
 import { buildLeaderboard } from './leaderboard';
+import { validateLegacyProfileClaim } from './legacyProfileMigration';
 
 const PORT = Number(process.env.PORT ?? 3001);
 const HOST = process.env.HOST ?? '0.0.0.0';
@@ -32,6 +33,7 @@ interface PublicProfile {
   rating: number;
   rank: number;
   totalPlayers: number;
+  legacyMigrationComplete: boolean;
 }
 
 interface Room {
@@ -106,6 +108,7 @@ function publicProfile(playerId: string): PublicProfile {
     // Kept in the wire format for compatibility with already-released clients.
     // Current clients never display the population count.
     totalPlayers: profiles.size,
+    legacyMigrationComplete: Boolean(profile.legacyMigratedAt),
   };
 }
 
@@ -512,7 +515,15 @@ wss.on('connection', (ws) => {
 
   ws.on('message', (raw) => {
     void (async () => {
-    let msg: { type: string; playerId?: string; token?: string; name?: string; roomId?: string; move?: Move };
+    let msg: {
+      type: string;
+      playerId?: string;
+      token?: string;
+      name?: string;
+      roomId?: string;
+      move?: Move;
+      legacyProfile?: unknown;
+    };
     try {
       msg = JSON.parse(String(raw));
     } catch {
@@ -552,6 +563,28 @@ wss.on('connection', (ws) => {
       await profileRepository.saveProfile(profile);
       profiles.set(playerId, profile);
       send(ws, { type: 'PROFILE', profile: publicProfile(playerId) });
+      return;
+    }
+
+    if (msg.type === 'MIGRATE_LEGACY_PROFILE') {
+      try {
+        const claim = validateLegacyProfileClaim(msg.legacyProfile);
+        const duplicateName = [...profiles.values()].some(
+          (profile) => profile.playerId !== playerId && profile.name === claim.name,
+        );
+        const result = await profileRepository.migrateLegacyProfile(playerId, {
+          ...claim,
+          name: duplicateName ? profiles.get(playerId)!.name : claim.name,
+          migratedAt: new Date().toISOString(),
+        });
+        profiles.set(playerId, result.profile);
+        sendProfileToPlayer(playerId);
+      } catch (error) {
+        send(ws, {
+          type: 'ERROR',
+          message: error instanceof Error ? error.message : '기존 기기 Elo를 승계하지 못했습니다',
+        });
+      }
       return;
     }
 

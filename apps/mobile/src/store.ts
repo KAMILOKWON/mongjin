@@ -107,6 +107,16 @@ export const useAppStore = create<AppStore>((set, get) => {
       }
 
       set({ profile: localProfile, onlineProfile, profileName: localProfile.name });
+      if (!remoteProfile.legacyMigrationComplete && online.connected) {
+        const legacy = selectVisibleProfile(localProfile, onlineProfile);
+        await online.migrateLegacyProfile({
+          name: localProfile.name,
+          wins: legacy.wins,
+          losses: legacy.losses,
+          rating: legacy.rating,
+        });
+        return;
+      }
       if (online.connected && localProfile.name !== remoteProfile.name) {
         await online.updateProfile(localProfile.name);
       }
@@ -278,6 +288,15 @@ export interface VisibleProfile {
 // 온라인 전적(서버)과 로컬 전적(고스트 대국)은 서로 disjoint하게 기록되므로
 // 표시값은 두 소스를 병합한다. Elo는 둘 다 1200에서 시작하므로 델타를 합산한다.
 export function selectVisibleProfile(local: ReturnType<MobileProfileStore['profile']>, online: PlayerProfile | null): VisibleProfile {
+  if (online?.legacyMigrationComplete) {
+    return {
+      name: online.name,
+      rating: online.rating,
+      wins: online.wins,
+      losses: online.losses,
+      winRate: online.winRate,
+    };
+  }
   const wins = local.wins + (online?.wins ?? 0);
   const losses = local.losses + (online?.losses ?? 0);
   const games = wins + losses;

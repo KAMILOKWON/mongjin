@@ -290,10 +290,21 @@ export class GameController {
       this.profile = profile;
       this.onlineLoggedOut = false;
       try {
-        this.profiles.mergeOnlineProfile(profile);
+        const onlineProfile = this.profiles.mergeOnlineProfile(profile);
         // 서버 닉네임을 로컬 기본값에 한 번만 반영한다
         if (this.profiles.profile().name === DEFAULT_PROFILE_NAME && profile.name !== DEFAULT_PROFILE_NAME) {
           this.profiles.updateName(profile.name);
+        }
+        if (!profile.legacyMigrationComplete && this.online.connected) {
+          const local = this.profiles.profile();
+          const wins = local.wins + onlineProfile.wins;
+          const losses = local.losses + onlineProfile.losses;
+          void this.online.migrateLegacyProfile({
+            name: local.name,
+            wins,
+            losses,
+            rating: Math.max(100, local.rating + onlineProfile.rating - 1200),
+          });
         }
       } catch {
         /* 병합 실패가 세션을 막지 않도록 한다 */
@@ -402,13 +413,16 @@ export class GameController {
 
     const local = this.profiles.profile();
     const onlineMerged = this.profiles.onlineProfile();
-    const games = local.wins + local.losses + (onlineMerged?.wins ?? 0) + (onlineMerged?.losses ?? 0);
+    const official = onlineMerged?.legacyMigrationComplete ? onlineMerged : null;
+    const wins = official?.wins ?? local.wins + (onlineMerged?.wins ?? 0);
+    const losses = official?.losses ?? local.losses + (onlineMerged?.losses ?? 0);
+    const games = wins + losses;
     const visibleProfile: VisibleProfile = {
-      name: local.name,
-      rating: Math.max(100, local.rating + (onlineMerged?.rating ?? 1200) - 1200),
-      wins: local.wins + (onlineMerged?.wins ?? 0),
-      losses: local.losses + (onlineMerged?.losses ?? 0),
-      winRate: games ? Math.round(((local.wins + (onlineMerged?.wins ?? 0)) / games) * 100) : 0,
+      name: official?.name ?? local.name,
+      rating: official?.rating ?? Math.max(100, local.rating + (onlineMerged?.rating ?? 1200) - 1200),
+      wins,
+      losses,
+      winRate: games ? Math.round((wins / games) * 100) : 0,
     };
 
     return {
