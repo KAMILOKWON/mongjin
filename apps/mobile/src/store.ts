@@ -89,7 +89,7 @@ export const useAppStore = create<AppStore>((set, get) => {
       friendPending = null;
       const lang = get().lang;
       set({ matchFoundName: opponent.name, matchStatus: format(dict(lang).matchFoundLine, { name: opponent.name, side: sideLabel(side, lang) }), friendRoomId: null, friendStatus: '' });
-      const session = makeSession({ kind: 'online', opponentName: opponent.name, opponentRating: opponent.rating, isBot: false, matchKind }, 'BLACK', set, get);
+      const session = makeSession({ kind: 'online', opponentName: opponent.name, opponentRating: opponent.rating, isBot: opponent.isBot ?? false, matchKind }, 'BLACK', set, get);
       session.bindOnlineSide(side);
       session.applyServerState(state);
     },
@@ -126,15 +126,12 @@ export const useAppStore = create<AppStore>((set, get) => {
       void get().leaveGame();
     },
     onMatchmakingTimeout: () => {
-      online.disconnect();
-      const tape = profileStore.pickChallenge();
-      if (!tape) { set({ route: 'home', matchStatus: '', toast: dict(get().lang).noMatchFound }); return; }
-      set({
-        matchFoundName: tape.ownerName,
-        matchStatus: format(dict(get().lang).ghostMatchLine, { name: tape.ownerName, side: sideLabel(tape.side === 'BLACK' ? 'WHITE' : 'BLACK', get().lang) }),
-      });
       const generation = matchGeneration;
-      setTimeout(() => { if (generation === matchGeneration) get().openGhost(tape); }, 500);
+      void online.startBotMatch().catch(() => {
+        if (generation !== matchGeneration) return;
+        online.disconnect();
+        set({ route: 'home', matchStatus: '', toast: dict(get().lang).connectFailed });
+      });
     },
     onError: (message) => {
       // 대국이 이미 끝난 뒤 오는 서버 오류(예: 구버전 서버가 RESIGN을 알지 못하는 경우)는 결과 화면을 방해하지 않는다
@@ -195,10 +192,8 @@ export const useAppStore = create<AppStore>((set, get) => {
         await online.startMatchmaking();
       } catch {
         online.disconnect();
-        const tape = profileStore.pickChallenge();
-        if (generation !== matchGeneration || !tape) { set({ route: 'home', toast: dict(get().lang).noMatchFound }); return; }
-        set({ matchFoundName: tape.ownerName, matchStatus: format(dict(get().lang).ghostMatchShort, { name: tape.ownerName }) });
-        setTimeout(() => { if (generation === matchGeneration) get().openGhost(tape); }, 500);
+        if (generation !== matchGeneration) return;
+        set({ route: 'home', matchStatus: '', toast: dict(get().lang).connectFailed });
       }
     },
     cancelMatch: () => {

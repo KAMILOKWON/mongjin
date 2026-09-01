@@ -612,24 +612,19 @@ export class GameController {
 
   private fallbackRandomMatch() {
     if (this.pendingActionGen !== this.matchGeneration) return;
-    this.pendingActionGen = -1;
     if (this.onlineMatchKind !== 'random' || !this.onlineWaiting) return;
-    const tape = this.profiles.pickChallenge();
-    if (!tape) return;
-    this.online.cancelMatchmaking();
-    this.online.disconnect();
-    this.onlineSide = null;
-    this.onlineWaiting = false;
-    this.onlineOpponent = { name: tape.ownerName, rating: tape.ownerRating, isBot: true };
-    this.onlineStatus = `${tape.ownerName} 님과 대국해요`;
+    this.onlineStatus = '상대를 연결하는 중…';
     this.onlineError = false;
-    this.quickGhost = new GhostController(tape);
-    this.quickTape = tape;
-    this.quickRecorded = false;
-    this.settings.mode = 'ai';
-    this.settings.humanColor = opponentOf(tape.side);
-    this.newGame();
-    this.ensureMoveClock();
+    this.notify();
+    const generation = this.matchGeneration;
+    void this.online.startBotMatch().catch(() => {
+      if (generation !== this.matchGeneration) return;
+      this.pendingActionGen = -1;
+      this.onlineWaiting = false;
+      this.onlineStatus = '온라인 서버에 연결할 수 없습니다. 잠시 후 다시 시도해 주세요.';
+      this.onlineError = true;
+      this.notify();
+    });
   }
 
   cancelRandomMatch() {
