@@ -112,11 +112,6 @@ app.innerHTML = `
           <p data-i18n="brand.subtitle">왕의 피난길</p>
         </div>
         <div class="game-top-tools">
-          <div class="language-toggle" role="group" data-i18n-aria="language.selector">
-            <button type="button" data-locale="ko" data-i18n="language.ko">한국어</button>
-            <button type="button" data-locale="en" data-i18n="language.en">English</button>
-            <button type="button" data-locale="ja" data-i18n="language.ja">日本語</button>
-          </div>
           <div class="mode-chip" id="mode-chip">컴퓨터 대전</div>
         </div>
       </div>
@@ -164,9 +159,16 @@ app.innerHTML = `
         <button class="secondary-button" id="reset" type="button"><i class="ph ph-arrows-clockwise" aria-hidden="true"></i> <span data-i18n="game.reset">새 게임</span></button>
       </div>
 
-      <button class="rules-button" id="rules-open" type="button">
-        <i class="ph ph-book-open-text" aria-hidden="true"></i> <span data-i18n="rules.open">규칙 다시 보기</span>
-      </button>
+      <div class="game-bottom-row">
+        <button class="rules-button" id="rules-open" type="button">
+          <i class="ph ph-book-open-text" aria-hidden="true"></i> <span data-i18n="rules.open">규칙 다시 보기</span>
+        </button>
+        <div class="language-toggle" role="group" data-i18n-aria="language.selector">
+          <button type="button" data-locale="ko" data-i18n="language.ko">한국어</button>
+          <button type="button" data-locale="en" data-i18n="language.en">English</button>
+          <button type="button" data-locale="ja" data-i18n="language.ja">日本語</button>
+        </div>
+      </div>
     </aside>
 
     <section class="game-stage">

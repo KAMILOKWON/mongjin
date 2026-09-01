@@ -97,13 +97,13 @@ button {
 #app {
   width: 100%;
   min-height: 100dvh;
-  padding: clamp(18px, 3.5vw, 54px);
+  padding: clamp(18px, 3vw, 40px);
 }
 
 .home-screen,
 .game-screen {
-  width: min(1420px, 100%);
-  min-height: min(860px, calc(100dvh - clamp(36px, 7vw, 108px)));
+  width: min(1200px, 100%);
+  min-height: min(860px, calc(100dvh - clamp(36px, 6vw, 80px)));
   margin: 0 auto;
   overflow: hidden;
   border: 1px solid rgba(185, 178, 166, 0.72);
@@ -113,6 +113,8 @@ button {
 }
 
 .home-screen {
+  /* 홈은 스크롤 없이 한 화면에 맞춘다: 높이를 고정하고 미리보기가 줄어들게 한다. */
+  height: min(860px, calc(100dvh - clamp(36px, 6vw, 80px)));
   display: grid;
   grid-template-columns: minmax(270px, 330px) minmax(520px, 1fr);
   grid-template-areas:
@@ -125,7 +127,7 @@ button {
   grid-area: brand;
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: 12px;
   padding: clamp(38px, 4vw, 64px) clamp(30px, 3.2vw, 48px) 28px;
   border-right: 1px solid var(--line);
 }
@@ -175,7 +177,7 @@ button {
 
 .language-toggle button {
   min-height: 27px;
-  padding: 0 9px;
+  padding: 0 7px;
   border: 0;
   border-radius: 999px;
   color: #7a8791;
@@ -296,7 +298,7 @@ p {
   grid-area: actions;
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 10px;
   padding: 10px clamp(30px, 3.2vw, 48px) clamp(34px, 4vw, 58px);
   border-right: 1px solid var(--line);
 }
@@ -307,7 +309,7 @@ p {
   gap: 16px;
   width: 100%;
   min-height: 72px;
-  padding: 13px 17px;
+  padding: 11px 17px;
   border: 1px solid var(--line);
   border-radius: 13px;
   background: var(--surface-strong);
@@ -355,7 +357,7 @@ p {
 }
 
 .menu-button-primary {
-  min-height: 82px;
+  min-height: 72px;
   border-color: var(--blue);
   color: #fff;
   background: var(--blue);
@@ -374,16 +376,30 @@ p {
 
 .home-language-row {
   display: flex;
-  justify-content: space-between;
+  flex-direction: column;
+  justify-content: center;
   align-items: center;
-  gap: 16px;
-  margin-top: auto;
+  gap: 8px;
+}
+
+/* 왼쪽 열 정렬: 메뉴 버튼을 위에 나란히 쌓고, 배지와 언어 행은 아래에 붙인다. */
+.home-actions .menu-button-tutorial { order: 1; }
+
+.home-actions .app-store-badge-link {
+  order: 2;
+  align-self: center;
+  margin: auto 0 0;
+}
+
+.home-actions .home-language-row {
+  order: 3;
+  margin-top: 12px;
 }
 
 .home-pnp-link {
-  padding: 4px 8px;
+  padding: 4px 4px;
   color: var(--blue);
-  font-size: 14px;
+  font-size: 13px;
   font-weight: 500;
   text-decoration: none;
   white-space: nowrap;
@@ -402,7 +418,7 @@ p {
 
 .app-store-badge {
   display: block;
-  width: 135px;
+  width: 120px;
   height: auto;
   flex-shrink: 0;
 }
@@ -415,16 +431,19 @@ p {
   grid-area: preview;
   display: flex;
   min-width: 0;
+  min-height: 0;
   align-items: center;
   justify-content: center;
   flex-direction: column;
-  gap: 22px;
-  padding: clamp(26px, 3vw, 36px);
+  gap: 18px;
+  padding: clamp(20px, 2.4vw, 28px);
   background: #f8f7f3;
+  /* 보드+트레이+캡션이 화면 높이를 넘지 않도록 미리보기 크기를 뷰포트 높이로도 제한한다. */
+  --preview-size: min(570px, 100%, calc(100dvh - 320px));
 }
 
 .preview-board-shell {
-  width: min(570px, 100%);
+  width: var(--preview-size);
   aspect-ratio: 1;
   padding: clamp(18px, 2.4vw, 31px);
   border: 1px solid var(--wood-frame);
@@ -480,16 +499,18 @@ p {
 
 .preview-trays {
   display: grid;
-  width: min(610px, 94%);
+  width: auto;
   grid-template-columns: 1fr 1fr;
-  gap: clamp(14px, 3vw, 34px);
+  gap: clamp(10px, 1.6vw, 20px);
 }
 
 .guard-tray {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  gap: clamp(5px, 0.8vw, 11px);
-  padding: clamp(10px, 1.4vw, 16px) clamp(12px, 1.6vw, 20px);
+  /* 트레이 높이가 보드 폭에 따라 커지지 않도록 돌 크기를 고정한다. */
+  grid-template-columns: repeat(4, clamp(22px, 2.6vw, 32px));
+  justify-content: center;
+  gap: 6px;
+  padding: 10px 12px;
   border: 1px solid var(--line);
   border-radius: 13px;
   background: #eeece5;
@@ -530,15 +551,20 @@ p {
 .game-screen {
   display: grid;
   grid-template-columns: minmax(280px, 340px) minmax(530px, 1fr);
+  /* 홈과 마찬가지로 높이를 고정해야 보드 크기 계산이 콘텐츠를 참조하지 않는다. */
+  height: min(860px, calc(100dvh - clamp(36px, 6vw, 80px)));
 }
 
 .game-sidebar {
   display: flex;
   min-width: 0;
+  min-height: 0;
   flex-direction: column;
-  gap: 16px;
-  padding: clamp(26px, 3.4vw, 46px);
+  gap: 12px;
+  padding: clamp(20px, 3vw, 36px);
   border-right: 1px solid var(--line);
+  /* 고정 높이 안에서 사이드바만 스크롤한다. */
+  overflow-y: auto;
 }
 
 .game-sidebar-top {
@@ -563,7 +589,7 @@ p {
   display: inline-flex;
   align-items: center;
   gap: 7px;
-  margin-bottom: 34px;
+  margin-bottom: 20px;
   font-size: 13px;
 }
 
@@ -575,12 +601,12 @@ p {
 }
 
 .game-brand h1 {
-  font-size: 55px;
+  font-size: 46px;
 }
 
 .game-brand p {
-  margin-top: 10px;
-  font-size: 20px;
+  margin-top: 6px;
+  font-size: 18px;
 }
 
 .mode-chip {
@@ -592,10 +618,6 @@ p {
   background: #eff4f8;
   font-size: 11px;
   font-weight: 800;
-}
-
-.game-top-tools .mode-chip {
-  margin-top: 0;
 }
 
 .status-card,
@@ -789,6 +811,13 @@ input {
   gap: 8px;
 }
 
+/* 일본어 등 긴 문구가 두 줄로 꺾이지 않게 한다. */
+.game-actions .secondary-button {
+  padding: 0 8px;
+  font-size: 12px;
+  white-space: nowrap;
+}
+
 .secondary-button,
 .dialog-primary {
   display: inline-flex;
@@ -824,9 +853,25 @@ input {
   font-size: 12px;
 }
 
+/* 홈 하단 행과 같은 자리: 규칙 링크와 언어 토글을 사이드바 맨 아래에 둔다. */
+.game-bottom-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-top: auto;
+  padding-top: 8px;
+}
+
+.game-bottom-row .rules-button {
+  align-self: center;
+  margin-top: 0;
+}
+
 .game-stage {
   display: grid;
   min-width: 0;
+  min-height: 0;
   place-items: center;
   padding: clamp(28px, 5vw, 72px);
   background: #f8f7f3;
@@ -835,6 +880,11 @@ input {
 .live-board-wrap {
   display: flex;
   width: 100%;
+  /* 높이를 채워야 JS가 스테이지 높이를 읽어 보드가 세로로 넘치지 않게 맞춘다. */
+  height: 100%;
+  /* min-content(보드 크기)가 측정값을 오염시키지 않도록 자동 최소 크기를 해제한다. */
+  min-width: 0;
+  min-height: 0;
   align-items: center;
   justify-content: center;
 }
@@ -842,16 +892,18 @@ input {
 #board {
   display: grid;
   box-sizing: border-box;
-  gap: 2px;
+  gap: 0;
   max-width: 100%;
-  padding: 6px;
-  border: 6px solid var(--wood-frame);
-  border-radius: 11px;
+  /* JS(GameController)가 BOARD_PADDING 14, BORDER 0, GAP 0 기준으로 보드 폭을 계산한다. */
+  padding: 7px;
+  border: 0;
+  border-radius: 12px;
   background-color: #d7c5a8;
   background-image: var(--board-texture);
   background-position: center;
   background-size: cover;
-  box-shadow: var(--shadow-md);
+  box-shadow: inset 0 0 0 1.2px var(--wood-frame), var(--shadow-md);
+  overflow: hidden;
   touch-action: manipulation;
 }
 
@@ -865,7 +917,7 @@ input {
   align-items: center;
   justify-content: center;
   padding: 0;
-  border: 1px solid var(--board-line);
+  border: 0.5px solid var(--board-line);
   border-radius: 2px;
   background: rgba(255, 255, 255, 0.035);
   cursor: pointer;
@@ -1178,6 +1230,7 @@ input {
   .home-screen,
   .game-screen {
     width: 100%;
+    height: auto;
     min-height: 100dvh;
     border: 0;
     border-radius: 0;
@@ -1191,6 +1244,15 @@ input {
       "preview"
       "actions";
     grid-template-rows: auto auto auto;
+  }
+
+  /* 세로로 쌓는 폭에서는 콘텐츠를 한 열로 가운데 정렬한다. */
+  .home-brand,
+  .home-preview,
+  .home-actions {
+    width: min(640px, 100%);
+    margin-right: auto;
+    margin-left: auto;
   }
 
   .home-brand {
@@ -1232,7 +1294,7 @@ input {
   }
 
   .preview-trays {
-    width: min(490px, 94%);
+    width: auto;
     gap: 12px;
   }
 
@@ -1255,7 +1317,7 @@ input {
     margin-top: 6px;
   }
 
-  .app-store-badge-link {
+  .home-actions .app-store-badge-link {
     order: 10;
     margin: 24px auto 0;
     text-align: center;
@@ -1334,7 +1396,7 @@ input {
   }
 
   .preview-trays {
-    width: min(304px, 94%);
+    width: auto;
     gap: 9px;
   }
 
@@ -1343,13 +1405,10 @@ input {
     padding: 2px 18px 20px;
   }
 
-  .menu-button {
-    min-height: 54px;
-    padding: 8px 14px;
-  }
-
+  .menu-button,
   .menu-button-primary {
-    min-height: 58px;
+    min-height: 56px;
+    padding: 8px 14px;
   }
 
   .home-language-row {
@@ -1401,6 +1460,41 @@ input {
   .dialog-card {
     max-height: calc(100dvh - 20px);
     padding: 23px 20px;
+  }
+}
+
+/* 낮은 창(노트북 가로모드 등)에서는 데스크톱 홈을 컴팩트하게 줄여 한 화면에 맞춘다. */
+@media (min-width: 961px) and (max-height: 700px) {
+  .home-brand {
+    gap: 8px;
+    padding: 16px clamp(30px, 3.2vw, 48px) 10px;
+  }
+
+  .home-brand h1 {
+    font-size: 38px;
+  }
+
+  .brand-subtitle {
+    display: none;
+  }
+
+  .home-actions {
+    gap: 8px;
+    padding: 4px clamp(30px, 3.2vw, 48px) 12px;
+  }
+
+  .menu-button,
+  .menu-button-primary {
+    min-height: 52px;
+    padding-block: 8px;
+  }
+
+  .app-store-badge {
+    width: 108px;
+  }
+
+  .home-actions .home-language-row {
+    margin-top: 8px;
   }
 }
 
