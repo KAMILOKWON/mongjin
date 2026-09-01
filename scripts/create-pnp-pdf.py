@@ -413,23 +413,23 @@ def draw_page3_board(c):
         c.line(start_x, y, start_x + board_width, y)
     
     # Draw king positions
-    # White king at e1 (bottom, index [0,4])
+    # Black king at e1 (bottom, index [0,4]) - BLACK STARTS AT BOTTOM
     x = start_x + 4 * cell_size + cell_size/2
     y = start_y + cell_size/2 - 3*mm
+    c.setFillColorRGB(0.1, 0.1, 0.1)
+    c.circle(x, y, 6*mm, fill=1, stroke=0)
+    c.setFillColorRGB(1, 1, 1)
+    draw_text_centered(c, x, y - 2.5*mm, "王", CJK_FONT, 16)
+    
+    # White king at e9 (top, index [8,4]) - WHITE STARTS AT TOP
+    x = start_x + 4 * cell_size + cell_size/2
+    y = start_y + 8 * cell_size + cell_size/2 - 3*mm
     c.setFillColorRGB(0.9, 0.9, 0.9)
     c.circle(x, y, 6*mm, fill=1, stroke=1)
     c.setStrokeColor(colors.black)
     c.setLineWidth(1)
     c.circle(x, y, 6*mm, fill=0, stroke=1)
     c.setFillColorRGB(0, 0, 0)
-    draw_text_centered(c, x, y - 2.5*mm, "王", CJK_FONT, 16)
-    
-    # Black king at e9 (top, index [8,4])
-    x = start_x + 4 * cell_size + cell_size/2
-    y = start_y + 8 * cell_size + cell_size/2 - 3*mm
-    c.setFillColorRGB(0.1, 0.1, 0.1)
-    c.circle(x, y, 6*mm, fill=1, stroke=0)
-    c.setFillColorRGB(1, 1, 1)
     draw_text_centered(c, x, y - 2.5*mm, "王", CJK_FONT, 16)
     
     # Labels
