@@ -1,16 +1,16 @@
 {
   "name": "mongjin-appsin-toss",
   "private": true,
-  "version": "1.0.4",
+  "version": "1.0.7",
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "node scripts/clean-sites-build.mjs && tsc --noEmit && vite build && node scripts/prepare-sites-build.mjs",
-    "dev:ait": "ait dev",
-    "build:ait": "ait build"
+    "build": "node scripts/clean-sites-build.mjs && tsc --noEmit && vite build && node scripts/prepare-sites-build.mjs && ait build",
+    "dev:ait": "vite",
+    "build:ait": "node scripts/clean-sites-build.mjs && tsc --noEmit && vite build && ait build"
   },
   "dependencies": {
-    "@apps-in-toss/web-framework": "^2.7.0",
+    "@apps-in-toss/web-framework": "^3.1.1",
     "@emotion/react": "^11.14.0",
     "@toss/tds-mobile": "^2.4.1",
     "@toss/tds-mobile-ait": "^2.4.1",
@@ -18,6 +18,7 @@
     "react-dom": "^18.3.1"
   },
   "devDependencies": {
+    "@apps-in-toss/devtools": "^3.1.1",
     "@types/react": "^18.3.31",
     "@types/react-dom": "^18.3.7",
     "@vitejs/plugin-react": "^4.7.0",

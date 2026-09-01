@@ -29,17 +29,17 @@ export interface AiDifficultyPreset {
 /**
  * 완료 깊이·노드 예산으로 강도를 고정하고 maxMs는 기기별 안전 한계로만 쓴다.
  * 각 프리셋은 제한 시간 안에 반복 심화를 끝낼 수 있는 노드 예산을 쓴다.
- * 쉬움은 기본 전술 안전장치만 갖춘 입문용, 보통은 짧은 대국 경험을 가진
- * 초보 수준으로 제한한다. 어려움은 5초 제한에 여유를 둔 4.3초 동안
+ * 쉬움은 기본 전술 안전장치를 갖춘 입문용, 보통은 전략 평가와 함께
+ * 중급 수준의 읽기를 제공한다. 어려움은 5초 제한에 여유를 둔 4.3초 동안
  * 반복 심화를 계속하며, 순수 탐색 최선수와 거의 같은 수만 섞는다.
  */
 export const AI_DIFFICULTY_PRESETS: Record<AiDifficulty, AiDifficultyPreset> = {
   easy: {
     label: '쉬움',
     description: '규칙에 맞는 기본 수를 차분히 둔다',
-    maxMs: 220,
-    maxDepth: 3,
-    maxNodes: 700,
+    maxMs: 300,
+    maxDepth: 4,
+    maxNodes: 1_500,
     rootNoise: 80,
     choiceWindow: 80,
     planStrength: 0.85,
@@ -47,10 +47,10 @@ export const AI_DIFFICULTY_PRESETS: Record<AiDifficulty, AiDifficultyPreset> = {
   },
   normal: {
     label: '보통',
-    description: '초보 전술과 기본 수비를 읽는다',
-    maxMs: 700,
+    description: '전술과 기본 수비를 읽고 계획적으로 둔다',
+    maxMs: 1_400,
     maxDepth: 5,
-    maxNodes: 2_800,
+    maxNodes: 10_000,
     rootNoise: 28,
     choiceWindow: 28,
     planStrength: 1.1,

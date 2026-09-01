@@ -23,6 +23,14 @@ For _fastlane_ installation instructions, see [Installing _fastlane_](https://do
 
 Archive Mongjin and upload it to TestFlight
 
+### ios metadata
+
+```sh
+[bundle exec] fastlane ios metadata
+```
+
+Upload localized App Store listing metadata without a binary or review submission
+
 ### ios production
 
 ```sh
@@ -35,6 +43,14 @@ Submit the uploaded build for App Store review
 
 
 ## Android
+
+### android metadata
+
+```sh
+[bundle exec] fastlane android metadata
+```
+
+Upload localized Google Play listing metadata without an app bundle
 
 ### android internal
 

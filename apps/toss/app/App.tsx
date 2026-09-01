@@ -7,6 +7,15 @@ import {
   TextField,
 } from '@toss/tds-mobile';
 import { GameController, type GameSnapshot } from '@shared/ui/gameController';
+import { HomeBannerAd, useGameInterstitialAd } from '@shared/platform/ads';
+import {
+  claimPromotionReward,
+  isPromotionTestBuild,
+  promotionTestRewards,
+  recordCompletedGameForPromotions,
+  type PromotionClaimResult,
+  type PromotionReward,
+} from '@shared/platform/promotion';
 import {
   AI_DIFFICULTY_PRESETS,
   opponentOf,
@@ -181,8 +190,70 @@ function HomeScreen({
         <button type="button" className="ait-text-btn" onClick={onTutorial}>
           튜토리얼
         </button>
+        {isPromotionTestBuild && <PromotionTestPanel />}
       </section>
+      <HomeBannerAd />
     </div>
+  );
+}
+
+function promotionResultMessage(result: PromotionClaimResult, amount: number): string {
+  switch (result.status) {
+    case 'success':
+      return `토스 포인트 ${amount}원 테스트를 완료했어요`;
+    case 'already-claimed':
+      return '오늘의 토스 포인트를 이미 받았어요';
+    case 'unsupported':
+      return '토스 앱을 최신 버전으로 업데이트해 주세요';
+    case 'error':
+      return result.code
+        ? `토스 포인트 지급 실패 (${result.code})`
+        : '토스 포인트 지급을 확인하지 못했어요';
+  }
+}
+
+function PromotionTestButton({ reward }: { reward: PromotionReward }) {
+  const [status, setStatus] = useState<'idle' | 'pending' | 'success' | 'error'>('idle');
+  const [message, setMessage] = useState('');
+
+  const runTest = () => {
+    setStatus('pending');
+    setMessage('테스트 API를 호출하고 있어요');
+    void claimPromotionReward(reward).then((result) => {
+      const succeeded = result.status === 'success' || result.status === 'already-claimed';
+      setStatus(succeeded ? 'success' : 'error');
+      setMessage(promotionResultMessage(result, reward.amount));
+    });
+  };
+
+  return (
+    <div className="ait-promotion-test-item">
+      <span>{reward.label} · {reward.amount}원 테스트 지급</span>
+      <button
+        type="button"
+        onClick={runTest}
+        disabled={status === 'pending' || status === 'success'}
+      >
+        {status === 'pending' ? '호출 중…' : status === 'success' ? '호출 완료' : '테스트 호출'}
+      </button>
+      {message && (
+        <small className={status === 'error' ? 'is-error' : ''} role="status">
+          {message}
+        </small>
+      )}
+    </div>
+  );
+}
+
+function PromotionTestPanel() {
+  return (
+    <section className="ait-promotion-test" aria-label="프로모션 API 테스트">
+      <strong>프로모션 API 테스트</strong>
+      <span>실제 포인트는 차감되지 않아요</span>
+      {promotionTestRewards.map((reward) => (
+        <PromotionTestButton key={reward.id} reward={reward} />
+      ))}
+    </section>
   );
 }
 
@@ -609,7 +680,6 @@ function GameScreen({ onLeave }: { onLeave: () => void }) {
               <strong>{isWhiteTurn ? '백 차례' : '흑 차례'}</strong>
               {turnDetail && <span>{turnDetail}</span>}
             </div>
-            {snap.ghostNote && <p className="ait-ghost-note">{snap.ghostNote}</p>}
           </>
         )}
         {snap.onlineStatus && snap.settings.mode === 'online' && (
@@ -706,7 +776,6 @@ function ProfileScreen({
               {snap.visibleProfile
                 ? `Elo ${snap.visibleProfile.rating} · ${snap.visibleProfile.wins}승 ${snap.visibleProfile.losses}패 · 승률 ${snap.visibleProfile.winRate}%`
                 : '대국을 두면 전적이 쌓입니다'}
-              {snap.rankInfo ? ` · ${snap.rankInfo.totalPlayers}명 중` : ''}
             </small>
           </div>
           <section className="ait-setup-card">
@@ -805,6 +874,9 @@ function MongjinApp() {
   const [setupDifficulty, setSetupDifficulty] = useState<AiDifficulty>('normal');
   const [setupColor, setSetupColor] = useState<HumanColorChoice>('BLACK');
   const matchStarted = useRef(false);
+  const resultAdHandled = useRef(false);
+  const resultPromotionHandled = useRef(false);
+  const interstitialAd = useGameInterstitialAd(screen === 'game');
 
   useEffect(() => {
     game.setMode('local');
@@ -829,6 +901,31 @@ function MongjinApp() {
       setScreen('game');
     }
   }, [screen, snap.onlineMatchKind, snap.onlineOpponent]);
+
+  useEffect(() => {
+    const hasFinishedGame = screen === 'game' && Boolean(snap.resultTitle);
+    if (hasFinishedGame && !resultAdHandled.current) {
+      resultAdHandled.current = true;
+      interstitialAd.showAfterGame();
+      return;
+    }
+    if (!hasFinishedGame) {
+      resultAdHandled.current = false;
+      interstitialAd.cancelPending();
+    }
+  }, [screen, snap.resultTitle, interstitialAd]);
+
+  useEffect(() => {
+    const hasFinishedGame = screen === 'game' && Boolean(snap.resultTitle);
+    if (hasFinishedGame && !resultPromotionHandled.current) {
+      resultPromotionHandled.current = true;
+      void recordCompletedGameForPromotions();
+      return;
+    }
+    if (!hasFinishedGame) {
+      resultPromotionHandled.current = false;
+    }
+  }, [screen, snap.resultTitle]);
 
   const leaveToMenu = () => {
     matchStarted.current = false;

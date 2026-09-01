@@ -8,7 +8,7 @@ import {
   legalMoves,
   opponent,
 } from '../../../../packages/game-core/src';
-import { chooseMove } from '../../../../packages/game-ai/src';
+import { chooseMove, getBotBrain } from '../../../../packages/game-ai/src';
 import {
   AI_DIFFICULTY_PRESETS,
   type AiDifficulty,
@@ -325,11 +325,42 @@ export class GameSession {
     this.thinking = true; this.notify();
     await new Promise((resolve) => setTimeout(resolve, 24));
     const preset = AI_DIFFICULTY_PRESETS[this.mode.kind === 'ai' ? this.mode.difficulty : 'normal'];
-    const move = chooseMove(this.state, this.config, preset);
+    const botSide = opponent(this.humanSide);
+    const move = this.pickAiMove(preset, botSide);
     if (token !== this.turnToken || this.result || !move) { this.thinking = false; this.notify(); return; }
     await new Promise((resolve) => setTimeout(resolve, 280));
     this.apply(move); this.thinking = false; this.notify();
     await this.playOpponentIfNeeded();
+  }
+
+  /** 전략서 힌트 실패 시 순수 탐색으로 폴백한다. */
+  private pickAiMove(
+    preset: (typeof AI_DIFFICULTY_PRESETS)[AiDifficulty],
+    botSide: Player,
+  ): Move | null {
+    const baseOpts = {
+      maxMs: preset.maxMs,
+      maxDepth: preset.maxDepth,
+      maxNodes: preset.maxNodes,
+      elite: preset.elite ?? false,
+      rng: preset.choiceWindow > 0 ? Math.random : undefined,
+      rootNoise: preset.rootNoise ?? 0,
+      choiceWindow: preset.choiceWindow,
+      planStrength: preset.planStrength ?? 1,
+      strategyLevel: preset.strategyLevel ?? 1,
+    };
+    try {
+      const hints = getBotBrain(this.config).hintsFor(this.state, botSide, preset.hintScale ?? 1);
+      const move = chooseMove(this.state, this.config, { ...baseOpts, hints, botSide });
+      if (move) return move;
+    } catch {
+      /* 힌트·전략서 오류 시 순수 미니맥스로 폴백 */
+    }
+    try {
+      return chooseMove(this.state, this.config, baseOpts);
+    } catch {
+      return legalMoves(this.state, this.config)[0] ?? null;
+    }
   }
 
   private async playGhost(): Promise<void> {

@@ -35,6 +35,10 @@ def studio_api_key
   )
 end
 
+def store_metadata_path(platform)
+  File.expand_path("../store/#{platform}", __dir__)
+end
+
 platform :ios do
   desc "Archive Mongjin and upload it to TestFlight"
   lane :beta do
@@ -76,6 +80,23 @@ platform :ios do
     )
   end
 
+  desc "Upload localized App Store listing metadata without a binary or review submission"
+  lane :metadata do
+    app_json = JSON.parse(File.read(File.expand_path("../apps/mobile/app.json", __dir__)))
+    deliver(
+      api_key: studio_api_key,
+      app_identifier: "com.studiozzg.mongjin",
+      app_version: app_json["expo"]["version"],
+      metadata_path: store_metadata_path("app-store"),
+      submit_for_review: false,
+      skip_binary_upload: true,
+      skip_screenshots: true,
+      reject_if_possible: ENV["MONGJIN_REJECT_REVIEW"] == "1",
+      force: true,
+      precheck_include_in_app_purchases: false
+    )
+  end
+
   desc "Submit the uploaded build for App Store review"
   lane :production do
     app_json = JSON.parse(File.read(File.expand_path("../apps/mobile/app.json", __dir__)))
@@ -84,6 +105,7 @@ platform :ios do
       app_identifier: "com.studiozzg.mongjin",
       app_version: app_json["expo"]["version"],
       build_number: app_json["expo"]["ios"]["buildNumber"],
+      metadata_path: store_metadata_path("app-store"),
       submit_for_review: true,
       automatic_release: false,
       skip_screenshots: true,
@@ -105,6 +127,20 @@ platform :ios do
 end
 
 platform :android do
+  desc "Upload localized Google Play listing metadata without an app bundle"
+  lane :metadata do
+    upload_to_play_store(
+      package_name: "com.studiozzg.mongjin",
+      json_key: ENV.fetch("GOOGLE_PLAY_SERVICE_ACCOUNT_JSON"),
+      metadata_path: store_metadata_path("google-play"),
+      skip_upload_apk: true,
+      skip_upload_aab: true,
+      skip_upload_changelogs: true,
+      skip_upload_images: true,
+      skip_upload_screenshots: true
+    )
+  end
+
   desc "Upload the signed Mongjin bundle to Google Play internal testing"
   lane :internal do
     sh("cd ../apps/mobile && npx expo prebuild --clean --no-install")

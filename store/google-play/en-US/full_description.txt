@@ -1,0 +1,16 @@
+Mongjin (몽진, 蒙塵/蒙尘, モンジン) is an original two-player strategy board game from Korea. Escort your King to the far side of the board while your Guards open routes, block the opponent, and protect every step forward.
+
+Simple rules lead to deep decisions. A Guard that protects your King can become your sharpest attacker, and one well-timed block can decide the match.
+
+Features
+
+• Quick Match with real-time online opponents
+• Friend matches using a six-character room code
+• Computer opponents with Easy, Normal, and Hard difficulty
+• Local two-player matches on one device
+• A step-by-step tutorial for new players
+• Anonymous profiles with wins, losses, win rate, Elo rating, and ranking
+
+Win by reaching the goal row with your King, capturing the opposing King, or surrounding it so it cannot move.
+
+Find the balance between safety and speed, attack and defense, then lead your King home.

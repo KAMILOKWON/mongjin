@@ -2,7 +2,7 @@
   "expo": {
     "name": "몽진",
     "slug": "mongjin",
-    "version": "1.0.4",
+    "version": "1.0.7",
     "runtimeVersion": {
       "policy": "appVersion"
     },
@@ -18,13 +18,13 @@
     "ios": {
       "supportsTablet": false,
       "bundleIdentifier": "com.studiozzg.mongjin",
-      "buildNumber": "59",
+      "buildNumber": "62",
       "deploymentTarget": "17.0",
       "backgroundColor": "#FBFAF7"
     },
     "android": {
       "package": "com.studiozzg.mongjin",
-      "versionCode": 59,
+      "versionCode": 62,
       "adaptiveIcon": {
         "backgroundColor": "#E6F4FE",
         "foregroundImage": "./assets/android-icon-foreground.png",

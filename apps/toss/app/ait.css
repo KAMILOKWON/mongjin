@@ -285,6 +285,58 @@ input:focus-visible {
   padding: 0 6px 8px;
 }
 
+.ait-promotion-test {
+  display: grid;
+  gap: 6px;
+  padding: 12px;
+  border: 1px dashed var(--ait-blue);
+  border-radius: 14px;
+  background: rgba(49, 95, 137, 0.07);
+  color: var(--ait-ink);
+}
+
+.ait-promotion-test strong {
+  font-size: 14px;
+}
+
+.ait-promotion-test span,
+.ait-promotion-test small {
+  color: var(--ait-ink-soft);
+  font-size: 12px;
+}
+
+.ait-promotion-test-item {
+  display: grid;
+  gap: 6px;
+}
+
+.ait-promotion-test button {
+  min-height: 44px;
+  border: 0;
+  border-radius: 12px;
+  background: var(--ait-blue);
+  color: #fff;
+  font: inherit;
+  font-weight: 750;
+}
+
+.ait-promotion-test button:disabled {
+  opacity: 0.55;
+}
+
+.ait-promotion-test small.is-error {
+  color: #c2392b;
+}
+
+.ait-home-banner {
+  width: calc(100% + 28px);
+  height: 96px;
+  min-height: 96px;
+  margin: auto -14px -12px;
+  overflow: hidden;
+  background: var(--ait-surface);
+}
+
 .ait-mode-tabs,
 .ait-choice-row {
   display: grid;
@@ -968,6 +1020,12 @@ input:focus-visible {
     padding-left: 10px;
   }
 
+  .ait-home-banner {
+    width: calc(100% + 20px);
+    margin-right: -10px;
+    margin-left: -10px;
+  }
+
   .ait-home-top {
     min-height: 70px;
     padding-right: 8px;
@@ -1044,15 +1102,6 @@ input:focus-visible {
   color: var(--ait-ink-soft);
   font-size: 13px;
   font-weight: 600;
-  text-align: center;
-  word-break: keep-all;
-}
-
-.ait-ghost-note {
-  margin: -4px 0 10px;
-  color: var(--ait-blue);
-  font-size: 12px;
-  font-weight: 700;
   text-align: center;
   word-break: keep-all;
 }

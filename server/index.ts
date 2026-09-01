@@ -8,6 +8,7 @@ import { DEFAULT_CONFIG } from '../src/core/config';
 import { initialState, legalMoves } from '../src/core/rules';
 import { applyMove } from '../src/core/apply';
 import { getResult, type WinReason } from '../src/core/result';
+import { calculateEloRank } from '../src/profile/eloRanking';
 import { isTossLoginConfigured, loginWithToss, verifyCallbackBasicAuth, TossApiError } from './tossAuth';
 
 const PORT = Number(process.env.PORT ?? 3001);
@@ -113,15 +114,8 @@ function cleanName(value: unknown): string | null {
   return name;
 }
 
-function rankedProfiles(): StoredProfile[] {
-  return [...profiles.values()].sort(
-    (a, b) => b.rating - a.rating || b.wins - a.wins || a.losses - b.losses || a.createdAt.localeCompare(b.createdAt),
-  );
-}
-
 function publicProfile(playerId: string): PublicProfile {
   const profile = profiles.get(playerId)!;
-  const ranked = rankedProfiles();
   const games = profile.wins + profile.losses;
   return {
     playerId,
@@ -130,8 +124,10 @@ function publicProfile(playerId: string): PublicProfile {
     losses: profile.losses,
     winRate: games === 0 ? 0 : Math.round((profile.wins / games) * 1000) / 10,
     rating: profile.rating,
-    rank: ranked.findIndex((candidate) => candidate.playerId === playerId) + 1,
-    totalPlayers: ranked.length,
+    rank: calculateEloRank(profile.rating, [...profiles.values()].map((candidate) => candidate.rating)),
+    // Kept in the wire format for compatibility with already-released clients.
+    // Current clients never display the population count.
+    totalPlayers: profiles.size,
   };
 }
 

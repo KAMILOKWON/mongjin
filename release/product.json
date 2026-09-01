@@ -2,8 +2,8 @@
   "schemaVersion": 1,
   "id": "mongjin",
   "displayName": "몽진",
-  "version": "1.0.4",
-  "build": 59,
+  "version": "1.0.7",
+  "build": 62,
   "protocolVersion": 1,
   "submittedBaseline": "ios-1.0.0+5",
   "sharedSource": [
@@ -184,7 +184,7 @@
             "--location",
             "mongjin.ait",
             "--memo",
-            "1.0.0+51 iPhone/Android cross-play"
+            "1.0.7+62 Elo ranking and daily reward"
           ]
         }
       }

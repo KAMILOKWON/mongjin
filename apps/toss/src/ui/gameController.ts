@@ -279,6 +279,9 @@ export class GameController {
       this.onlineStatus = `${PLAYER_KO[winner]} 승리 · ${reasonLabel[reason]}`;
       this.onlineError = false;
       this.onlineWaiting = false;
+      // 서버 판정을 결과 스냅샷에도 반영해야 forfeit를 포함한 모든 정상 종료가
+      // 결과 화면·광고 등 공통 종료 흐름을 탄다.
+      this.forcedResult = { winner, reason };
       // 서버 판정이 확정됐으니 내 차례 시계 타이머가 덮어쓰지 않게 끊는다
       this.clearMoveClock();
       this.notify();
@@ -366,8 +369,12 @@ export class GameController {
     let turnLabel = `${PLAYER_KO[state.turn]} 차례`;
     if (this.tutActive) turnLabel = '튜토리얼';
     else if (this.aiThinking) {
-      const difficulty = AI_DIFFICULTY_PRESETS[this.settings.aiDifficulty].label;
-      turnLabel += ` · 컴퓨터(${difficulty}) 생각 중…`;
+      if (this.quickGhost) {
+        turnLabel += ' · 상대가 생각 중…';
+      } else {
+        const difficulty = AI_DIFFICULTY_PRESETS[this.settings.aiDifficulty].label;
+        turnLabel += ` · 컴퓨터(${difficulty}) 생각 중…`;
+      }
     }
     else if (this.isOnlineMode() && this.onlineWaiting) turnLabel += ' · 상대 대기 중…';
     else if (this.isOnlineMode() && this.onlineSide && !this.isMyTurn(state)) turnLabel += ' · 상대 차례';
@@ -595,7 +602,6 @@ export class GameController {
     if (this.onlineMatchKind !== 'random' || !this.onlineWaiting) return;
     const tape = this.profiles.pickChallenge();
     if (!tape) return;
-    this.showToast('상대를 찾지 못해 기록된 상대와 대국해요');
     this.online.cancelMatchmaking();
     this.online.disconnect();
     this.onlineSide = null;
@@ -1076,7 +1082,13 @@ export class GameController {
   /** 보드 테두리·패딩·칸 간격을 제외한 실제 사용 가능 너비 */
   private availableBoardWidth(): number {
     const wrap = this.boardEl?.parentElement;
-    if (wrap && wrap.clientWidth > 0) return wrap.clientWidth;
+    if (wrap && wrap.clientWidth > 0) {
+      const style = window.getComputedStyle(wrap);
+      const horizontalPadding =
+        Number.parseFloat(style.paddingLeft) + Number.parseFloat(style.paddingRight);
+      // clientWidth에는 wrap의 padding이 포함되므로 실제 content box만 사용한다.
+      return Math.max(0, wrap.clientWidth - horizontalPadding);
+    }
 
     const vw = window.innerWidth;
     const isMobile = vw <= 640;

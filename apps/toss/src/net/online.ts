@@ -195,11 +195,15 @@ export class OnlineClient {
             window.clearTimeout(timer);
             reject(new Error('ws closed before open'));
           } else {
+            const wasQueued = this.queued;
             this.roomId = null;
             this.side = null;
             this.queued = false;
             this.clearMatchmakingTimer();
-            this.callbacks.onStatus('연결 끊김');
+            // 내부 연결 상태를 사용자에게 노출하지 않는다. 매칭 중 끊겼다면
+            // 기다리게 두지 않고 기록된 상대와 즉시 자연스럽게 이어간다.
+            this.callbacks.onStatus('');
+            if (wasQueued) this.callbacks.onMatchmakingTimeout();
           }
         };
 

@@ -24,7 +24,7 @@ export function ProfileScreen() {
         <Text style={{ color: colors.inkSoft, fontSize: 13 }}>{t.myRecord}</Text>
         <Text style={[typography.display, { color: colors.ink, marginTop: 4 }]}>Elo {visible.rating}</Text>
         <Text style={{ color: colors.inkSoft, fontSize: 14, marginTop: 4 }}>{format(t.recordLine, { wins: visible.wins, losses: visible.losses, rate: visible.winRate })}</Text>
-        {onlineProfile ? <Text style={{ color: colors.inkSoft, fontSize: 12, marginTop: 8 }}>{format(t.onlineRankLine, { rank: onlineProfile.rank, total: onlineProfile.totalPlayers })}</Text> : null}
+        {onlineProfile ? <Text style={{ color: colors.inkSoft, fontSize: 12, marginTop: 8 }}>{format(t.onlineRankLine, { rank: onlineProfile.rank })}</Text> : null}
       </View>
       <Text style={{ color: colors.inkSoft, fontSize: 13, fontWeight: '700', marginBottom: 8 }}>{t.nickname}</Text>
       <TextInput value={name} onChangeText={setName} placeholder={t.nicknamePlaceholder} autoCapitalize="none" style={{ color: colors.ink, backgroundColor: colors.surface, borderRadius: 12, borderWidth: 1, borderColor: colors.line, paddingHorizontal: 12, paddingVertical: 12, fontSize: 16, marginBottom: 12 }} />

@@ -338,7 +338,7 @@ function renderStatus() {
       `${profile.rank}${getLocale() === 'ja' ? '位' : '위'} · ${profile.wins}${t('profile.wins')} ${profile.losses}${t('profile.losses')}`;
     document.querySelector<HTMLElement>('#profile-rank')!.textContent = `${profile.rank}${getLocale() === 'ja' ? '位' : '위'}`;
     document.querySelector<HTMLElement>('#profile-rating')!.textContent =
-      t('profile.rating', { rating: profile.rating, total: profile.totalPlayers });
+      t('profile.rating', { rating: profile.rating });
     document.querySelector<HTMLElement>('#profile-wins')!.textContent = String(profile.wins);
     document.querySelector<HTMLElement>('#profile-losses')!.textContent = String(profile.losses);
     document.querySelector<HTMLElement>('#profile-win-rate')!.textContent = `${profile.winRate}%`;

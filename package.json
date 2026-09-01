@@ -1,7 +1,7 @@
 {
   "name": "mongjin",
   "private": true,
-  "version": "1.0.4",
+  "version": "1.0.7",
   "type": "module",
   "scripts": {
     "dev": "vite --host",
@@ -9,6 +9,7 @@
     "dev:mobile": "npm run start --prefix apps/mobile",
     "build:mobile": "npm run build --prefix apps/mobile",
     "build:android:release": "bash scripts/build-mongjin-android-release.sh",
+    "validate:store-metadata": "node scripts/validate-store-metadata.mjs",
     "typecheck:mobile": "npm run typecheck --prefix apps/mobile",
     "device:doctor": "agent-device doctor",
     "device:help": "agent-device help workflow",
