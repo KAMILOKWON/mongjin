@@ -6,7 +6,7 @@ import { DEFAULT_CONFIG } from '../core/config';
 import { initialState } from '../core/rules';
 import type { Coord, GameState, Move, Piece, Player } from '../core/types';
 import type { AiDifficulty, HumanColorChoice, OpponentMode } from '../game/settings';
-import { setLocale } from '../i18n';
+import { getLocale, setLocale, t, type Locale } from '../i18n';
 import { GameController, stoneHtml } from '../ui/gameController';
 import woodTextureUrl from '../../assets/ui/board-light-ash.png';
 import blackGuardUrl from '../../assets/ui/stone-black-guard.png';
@@ -40,9 +40,9 @@ const PROFILE_KEY = 'mongjin.native-parity.profile.v1';
 const game = new GameController();
 const app = document.querySelector<HTMLDivElement>('#app')!;
 
-setLocale('ko');
-document.documentElement.lang = 'ko';
-document.title = '몽진';
+const locale = getLocale();
+document.documentElement.lang = locale;
+document.title = t('meta.title');
 app.className = 'native-app';
 app.style.setProperty('--board-texture', `url("${woodTextureUrl}")`);
 app.style.setProperty('--stone-white', `url("${whiteGuardUrl}")`);
@@ -85,6 +85,11 @@ app.innerHTML = `
           <p class="home-blurb" id="home-blurb">접속 중인 상대와 자동 매칭</p>
           <button class="primary-button" id="home-primary" type="button">대국 시작</button>
           <button class="text-link" id="open-tutorial" type="button">튜토리얼</button>
+          <div class="language-toggle" role="group" aria-label="언어 선택">
+            <button type="button" data-locale="ko">한국어</button>
+            <button type="button" data-locale="en">English</button>
+            <button type="button" data-locale="ja">日本語</button>
+          </div>
           <a href="https://apps.apple.com/app/id6802212694" target="_blank" rel="noopener noreferrer" class="app-store-badge-link" data-i18n-aria="appstore.badge.aria" aria-label="App Store에서 다운로드">
             <img src="${appStoreBadgeUrl}" alt="Download on the App Store" class="app-store-badge" />
           </a>
@@ -280,20 +285,19 @@ function navigate(next: Route) {
   if (next === 'tutorial') startTutorial();
 }
 
-const homeCopy: Record<HomeTab, { blurb: string; cta: string }> = {
-  quick: { blurb: '접속 중인 상대와 자동 매칭', cta: '대국 시작' },
-  ai: { blurb: '난이도와 진영을 골라 연습합니다', cta: '대국 준비' },
-  local: { blurb: '한 기기에서 흑·백을 번갈아 둡니다', cta: '대국 시작' },
-};
-
 function renderHomeTab() {
   document.querySelectorAll<HTMLButtonElement>('[data-home-tab]').forEach((button) => {
     const active = button.dataset.homeTab === homeTab;
     button.classList.toggle('active', active);
     button.setAttribute('aria-selected', String(active));
   });
-  homeBlurbEl.textContent = homeCopy[homeTab].blurb;
-  homePrimaryEl.textContent = homeCopy[homeTab].cta;
+  const copy = homeTab === 'quick'
+    ? { blurb: t('menu.random.description'), cta: t('menu.random.title') }
+    : homeTab === 'ai'
+      ? { blurb: t('menu.ai.description'), cta: t('setup.title') }
+      : { blurb: t('menu.friend.description'), cta: t('menu.random.title') };
+  homeBlurbEl.textContent = copy.blurb;
+  homePrimaryEl.textContent = copy.cta;
 }
 
 function renderProfile() {
@@ -449,6 +453,22 @@ let tutorialFinished = false;
 function sameCoord(a: Coord | undefined, b: Coord): boolean { return Boolean(a && a.r === b.r && a.c === b.c); }
 function tutorialPiece(piece: Piece): string { return `<span class="tutorial-piece ${piece.player.toLowerCase()} ${piece.type.toLowerCase()}"></span>`; }
 
+function applyTranslations() {
+  const locale = getLocale();
+  document.documentElement.lang = locale;
+  document.title = t('meta.title');
+  
+  document.querySelectorAll<HTMLButtonElement>('[data-locale]').forEach((button) => {
+    button.classList.toggle('active', button.dataset.locale === locale);
+    button.setAttribute('aria-pressed', String(button.dataset.locale === locale));
+  });
+  
+  document.querySelectorAll<HTMLElement>('[data-i18n-aria]').forEach((element) => {
+    const key = element.dataset.i18nAria;
+    if (key) element.setAttribute('aria-label', t(key));
+  });
+}
+
 function renderTutorial() {
   const lesson = tutorialLessons[tutorialIndex];
   tutorialTitleEl.textContent = tutorialFinished ? '이제 기본 규칙을 모두 익혔어요' : lesson.title;
@@ -525,9 +545,23 @@ tutorialBoardEl.addEventListener('click', (event) => {
 document.querySelector('#tutorial-practice')!.addEventListener('click', () => startGame('ai', 'easy', 'BLACK'));
 document.querySelector('#tutorial-home')!.addEventListener('click', () => navigate('home'));
 
+document.querySelectorAll<HTMLButtonElement>('[data-locale]').forEach((button) => {
+  button.addEventListener('click', () => {
+    const locale = button.dataset.locale as Locale | undefined;
+    if (locale !== 'ko' && locale !== 'ja' && locale !== 'en') return;
+    setLocale(locale);
+    applyTranslations();
+    renderHomeTab();
+    renderProfile();
+    if (route === 'tutorial') renderTutorial();
+    game.refreshLocale();
+  });
+});
+
 game.attachBoard(boardEl);
 game.subscribe(renderGame);
 game.init();
+applyTranslations();
 renderHomeTab();
 renderProfile();
 renderGame();
