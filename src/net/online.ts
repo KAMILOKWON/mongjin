@@ -25,6 +25,7 @@ export interface LegacyProfileClaim {
 export interface OpponentProfile {
   name: string;
   rating: number;
+  isBot?: boolean;
 }
 
 export type OnlineMatchReason = 'goal' | 'capture' | 'surround' | 'no-moves' | 'forfeit';
@@ -60,6 +61,7 @@ export type ClientMessage =
   | { type: 'UPDATE_PROFILE'; name: string }
   | { type: 'MIGRATE_LEGACY_PROFILE'; legacyProfile: LegacyProfileClaim }
   | { type: 'MATCHMAKE' }
+  | { type: 'MATCHMAKE_BOT' }
   | { type: 'CANCEL_MATCHMAKING' }
   | { type: 'CREATE' }
   | { type: 'JOIN'; roomId: string }
@@ -246,6 +248,14 @@ export class OnlineClient {
       this.cancelMatchmaking();
       this.callbacks.onMatchmakingTimeout();
     }, MATCHMAKING_TIMEOUT_MS);
+  }
+
+  async startBotMatch() {
+    await this.connect();
+    this.clearMatchmakingTimer();
+    this.queued = false;
+    this.callbacks.onStatus('상대를 연결하는 중…');
+    this.send({ type: 'MATCHMAKE_BOT' });
   }
 
   cancelMatchmaking() {

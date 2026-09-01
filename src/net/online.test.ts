@@ -87,4 +87,24 @@ describe('온라인 매칭 제한시간', () => {
     });
     client.disconnect();
   });
+
+  it('대기 제한시간 뒤 서버 공식 봇 매칭을 요청할 수 있다', async () => {
+    const client = new OnlineClient({
+      onState: () => {},
+      onJoined: () => {},
+      onMatchFound: () => {},
+      onMatchResult: () => {},
+      onProfile: () => {},
+      onOpponentLeft: () => {},
+      onMatchmakingTimeout: () => {},
+      onError: () => {},
+      onStatus: () => {},
+    }, 'ws://test');
+
+    await client.startBotMatch();
+
+    expect(sent.map((message) => JSON.parse(message).type)).toContain('MATCHMAKE_BOT');
+    expect(client.isQueued).toBe(false);
+    client.disconnect();
+  });
 });

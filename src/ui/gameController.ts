@@ -341,43 +341,16 @@ export class GameController {
 
   private fallbackRandomMatch() {
     if (!this.isOnlineMode() || this.onlineMatchKind !== 'random' || !this.onlineWaiting) return;
-    const tape = this.ghostStore.pickQuickMatchChallenge(this.profile?.rating ?? 1200);
-    if (tape) {
-      this.startGhostMatch(tape);
-      return;
-    }
-
-    // 번들 고스트가 손상된 경우에도 매칭 화면에서 멈추지 않도록 AI로 최종 폴백한다.
-    this.online.disconnect();
-    this.onlineWaiting = false;
-    this.onlineMatchKind = null;
-    this.onlineOpponent = null;
-    this.onlineSide = null;
-    this.onlineStatus = '상대를 찾지 못해 컴퓨터와 대결합니다';
+    this.onlineStatus = '상대를 연결하는 중…';
     this.onlineError = false;
-    this.settings.mode = 'ai';
-    this.newGame();
-  }
-
-  private startGhostMatch(tape: GhostTape) {
-    this.cancelAiTurn();
-    this.online.cancelMatchmaking();
-    this.online.disconnect();
-    this.settings.mode = 'ghost';
-    this.ghostTape = tape;
-    this.ghost = new GhostController(tape);
-    this.onlineSide = null;
-    this.onlineMatchKind = null;
-    this.onlineOpponent = null;
-    this.onlineWaiting = false;
-    this.onlineError = false;
-    this.states = [initialState(this.config)];
-    this.selected = null;
-    this.learningRecorded = false;
-    this.applySidesFromSettings();
-    this.onlineStatus = `${tape.ownerName} 님과 매칭됐어요 — ${PLAYER_KO[this.humanSide]}`;
     this.notify();
-    this.maybeAiTurn();
+    void this.online.startBotMatch().catch(() => {
+      if (!this.isOnlineMode() || this.onlineMatchKind !== 'random' || !this.onlineWaiting) return;
+      this.onlineWaiting = false;
+      this.onlineStatus = '온라인 서버에 연결할 수 없습니다. 잠시 후 다시 시도해 주세요.';
+      this.onlineError = true;
+      this.notify();
+    });
   }
 
   cancelRandomMatch() {
