@@ -66,29 +66,29 @@ function previewBoardMarkup(): string {
 
 app.innerHTML = `
   <main class="native-shell">
-    <section class="screen home-screen active" data-route="home" aria-label="홈">
+    <section class="screen home-screen active" data-route="home" data-i18n-aria="home.actions" aria-label="홈">
       <div class="home-scroll">
         <header class="home-header">
-          <h1>몽진</h1>
-          <button class="profile-pill" id="open-profile" type="button" aria-label="내 프로필">
+          <h1 data-i18n="brand.title">몽진</h1>
+          <button class="profile-pill" id="open-profile" type="button" data-i18n-aria="profile.open" aria-label="내 프로필">
             <strong id="home-profile-name">플레이어</strong>
             <small id="home-profile-record">Elo 1200 · 0승</small>
           </button>
         </header>
-        <div class="preview-board" role="img" aria-label="몽진 초기 배치 미리보기">${previewBoardMarkup()}</div>
+        <div class="preview-board" role="img" data-i18n-aria="preview.aria" aria-label="몽진 초기 배치 미리보기">${previewBoardMarkup()}</div>
         <div class="home-controls">
-          <div class="home-tabs" role="tablist" aria-label="대국 방식">
-            <button class="active" type="button" role="tab" data-home-tab="quick" aria-selected="true">빠른 대전</button>
-            <button type="button" role="tab" data-home-tab="ai" aria-selected="false">컴퓨터</button>
-            <button type="button" role="tab" data-home-tab="local" aria-selected="false">같이 두기</button>
+          <div class="home-tabs" role="tablist" data-i18n-aria="home.actions" aria-label="대국 방식">
+            <button class="active" type="button" role="tab" data-home-tab="quick" aria-selected="true" data-i18n="menu.random.title">빠른 대전</button>
+            <button type="button" role="tab" data-home-tab="ai" aria-selected="false" data-i18n="menu.ai.title">컴퓨터</button>
+            <button type="button" role="tab" data-home-tab="local" aria-selected="false" data-i18n="menu.friend.title">같이 두기</button>
           </div>
-          <p class="home-blurb" id="home-blurb">접속 중인 상대와 자동 매칭</p>
-          <button class="primary-button" id="home-primary" type="button">대국 시작</button>
-          <button class="text-link" id="open-tutorial" type="button">튜토리얼</button>
-          <div class="language-toggle" role="group" aria-label="언어 선택">
-            <button type="button" data-locale="ko">한국어</button>
-            <button type="button" data-locale="en">English</button>
-            <button type="button" data-locale="ja">日本語</button>
+          <p class="home-blurb" id="home-blurb" data-i18n="menu.random.description">접속 중인 상대와 자동 매칭</p>
+          <button class="primary-button" id="home-primary" type="button" data-i18n="menu.random.title">대국 시작</button>
+          <button class="text-link" id="open-tutorial" type="button" data-i18n="menu.tutorial.title">튜토리얼</button>
+          <div class="language-toggle" role="group" data-i18n-aria="language.selector" aria-label="언어 선택">
+            <button type="button" data-locale="ko" data-i18n="language.ko">한국어</button>
+            <button type="button" data-locale="en" data-i18n="language.en">English</button>
+            <button type="button" data-locale="ja" data-i18n="language.ja">日本語</button>
           </div>
           <a href="https://apps.apple.com/app/id6802212694" target="_blank" rel="noopener noreferrer" class="app-store-badge-link" data-i18n-aria="appstore.badge.aria" aria-label="App Store에서 다운로드">
             <img src="${appStoreBadgeUrl}" alt="Download on the App Store" class="app-store-badge" />
@@ -292,10 +292,10 @@ function renderHomeTab() {
     button.setAttribute('aria-selected', String(active));
   });
   const copy = homeTab === 'quick'
-    ? { blurb: t('menu.random.description'), cta: t('menu.random.title') }
+    ? { blurb: t('menu.random.description'), cta: t('setup.start') }
     : homeTab === 'ai'
       ? { blurb: t('menu.ai.description'), cta: t('setup.title') }
-      : { blurb: t('menu.friend.description'), cta: t('menu.random.title') };
+      : { blurb: t('menu.friend.description'), cta: t('setup.start') };
   homeBlurbEl.textContent = copy.blurb;
   homePrimaryEl.textContent = copy.cta;
 }
@@ -458,14 +458,22 @@ function applyTranslations() {
   document.documentElement.lang = locale;
   document.title = t('meta.title');
   
-  document.querySelectorAll<HTMLButtonElement>('[data-locale]').forEach((button) => {
-    button.classList.toggle('active', button.dataset.locale === locale);
-    button.setAttribute('aria-pressed', String(button.dataset.locale === locale));
+  // Update all text content with data-i18n attribute
+  document.querySelectorAll<HTMLElement>('[data-i18n]').forEach((element) => {
+    const key = element.dataset.i18n;
+    if (key) element.textContent = t(key);
   });
   
+  // Update all aria-labels with data-i18n-aria attribute
   document.querySelectorAll<HTMLElement>('[data-i18n-aria]').forEach((element) => {
     const key = element.dataset.i18nAria;
     if (key) element.setAttribute('aria-label', t(key));
+  });
+  
+  // Mark active locale button
+  document.querySelectorAll<HTMLButtonElement>('[data-locale]').forEach((button) => {
+    button.classList.toggle('active', button.dataset.locale === locale);
+    button.setAttribute('aria-pressed', String(button.dataset.locale === locale));
   });
 }
 
