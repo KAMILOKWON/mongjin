@@ -3,7 +3,7 @@
   "id": "mongjin",
   "displayName": "몽진",
   "version": "1.0.7",
-  "build": 62,
+  "build": 63,
   "protocolVersion": 1,
   "submittedBaseline": "ios-1.0.0+5",
   "sharedSource": [
@@ -184,7 +184,7 @@
             "--location",
             "mongjin.ait",
             "--memo",
-            "1.0.7+62 Elo ranking and daily reward"
+            "1.0.7+63 Official Elo migration"
           ]
         }
       }

@@ -18,7 +18,7 @@
     "ios": {
       "supportsTablet": false,
       "bundleIdentifier": "com.studiozzg.mongjin",
-      "buildNumber": "62",
+      "buildNumber": "63",
       "deploymentTarget": "17.0",
       "backgroundColor": "#FBFAF7",
       "infoPlist": {
@@ -27,7 +27,7 @@
     },
     "android": {
       "package": "com.studiozzg.mongjin",
-      "versionCode": 62,
+      "versionCode": 63,
       "adaptiveIcon": {
         "backgroundColor": "#E6F4FE",
         "foregroundImage": "./assets/android-icon-foreground.png",
