@@ -320,6 +320,41 @@ input:focus-visible {
   cursor: pointer;
 }
 
+.language-toggle {
+  display: inline-flex;
+  align-self: center;
+  gap: 0;
+  margin: 8px 0 0;
+  padding: 3px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--surface);
+  box-shadow: 0 1px 2px rgba(32, 42, 51, 0.04);
+}
+
+.language-toggle button {
+  min-width: 68px;
+  min-height: 32px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 999px;
+  color: var(--ink-soft);
+  background: transparent;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.language-toggle button:hover {
+  color: var(--ink);
+}
+
+.language-toggle button.active {
+  color: white;
+  background: var(--blue);
+  box-shadow: 0 2px 4px rgba(49, 95, 137, 0.2);
+}
+
 .app-store-badge-link {
   display: block;
   align-self: center;

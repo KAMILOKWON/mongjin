@@ -47,7 +47,7 @@ app.style.setProperty('--king-black', `url("${blackKingUrl}")`);
 app.innerHTML = `
   <main class="home-screen" id="home-screen">
     <header class="home-brand">
-      <div>
+      <div class="home-brand-title">
         <h1 data-i18n="brand.title">몽진</h1>
         <p class="brand-subtitle" data-i18n="brand.subtitle">왕의 피난길</p>
       </div>
