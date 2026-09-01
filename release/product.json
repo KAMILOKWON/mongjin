@@ -2,8 +2,8 @@
   "schemaVersion": 1,
   "id": "mongjin",
   "displayName": "몽진",
-  "version": "1.0.0",
-  "build": 53,
+  "version": "1.0.7",
+  "build": 63,
   "protocolVersion": 1,
   "submittedBaseline": "ios-1.0.0+5",
   "sharedSource": [
@@ -31,10 +31,6 @@
     {
       "type": "package-json",
       "path": "apps/toss/package.json"
-    },
-    {
-      "type": "xcode",
-      "path": "apps/ios/Mongjin.xcodeproj/project.pbxproj"
     }
   ],
   "platforms": {
@@ -76,6 +72,25 @@
             "ios",
             "beta"
           ]
+        },
+        "production": {
+          "cwd": ".",
+          "requiredTools": [
+            "bundle",
+            "xcodebuild"
+          ],
+          "requiredFiles": [
+            "Gemfile.lock",
+            "apps/mobile/app.json",
+            "fastlane/Fastfile"
+          ],
+          "run": [
+            "bundle",
+            "exec",
+            "fastlane",
+            "ios",
+            "production"
+          ]
         }
       }
     },
@@ -94,11 +109,10 @@
       ],
       "actions": {
         "build": {
-          "cwd": "apps/mobile",
+          "cwd": ".",
           "run": [
-            "npm",
-            "run",
-            "build"
+            "bash",
+            "scripts/build-mongjin-android-release.sh"
           ]
         },
         "beta": {
@@ -117,7 +131,25 @@
             "exec",
             "fastlane",
             "android",
-            "internal"
+            "alpha"
+          ]
+        },
+        "production": {
+          "cwd": ".",
+          "requiredTools": [
+            "bundle"
+          ],
+          "requiredFiles": [
+            "Gemfile.lock",
+            "apps/mobile/app.json",
+            "fastlane/Fastfile"
+          ],
+          "run": [
+            "bundle",
+            "exec",
+            "fastlane",
+            "android",
+            "production"
           ]
         }
       }
@@ -152,7 +184,7 @@
             "--location",
             "mongjin.ait",
             "--memo",
-            "1.0.0+51 iPhone/Android cross-play"
+            "1.0.7+63 Official Elo migration"
           ]
         }
       }

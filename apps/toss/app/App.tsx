@@ -7,18 +7,24 @@ import {
   TextField,
 } from '@toss/tds-mobile';
 import { GameController, type GameSnapshot } from '@shared/ui/gameController';
+import { HomeBannerAd, useGameInterstitialAd } from '@shared/platform/ads';
+import {
+  claimPromotionReward,
+  isPromotionTestBuild,
+  promotionTestRewards,
+  recordCompletedGameForPromotions,
+  type PromotionClaimResult,
+  type PromotionReward,
+} from '@shared/platform/promotion';
 import {
   AI_DIFFICULTY_PRESETS,
+  opponentOf,
   type AiDifficulty,
   type HumanColorChoice,
   type OpponentMode,
-} from '@shared/game/settings';
+} from '../../../packages/game-data/src';
 import '@shared/ui/board.css';
 import './ait.css';
-import tutorialGoalUrl from '../assets/tutorial/tutorial-goal.jpg';
-import tutorialPlaceUrl from '../assets/tutorial/tutorial-place.jpg';
-import tutorialMoveUrl from '../assets/tutorial/tutorial-move.jpg';
-import tutorialProtectUrl from '../assets/tutorial/tutorial-protect.jpg';
 import blackGuardUrl from '../assets/ui/stone-black-guard.png';
 import blackKingUrl from '../assets/ui/stone-black-king.png';
 import whiteGuardUrl from '../assets/ui/stone-white-guard.png';
@@ -28,37 +34,11 @@ const game = new GameController();
 
 type Screen = 'home' | 'setup' | 'match' | 'friend' | 'game' | 'profile' | 'tutorial';
 
-const TUTORIAL_STEPS = [
-  {
-    title: '왕을 피난시키세요',
-    image: tutorialGoalUrl,
-    alt: '흑 왕이 상대편 끝줄의 가운데 목적지로 이동하는 경로',
-    copy: '자기 왕(王)을 상대 진영 맨 끝줄의 가운데 세 칸 중 하나에 먼저 올리면 이깁니다. 목적지에 도착한 턴이 끝나는 순간 승리합니다.',
-  },
-  {
-    title: '호위를 배치하세요',
-    image: tutorialPlaceUrl,
-    alt: '왕과 호위에 상하좌우로 맞닿은 칸에 새 호위를 배치하는 모습',
-    copy: '매 턴 호위 하나를 자기 말과 상하좌우로 맞닿은 빈 칸에 둘 수 있습니다. 호위는 진영마다 8개입니다. 양쪽 목적지 칸에는 호위를 둘 수 없습니다.',
-  },
-  {
-    title: '두거나, 움직이세요',
-    image: tutorialMoveUrl,
-    alt: '왕은 여덟 방향, 호위는 상하좌우 네 방향으로 움직이는 방법',
-    copy: '한 턴에는 호위를 새로 두거나, 이미 있는 말 하나를 움직입니다. 둘 다 할 수는 없습니다. 왕은 여덟 방향 1칸, 호위는 상하좌우 1칸입니다.',
-  },
-  {
-    title: '왕을 끝까지 지키세요',
-    image: tutorialProtectUrl,
-    alt: '세 호위가 왕을 둘러싸고 상대 호위의 접근을 막는 모습',
-    copy: '호위는 상대 호위와 상대 왕을 잡을 수 있습니다. 왕이 잡히면 즉시 패배합니다. 왕은 잡지 못하고 빈 칸으로만 움직이니, 혼자 돌진하지 마세요.',
-  },
-] as const;
-
 const MODE_LABEL: Record<OpponentMode, string> = {
   ai: '컴퓨터 대전',
   local: '같이 두기',
   online: '랜덤 대전',
+  ghost: '빠른 대전',
 };
 
 type HomeTab = OpponentMode | 'friend';
@@ -210,8 +190,70 @@ function HomeScreen({
         <button type="button" className="ait-text-btn" onClick={onTutorial}>
           튜토리얼
         </button>
+        {isPromotionTestBuild && <PromotionTestPanel />}
       </section>
+      <HomeBannerAd />
     </div>
+  );
+}
+
+function promotionResultMessage(result: PromotionClaimResult, amount: number): string {
+  switch (result.status) {
+    case 'success':
+      return `토스 포인트 ${amount}원 테스트를 완료했어요`;
+    case 'already-claimed':
+      return '오늘의 토스 포인트를 이미 받았어요';
+    case 'unsupported':
+      return '토스 앱을 최신 버전으로 업데이트해 주세요';
+    case 'error':
+      return result.code
+        ? `토스 포인트 지급 실패 (${result.code})`
+        : '토스 포인트 지급을 확인하지 못했어요';
+  }
+}
+
+function PromotionTestButton({ reward }: { reward: PromotionReward }) {
+  const [status, setStatus] = useState<'idle' | 'pending' | 'success' | 'error'>('idle');
+  const [message, setMessage] = useState('');
+
+  const runTest = () => {
+    setStatus('pending');
+    setMessage('테스트 API를 호출하고 있어요');
+    void claimPromotionReward(reward).then((result) => {
+      const succeeded = result.status === 'success' || result.status === 'already-claimed';
+      setStatus(succeeded ? 'success' : 'error');
+      setMessage(promotionResultMessage(result, reward.amount));
+    });
+  };
+
+  return (
+    <div className="ait-promotion-test-item">
+      <span>{reward.label} · {reward.amount}원 테스트 지급</span>
+      <button
+        type="button"
+        onClick={runTest}
+        disabled={status === 'pending' || status === 'success'}
+      >
+        {status === 'pending' ? '호출 중…' : status === 'success' ? '호출 완료' : '테스트 호출'}
+      </button>
+      {message && (
+        <small className={status === 'error' ? 'is-error' : ''} role="status">
+          {message}
+        </small>
+      )}
+    </div>
+  );
+}
+
+function PromotionTestPanel() {
+  return (
+    <section className="ait-promotion-test" aria-label="프로모션 API 테스트">
+      <strong>프로모션 API 테스트</strong>
+      <span>실제 포인트는 차감되지 않아요</span>
+      {promotionTestRewards.map((reward) => (
+        <PromotionTestButton key={reward.id} reward={reward} />
+      ))}
+    </section>
   );
 }
 
@@ -286,9 +328,11 @@ function SetupScreen({
 function MatchScreen({
   onBack,
   onRetry,
+  onRelogin,
 }: {
   onBack: () => void;
   onRetry: () => void;
+  onRelogin: () => void;
 }) {
   const snap = useGameSnapshot();
 
@@ -304,17 +348,24 @@ function MatchScreen({
           </div>
           <p className="ait-lead">{snap.onlineWaiting ? '상대를 찾는 중' : '매칭 준비'}</p>
           <Paragraph typography="t6" color="adaptive-grey-600" style={{ textAlign: 'center' }}>
-            {snap.onlineStatus || 'iPhone과 Android에서 접속 중인 상대를 찾습니다'}
+            {snap.onlineStatus || '접속 중인 상대를 찾습니다'}
           </Paragraph>
-          {snap.profile && (
+          {snap.visibleProfile && (
             <div className="ait-match-rating">
-              {snap.profile.name} · Elo {snap.profile.rating} · {snap.profile.rank}위
+              {snap.visibleProfile.name} · Elo {snap.visibleProfile.rating}
+              {snap.rankInfo ? ` · ${snap.rankInfo.rank}위` : ''}
             </div>
           )}
-          {snap.onlineError && (
-            <Button size="large" variant="weak" display="block" onClick={onRetry}>
-              다시 찾기
+          {snap.onlineLoggedOut ? (
+            <Button size="large" display="block" onClick={onRelogin}>
+              토스로 다시 로그인
             </Button>
+          ) : (
+            snap.onlineError && (
+              <Button size="large" variant="weak" display="block" onClick={onRetry}>
+                다시 찾기
+              </Button>
+            )
           )}
         </>
       </div>
@@ -455,11 +506,19 @@ function SeatRow({ snap }: { snap: GameSnapshot }) {
 
 function Seat({ player, snap }: { player: 'BLACK' | 'WHITE'; snap: GameSnapshot }) {
   const isWhite = player === 'WHITE';
-  const mine = snap.onlineSide === player;
+  // 고스트 폴백 대국은 ai 모드로 진행되므로 humanSide가 내 자리다
+  const mySide = snap.onlineSide ?? (snap.settings.mode === 'ai' ? snap.humanSide : null);
+  const opponentSide = mySide ? opponentOf(mySide) : null;
+  const mine = mySide === player;
+  const isOpponentSeat = opponentSide === player;
   const opponent = snap.onlineOpponent;
-  const name = mine ? snap.profile?.name ?? '나' : opponent?.name ?? '상대';
-  const rating = mine ? snap.profile?.rating : opponent?.rating;
-  const active = !snap.resultLabel && snap.state.turn === player;
+  const name = mine
+    ? snap.visibleProfile?.name ?? '나'
+    : isOpponentSeat && opponent
+      ? opponent.name
+      : '상대';
+  const rating = mine ? snap.visibleProfile?.rating : isOpponentSeat ? opponent?.rating : null;
+  const active = !snap.resultTitle && snap.state.turn === player;
 
   return (
     <section className={`ait-seat is-${player.toLowerCase()}${active ? ' is-active' : ''}`}>
@@ -476,7 +535,7 @@ function Seat({ player, snap }: { player: 'BLACK' | 'WHITE'; snap: GameSnapshot 
         </div>
         <span className="ait-seat-detail">
           {isWhite ? '백' : '흑'}
-          {rating ? ` · Elo ${rating}` : ''}
+          {rating !== null && rating !== undefined ? ` · Elo ${rating}` : ''}
         </span>
       </div>
     </section>
@@ -513,6 +572,11 @@ function GameScreen({ onLeave }: { onLeave: () => void }) {
       : modeLabel;
   const quickFallback = snap.onlineOpponent?.isBot === true;
   const quick = snap.onlineMatchKind === 'random' || quickFallback;
+  const friendRunning =
+    snap.settings.mode === 'online' && snap.onlineMatchKind === 'friend' && !snap.resultTitle && snap.onlineSide !== null;
+  const canResign = quick && !snap.resultTitle;
+  // 'resign' = 항복 확인, 'leave' = 친구 대국 종료 확인
+  const [ask, setAsk] = useState<null | 'resign' | 'leave'>(null);
   const [remaining, setRemaining] = useState(0);
 
   useEffect(() => {
@@ -542,11 +606,54 @@ function GameScreen({ onLeave }: { onLeave: () => void }) {
     };
   }, []);
 
-  const leaveLabel = snap.settings.mode === 'online' || quickFallback ? '대국 종료' : '새 게임';
+  useEffect(() => {
+    setAsk(null);
+  }, [snap.resultTitle]);
+
+  const leaveLabel = snap.resultTitle ? '나가기' : canResign ? '항복' : friendRunning ? '대국 종료' : '새 게임';
+
+  const primaryAction = () => {
+    if (snap.resultTitle) {
+      onLeave();
+      return;
+    }
+    if (canResign) {
+      setAsk('resign');
+      return;
+    }
+    if (friendRunning) {
+      setAsk('leave');
+      return;
+    }
+    game.reset();
+  };
+
+  const confirmAction = () => {
+    if (ask === 'resign') game.resign();
+    else if (ask === 'leave') onLeave();
+    setAsk(null);
+  };
+
+  /** 뒤로 가기: 진행 중 빠른 대전은 항복 확인, 그 외에는 메인으로 나간다 */
+  const backAction = () => {
+    if (snap.resultTitle) {
+      onLeave();
+      return;
+    }
+    if (canResign) {
+      setAsk('resign');
+      return;
+    }
+    if (friendRunning) {
+      setAsk('leave');
+      return;
+    }
+    onLeave();
+  };
 
   return (
     <div className="ait-screen ait-game">
-      <ScreenNav title={chip} onBack={onLeave} />
+      <ScreenNav title={chip} onBack={backAction} />
 
       {snap.onlineOpponent && <SeatRow snap={snap} />}
 
@@ -555,20 +662,25 @@ function GameScreen({ onLeave }: { onLeave: () => void }) {
       </div>
 
       <section className="ait-hud">
-        {snap.resultLabel ? (
-          <p className="ait-result">{snap.resultLabel}</p>
+        {snap.resultTitle ? (
+          <>
+            <p className="ait-result">{snap.resultTitle}</p>
+            <p className="ait-result-sentence">{snap.resultSentence}</p>
+          </>
         ) : (
-          <div className={`ait-turn${isWhiteTurn ? ' is-white' : ' is-black'}`} role="status">
-            <Asset.Icon
-              name="icon-system-arrow-back-android-outlined"
-              color={isWhiteTurn ? '#315f89' : '#202a33'}
-              frameShape={{ width: 26, height: 26 }}
-              style={{ transform: isWhiteTurn ? 'rotate(180deg)' : undefined }}
-              alt=""
-            />
-            <strong>{isWhiteTurn ? '백 차례' : '흑 차례'}</strong>
-            {turnDetail && <span>{turnDetail}</span>}
-          </div>
+          <>
+            <div className={`ait-turn${isWhiteTurn ? ' is-white' : ' is-black'}`} role="status">
+              <Asset.Icon
+                name="icon-system-arrow-back-android-outlined"
+                color={isWhiteTurn ? '#315f89' : '#202a33'}
+                frameShape={{ width: 26, height: 26 }}
+                style={{ transform: isWhiteTurn ? 'rotate(180deg)' : undefined }}
+                alt=""
+              />
+              <strong>{isWhiteTurn ? '백 차례' : '흑 차례'}</strong>
+              {turnDetail && <span>{turnDetail}</span>}
+            </div>
+          </>
         )}
         {snap.onlineStatus && snap.settings.mode === 'online' && (
           <p className={`ait-online-note${snap.onlineError ? ' is-error' : ''}`}>{snap.onlineStatus}</p>
@@ -577,44 +689,64 @@ function GameScreen({ onLeave }: { onLeave: () => void }) {
           <GuardTray
             player="WHITE"
             count={snap.state.guardsInHand.WHITE}
-            active={!snap.resultLabel && isWhiteTurn}
+            active={!snap.resultTitle && isWhiteTurn}
           />
           <GuardTray
             player="BLACK"
             count={snap.state.guardsInHand.BLACK}
-            active={!snap.resultLabel && !isWhiteTurn}
+            active={!snap.resultTitle && !isWhiteTurn}
           />
         </div>
       </section>
 
       <div className="ait-actions">
-        {quick ? (
-          <MoveClock remaining={remaining} waiting={Boolean(snap.resultLabel) || snap.aiThinking || !snap.isMyTurn} />
-        ) : snap.settings.mode === 'online' ? (
-          <div />
+        {ask ? (
+          <>
+            <Button size="large" variant="weak" display="block" onClick={() => setAsk(null)}>
+              취소
+            </Button>
+            <Button size="large" display="block" onClick={confirmAction}>
+              {ask === 'resign' ? '항복' : '종료'}
+            </Button>
+          </>
         ) : (
-          <Button
-            size="large"
-            variant="weak"
-            display="block"
-            disabled={!snap.canUndo || snap.aiThinking}
-            onClick={() => game.undo()}
-          >
-            무르기
-          </Button>
+          <>
+            {quick ? (
+              <MoveClock remaining={remaining} waiting={Boolean(snap.resultTitle) || snap.aiThinking || !snap.isMyTurn} />
+            ) : snap.settings.mode === 'online' ? (
+              <div />
+            ) : (
+              <Button
+                size="large"
+                variant="weak"
+                display="block"
+                disabled={!snap.canUndo || snap.aiThinking}
+                onClick={() => game.undo()}
+              >
+                무르기
+              </Button>
+            )}
+            <Button
+              size="large"
+              display="block"
+              disabled={snap.aiThinking && snap.settings.mode !== 'online' && !quickFallback}
+              onClick={primaryAction}
+            >
+              {leaveLabel}
+            </Button>
+          </>
         )}
-        <Button
-          size="large"
-          display="block"
-          disabled={snap.aiThinking && snap.settings.mode !== 'online' && !quickFallback}
-          onClick={() => {
-            if (snap.settings.mode === 'online' || quickFallback) onLeave();
-            else game.reset();
-          }}
-        >
-          {leaveLabel}
-        </Button>
       </div>
+      {ask === 'resign' && (
+        <p className="ait-confirm-note" role="alert">
+          이 대국은 패배로 기록됩니다. 상대 입장에서는 당신이 항복한 것으로 남습니다.
+        </p>
+      )}
+      {ask === 'leave' && (
+        <p className="ait-confirm-note" role="alert">
+          진행 중인 대국은 저장되지 않습니다.
+        </p>
+      )}
     </div>
   );
 }
@@ -639,11 +771,11 @@ function ProfileScreen({
         <>
           <div className="ait-rank-card">
             <span>전체 순위</span>
-            <strong>{snap.profile ? `${snap.profile.rank}위` : '—'}</strong>
+            <strong>{snap.rankInfo ? `${snap.rankInfo.rank}위` : '—'}</strong>
             <small>
-              {snap.profile
-                ? `Elo ${snap.profile.rating} · ${snap.profile.wins}승 ${snap.profile.losses}패 · 승률 ${snap.profile.winRate}%`
-                : '첫 온라인 대전에서 프로필이 만들어집니다'}
+              {snap.visibleProfile
+                ? `Elo ${snap.visibleProfile.rating} · ${snap.visibleProfile.wins}승 ${snap.visibleProfile.losses}패 · 승률 ${snap.visibleProfile.winRate}%`
+                : '대국을 두면 전적이 쌓입니다'}
             </small>
           </div>
           <section className="ait-setup-card">
@@ -672,48 +804,64 @@ function TutorialScreen({
   onBack: () => void;
   onPractice: () => void;
 }) {
-  const [step, setStep] = useState(0);
-  const current = TUTORIAL_STEPS[step];
-  const last = step === TUTORIAL_STEPS.length - 1;
+  const snap = useGameSnapshot();
+  const boardRef = useRef<HTMLDivElement>(null);
+  const total = snap.tutorialTotal;
+  const step = snap.tutorialStep;
+
+  useLayoutEffect(() => {
+    if (boardRef.current) game.attachBoard(boardRef.current);
+    return () => game.detachBoard();
+  }, []);
+
+  useEffect(() => {
+    const onResize = () => game.refreshBoardLayout();
+    window.addEventListener('resize', onResize);
+    const wrap = boardRef.current?.parentElement;
+    const ro =
+      wrap && typeof ResizeObserver !== 'undefined' ? new ResizeObserver(onResize) : null;
+    if (wrap && ro) ro.observe(wrap);
+    return () => {
+      window.removeEventListener('resize', onResize);
+      ro?.disconnect();
+    };
+  }, []);
 
   return (
-    <div className="ait-screen">
+    <div className="ait-screen ait-tutorial">
       <ScreenNav title="튜토리얼" onBack={onBack} />
       <div className="ait-screen-body ait-tutorial-body">
-        <div className="ait-tutorial-visual">
-          <img src={current.image} alt={current.alt} />
-          <span aria-hidden="true">{step + 1}</span>
+        {!snap.tutorialFinished && <p className="ait-tutorial-count"><strong>{step}</strong> / {total}</p>}
+        <h3 className="ait-tutorial-title">{snap.tutorialTitle}</h3>
+        {snap.tutorialCoach && <p className="ait-tutorial-copy">{snap.tutorialCoach}</p>}
+        <div className="ait-board-wrap ait-tutorial-board">
+          <div ref={boardRef} className="ait-board" />
         </div>
-        <h3 className="ait-tutorial-title">{current.title}</h3>
-        <p className="ait-tutorial-copy">{current.copy}</p>
-        <div className="ait-tutorial-progress" aria-label="튜토리얼 진행">
-          {TUTORIAL_STEPS.map((item, index) => (
-            <span key={item.title} className={index === step ? 'is-active' : ''}>
-              {index + 1}
-            </span>
-          ))}
-        </div>
-        <div className="ait-tutorial-actions">
-          <Button
-            size="large"
-            variant="weak"
-            display="block"
-            disabled={step === 0}
-            onClick={() => setStep((n) => Math.max(0, n - 1))}
-          >
-            이전
-          </Button>
-          <Button
-            size="large"
-            display="block"
-            onClick={() => {
-              if (last) onPractice();
-              else setStep((n) => n + 1);
-            }}
-          >
-            {last ? '연습 대국 시작' : '다음'}
-          </Button>
-        </div>
+        {!snap.tutorialFinished ? (
+          <>
+            <div className="ait-tutorial-progress" aria-label={`레슨 ${step} / ${total}`}>
+              {Array.from({ length: total }, (_, index) => (
+                <span
+                  key={index}
+                  className={index === step - 1 ? 'is-active' : index < step - 1 ? 'is-done' : ''}
+                />
+              ))}
+            </div>
+            <div className="ait-hint-panel" aria-live="polite">
+              <span>지금 할 일 ☝</span>
+              <strong>{snap.tutorialHint}</strong>
+            </div>
+          </>
+        ) : (
+          <div className="ait-tutorial-actions">
+            <Button size="large" display="block" onClick={onPractice}>
+              컴퓨터로 연습하기
+            </Button>
+            <Button size="large" variant="weak" display="block" onClick={onBack}>
+              홈으로
+            </Button>
+          </div>
+        )}
       </div>
     </div>
   );
@@ -726,6 +874,9 @@ function MongjinApp() {
   const [setupDifficulty, setSetupDifficulty] = useState<AiDifficulty>('normal');
   const [setupColor, setSetupColor] = useState<HumanColorChoice>('BLACK');
   const matchStarted = useRef(false);
+  const resultAdHandled = useRef(false);
+  const resultPromotionHandled = useRef(false);
+  const interstitialAd = useGameInterstitialAd(screen === 'game');
 
   useEffect(() => {
     game.setMode('local');
@@ -734,8 +885,12 @@ function MongjinApp() {
   }, []);
 
   useEffect(() => {
-    if (snap.profile && !profileName) setProfileName(snap.profile.name);
-  }, [snap.profile, profileName]);
+    if (snap.visibleProfile && !profileName) setProfileName(snap.visibleProfile.name);
+  }, [snap.visibleProfile, profileName]);
+
+  useEffect(() => {
+    if (screen === 'tutorial') game.enterTutorial();
+  }, [screen]);
 
   useEffect(() => {
     if (screen === 'match' && (snap.onlineSide || snap.onlineOpponent?.isBot)) setScreen('game');
@@ -747,6 +902,31 @@ function MongjinApp() {
     }
   }, [screen, snap.onlineMatchKind, snap.onlineOpponent]);
 
+  useEffect(() => {
+    const hasFinishedGame = screen === 'game' && Boolean(snap.resultTitle);
+    if (hasFinishedGame && !resultAdHandled.current) {
+      resultAdHandled.current = true;
+      interstitialAd.showAfterGame();
+      return;
+    }
+    if (!hasFinishedGame) {
+      resultAdHandled.current = false;
+      interstitialAd.cancelPending();
+    }
+  }, [screen, snap.resultTitle, interstitialAd]);
+
+  useEffect(() => {
+    const hasFinishedGame = screen === 'game' && Boolean(snap.resultTitle);
+    if (hasFinishedGame && !resultPromotionHandled.current) {
+      resultPromotionHandled.current = true;
+      void recordCompletedGameForPromotions();
+      return;
+    }
+    if (!hasFinishedGame) {
+      resultPromotionHandled.current = false;
+    }
+  }, [screen, snap.resultTitle]);
+
   const leaveToMenu = () => {
     matchStarted.current = false;
     game.detachBoard();
@@ -756,6 +936,18 @@ function MongjinApp() {
     }
     game.setMode('local');
     setScreen('home');
+  };
+
+  const closeTutorial = () => {
+    game.exitTutorial();
+    setScreen('home');
+  };
+
+  const practiceFromTutorial = () => {
+    game.exitTutorial();
+    setSetupDifficulty('normal');
+    setSetupColor('BLACK');
+    setScreen('setup');
   };
 
   const startLocal = () => {
@@ -794,10 +986,11 @@ function MongjinApp() {
     startMatchmaking();
   }, [screen]);
 
-  const profileLabel = snap.profile?.name ?? '나그네';
-  const profileMeta = snap.profile
-    ? `${snap.profile.rank}위 · Elo ${snap.profile.rating}`
-    : '온라인 프로필 준비 중';
+  const profileLabel = snap.visibleProfile?.name ?? '나그네';
+  const rankSuffix = snap.rankInfo ? `${snap.rankInfo.rank}위 · ` : '';
+  const profileMeta = snap.visibleProfile
+    ? `${rankSuffix}Elo ${snap.visibleProfile.rating} · ${snap.visibleProfile.wins}승`
+    : '기록을 준비하는 중';
 
   return (
     <div className="ait-shell">
@@ -829,6 +1022,11 @@ function MongjinApp() {
         <MatchScreen
           onBack={leaveToMenu}
           onRetry={startMatchmaking}
+          onRelogin={() => {
+            void game.retryTossLogin().then((ok) => {
+              if (ok) startMatchmaking();
+            });
+          }}
         />
       )}
       {screen === 'friend' && (
@@ -843,12 +1041,17 @@ function MongjinApp() {
         <ProfileScreen
           profileName={profileName}
           onNameChange={setProfileName}
-          onSave={() => game.updateProfileName(profileName)}
+          onSave={() => game.saveName(profileName)}
           onBack={() => setScreen('home')}
         />
       )}
       {screen === 'tutorial' && (
-        <TutorialScreen onBack={() => setScreen('home')} onPractice={startAi} />
+        <TutorialScreen onBack={closeTutorial} onPractice={practiceFromTutorial} />
+      )}
+      {snap.toast && (
+        <div className="ait-toast" role="status">
+          {snap.toast}
+        </div>
       )}
     </div>
   );

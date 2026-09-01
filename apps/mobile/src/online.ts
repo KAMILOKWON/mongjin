@@ -1,5 +1,7 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import * as SecureStore from 'expo-secure-store';
 import type { GameState, Move, Player } from '../../../packages/game-core/src';
+import { dict, getI18nLang } from './i18n';
 
 export const PRODUCTION_WS_URL = 'wss://mongjin-api.onrender.com';
 export const MATCHMAKING_TIMEOUT_MS = 15_000;
@@ -13,6 +15,14 @@ export interface PlayerProfile {
   rating: number;
   rank: number;
   totalPlayers: number;
+  legacyMigrationComplete?: boolean;
+}
+
+export interface LegacyProfileClaim {
+  name: string;
+  wins: number;
+  losses: number;
+  rating: number;
 }
 
 export interface OpponentProfile {
@@ -39,25 +49,59 @@ export type ClientMessage =
   | { type: 'HELLO'; playerId?: string; token?: string }
   | { type: 'GET_PROFILE' }
   | { type: 'UPDATE_PROFILE'; name: string }
+  | { type: 'MIGRATE_LEGACY_PROFILE'; legacyProfile: LegacyProfileClaim }
   | { type: 'MATCHMAKE' }
   | { type: 'CANCEL_MATCHMAKING' }
   | { type: 'CREATE' }
   | { type: 'JOIN'; roomId: string }
-  | { type: 'MOVE'; move: Move };
+  | { type: 'MOVE'; move: Move }
+  | { type: 'RESIGN' };
 
 export interface OnlineCallbacks {
   onState: (state: GameState) => void;
   onJoined: (roomId: string, side: Player) => void;
   onMatchFound: (roomId: string, side: Player, opponent: OpponentProfile, state: GameState) => void;
   onMatchResult: (winner: Player, reason: OnlineMatchReason) => void;
-  onProfile: (profile: PlayerProfile) => void;
+  onProfile: (profile: PlayerProfile) => void | Promise<void>;
   onOpponentLeft: () => void;
   onMatchmakingTimeout: () => void;
   onError: (message: string) => void;
   onStatus: (message: string) => void;
 }
 
-const IDENTITY_KEY = 'mongjin.online.identity.v2';
+const LEGACY_IDENTITY_KEY = 'mongjin.online.identity.v2';
+const IDENTITY_KEY = 'mongjin.online.identity.v3';
+
+function parseIdentity(raw: string | null): StoredIdentity | null {
+  if (!raw) return null;
+  try {
+    const parsed = JSON.parse(raw) as Partial<StoredIdentity>;
+    if (typeof parsed.playerId !== 'string' || !parsed.playerId || typeof parsed.token !== 'string' || !parsed.token) return null;
+    return { playerId: parsed.playerId, token: parsed.token };
+  } catch {
+    return null;
+  }
+}
+
+async function loadIdentity(): Promise<StoredIdentity | null> {
+  const secure = parseIdentity(await SecureStore.getItemAsync(IDENTITY_KEY).catch(() => null));
+  if (secure) return secure;
+
+  const legacy = parseIdentity(await AsyncStorage.getItem(LEGACY_IDENTITY_KEY).catch(() => null));
+  if (legacy) await persistIdentity(legacy);
+  return legacy;
+}
+
+async function persistIdentity(identity: StoredIdentity): Promise<void> {
+  const value = JSON.stringify(identity);
+  const writes = await Promise.allSettled([
+    SecureStore.setItemAsync(IDENTITY_KEY, value),
+    AsyncStorage.setItem(LEGACY_IDENTITY_KEY, value),
+  ]);
+  if (writes.every((result) => result.status === 'rejected')) {
+    throw new Error('identity persistence failed');
+  }
+}
 
 export class MobileOnlineClient {
   private ws: WebSocket | null = null;
@@ -67,6 +111,7 @@ export class MobileOnlineClient {
   private queued = false;
   private timer: ReturnType<typeof setTimeout> | null = null;
   private generation = 0;
+  private messageQueue: Promise<void> = Promise.resolve();
 
   constructor(
     private readonly callbacks: OnlineCallbacks,
@@ -81,7 +126,7 @@ export class MobileOnlineClient {
     const generation = this.generation;
     this.connecting = new Promise<void>((resolve, reject) => {
       let settled = false;
-      this.callbacks.onStatus('서버 연결 중…');
+      this.callbacks.onStatus(dict(getI18nLang()).connecting);
       const ws = new WebSocket(this.url);
       this.ws = ws;
       const timeout = setTimeout(() => {
@@ -94,11 +139,15 @@ export class MobileOnlineClient {
         if (settled) return;
         settled = true;
         clearTimeout(timeout);
-        const raw = await AsyncStorage.getItem(IDENTITY_KEY).catch(() => null);
-        const identity = raw ? JSON.parse(raw) as StoredIdentity : null;
-        this.send({ type: 'HELLO', ...identity });
-        this.callbacks.onStatus('서버에 연결됨');
-        resolve();
+        try {
+          const identity = await loadIdentity();
+          this.send({ type: 'HELLO', ...(identity ?? {}) });
+          this.callbacks.onStatus(dict(getI18nLang()).connectedStatus);
+          resolve();
+        } catch (error) {
+          ws.close();
+          reject(error);
+        }
       };
       ws.onerror = () => {
         if (settled) return;
@@ -117,11 +166,15 @@ export class MobileOnlineClient {
         this.side = null;
         this.queued = false;
         this.clearTimer();
-        this.callbacks.onStatus('연결 끊김');
+        this.callbacks.onStatus(dict(getI18nLang()).disconnected);
       };
       ws.onmessage = (event) => {
-        try { this.handle(JSON.parse(String(event.data)) as ServerMessage); }
-        catch { this.callbacks.onError('서버 응답을 읽을 수 없습니다'); }
+        this.messageQueue = this.messageQueue
+          .then(async () => {
+            const message = JSON.parse(String(event.data)) as ServerMessage;
+            await this.handle(message);
+          })
+          .catch(() => { this.callbacks.onError(dict(getI18nLang()).parseFailed); });
       };
     }).finally(() => { this.connecting = null; });
 
@@ -146,12 +199,16 @@ export class MobileOnlineClient {
 
   async getProfile(): Promise<void> { await this.connect(); this.send({ type: 'GET_PROFILE' }); }
   async updateProfile(name: string): Promise<void> { await this.connect(); this.send({ type: 'UPDATE_PROFILE', name }); }
+  async migrateLegacyProfile(legacyProfile: LegacyProfileClaim): Promise<void> {
+    await this.connect();
+    this.send({ type: 'MIGRATE_LEGACY_PROFILE', legacyProfile });
+  }
 
   async startMatchmaking(): Promise<void> {
     await this.connect();
     this.clearTimer();
     this.queued = true;
-    this.callbacks.onStatus('랜덤 상대를 찾는 중…');
+    this.callbacks.onStatus(dict(getI18nLang()).searching);
     this.send({ type: 'MATCHMAKE' });
     this.timer = setTimeout(() => {
       if (!this.queued) return;
@@ -169,19 +226,24 @@ export class MobileOnlineClient {
   async createRoom(): Promise<void> { await this.connect(); this.send({ type: 'CREATE' }); }
   async joinRoom(roomId: string): Promise<void> { await this.connect(); this.send({ type: 'JOIN', roomId: roomId.trim().toUpperCase() }); }
   sendMove(move: Move): void { this.send({ type: 'MOVE', move }); }
+  sendResign(): void { this.send({ type: 'RESIGN' }); }
 
   private send(message: ClientMessage): void {
-    if (!this.connected) { this.callbacks.onError('서버에 연결되어 있지 않습니다'); return; }
+    if (!this.connected) { this.callbacks.onError(dict(getI18nLang()).notConnected); return; }
     this.ws!.send(JSON.stringify(message));
   }
 
-  private handle(message: ServerMessage): void {
+  private async handle(message: ServerMessage): Promise<void> {
     switch (message.type) {
       case 'IDENTITY':
-        void AsyncStorage.setItem(IDENTITY_KEY, JSON.stringify({ playerId: message.playerId, token: message.token }));
-        this.callbacks.onProfile(message.profile);
+        try {
+          await persistIdentity({ playerId: message.playerId, token: message.token });
+        } catch {
+          this.callbacks.onError(dict(getI18nLang()).idSaveFailed);
+        }
+        await this.callbacks.onProfile(message.profile);
         break;
-      case 'PROFILE': this.callbacks.onProfile(message.profile); break;
+      case 'PROFILE': await this.callbacks.onProfile(message.profile); break;
       case 'CREATED':
       case 'JOINED':
         this.clearTimer(); this.queued = false; this.roomId = message.roomId; this.side = message.side;
@@ -189,8 +251,8 @@ export class MobileOnlineClient {
       case 'MATCH_FOUND':
         this.clearTimer(); this.queued = false; this.roomId = message.roomId; this.side = message.side;
         this.callbacks.onMatchFound(message.roomId, message.side, message.opponent, message.state); break;
-      case 'MATCH_RESULT': this.callbacks.onProfile(message.profile); this.callbacks.onMatchResult(message.winner, message.reason); break;
-      case 'QUEUE_LEFT': this.clearTimer(); this.queued = false; this.callbacks.onStatus('랜덤 매칭을 취소했어요'); break;
+      case 'MATCH_RESULT': await this.callbacks.onProfile(message.profile); this.callbacks.onMatchResult(message.winner, message.reason); break;
+      case 'QUEUE_LEFT': this.clearTimer(); this.queued = false; this.callbacks.onStatus(dict(getI18nLang()).queueCancelled); break;
       case 'STATE': this.callbacks.onState(message.state); break;
       case 'OPPONENT_LEFT': this.callbacks.onOpponentLeft(); break;
       case 'ERROR': this.clearTimer(); this.queued = false; this.callbacks.onError(message.message); break;

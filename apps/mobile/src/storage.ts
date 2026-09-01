@@ -1,9 +1,19 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import type { GhostCatalog, GhostPlayerCard, GhostTape } from '../../../packages/game-data/src';
 import { BUILT_IN_GHOSTS, withEphemeralGhostNickname } from '../../../packages/game-data/src';
+import type { PlayerProfile } from './online';
+import {
+  mergeOnlineProgress,
+  onlineProgressSnapshot,
+  type StoredOnlineProgress,
+} from './profilePersistence';
 
 const STORAGE_KEY = 'mongjin.mobile.catalog.v2';
 const LAST_QUICK_MATCH_NAME_KEY = 'mongjin.mobile.last-quick-name.v1';
+
+interface StoredCatalog extends GhostCatalog {
+  onlineProgress?: StoredOnlineProgress;
+}
 
 const defaultProfile = (): GhostPlayerCard => ({
   name: '나그네',
@@ -19,30 +29,31 @@ function clone<T>(value: T): T {
 
 export class MobileProfileStore {
   private lastQuickMatchName: string | null = null;
-  private catalog: GhostCatalog = {
+  private catalog: StoredCatalog = {
     profile: defaultProfile(),
     tapes: clone(BUILT_IN_GHOSTS),
   };
 
   async hydrate(): Promise<void> {
-    try {
-      const [raw, lastQuickMatchName] = await Promise.all([
-        AsyncStorage.getItem(STORAGE_KEY),
-        AsyncStorage.getItem(LAST_QUICK_MATCH_NAME_KEY),
-      ]);
-      this.lastQuickMatchName = lastQuickMatchName;
-      const parsed = raw ? JSON.parse(raw) as Partial<GhostCatalog> : null;
-      if (parsed?.profile && Array.isArray(parsed.tapes)) {
-        this.catalog = {
-          profile: { ...defaultProfile(), ...parsed.profile },
-          tapes: parsed.tapes as GhostTape[],
-        };
+    const raw = await AsyncStorage.getItem(STORAGE_KEY);
+    this.lastQuickMatchName = await AsyncStorage.getItem(LAST_QUICK_MATCH_NAME_KEY).catch(() => null);
+
+    if (raw) {
+      const parsed = JSON.parse(raw) as Partial<StoredCatalog>;
+      if (!parsed?.profile || !Array.isArray(parsed.tapes)) {
+        throw new Error('Invalid stored mobile profile');
       }
-    } catch {
-      this.catalog = { profile: defaultProfile(), tapes: clone(BUILT_IN_GHOSTS) };
+      this.catalog = {
+        profile: { ...defaultProfile(), ...parsed.profile },
+        tapes: parsed.tapes as GhostTape[],
+        onlineProgress: parsed.onlineProgress,
+      };
     }
+
     if (this.catalog.tapes.length === 0) this.catalog.tapes = clone(BUILT_IN_GHOSTS);
-    await this.persist();
+    // Create the initial value, but never overwrite an unreadable existing
+    // value with defaults merely because hydration failed.
+    if (!raw) await this.persist();
   }
 
   snapshot(): GhostCatalog {
@@ -51,6 +62,22 @@ export class MobileProfileStore {
 
   profile(): GhostPlayerCard {
     return { ...this.catalog.profile };
+  }
+
+  onlineProfile(): PlayerProfile | null {
+    if (!this.catalog.onlineProgress) return null;
+    const snapshot = onlineProgressSnapshot(this.catalog.onlineProgress);
+    const games = snapshot.wins + snapshot.losses;
+    return {
+      ...snapshot,
+      winRate: games ? Math.round((snapshot.wins / games) * 1000) / 10 : 0,
+    };
+  }
+
+  async mergeOnlineProfile(profile: PlayerProfile): Promise<PlayerProfile> {
+    this.catalog.onlineProgress = mergeOnlineProgress(this.catalog.onlineProgress ?? null, profile);
+    await this.persist();
+    return this.onlineProfile()!;
   }
 
   async updateName(name: string): Promise<void> {
@@ -92,10 +119,6 @@ export class MobileProfileStore {
   }
 
   private async persist(): Promise<void> {
-    try {
-      await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(this.catalog));
-    } catch {
-      // 기기 저장소가 잠시 unavailable 해도 현재 대국은 계속한다.
-    }
+    await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(this.catalog));
   }
 }

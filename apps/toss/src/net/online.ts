@@ -1,4 +1,4 @@
-import type { GameState, Move, Player } from '../core/types';
+import type { GameState, Move, Player } from '../../../../packages/game-core/src';
 import { resolveWsUrl } from './wsUrl';
 
 export type OnlineSide = Player;
@@ -12,6 +12,14 @@ export interface PlayerProfile {
   rating: number;
   rank: number;
   totalPlayers: number;
+  legacyMigrationComplete?: boolean;
+}
+
+export interface LegacyProfileClaim {
+  name: string;
+  wins: number;
+  losses: number;
+  rating: number;
 }
 
 export interface OpponentProfile {
@@ -54,11 +62,13 @@ export type ClientMessage =
   | { type: 'HELLO'; playerId?: string; token?: string }
   | { type: 'GET_PROFILE' }
   | { type: 'UPDATE_PROFILE'; name: string }
+  | { type: 'MIGRATE_LEGACY_PROFILE'; legacyProfile: LegacyProfileClaim }
   | { type: 'MATCHMAKE' }
   | { type: 'CANCEL_MATCHMAKING' }
   | { type: 'CREATE' }
   | { type: 'JOIN'; roomId: string }
-  | { type: 'MOVE'; move: Move };
+  | { type: 'MOVE'; move: Move }
+  | { type: 'RESIGN' };
 
 export interface OnlineCallbacks {
   onState: (state: GameState) => void;
@@ -194,11 +204,15 @@ export class OnlineClient {
             window.clearTimeout(timer);
             reject(new Error('ws closed before open'));
           } else {
+            const wasQueued = this.queued;
             this.roomId = null;
             this.side = null;
             this.queued = false;
             this.clearMatchmakingTimer();
-            this.callbacks.onStatus('연결 끊김');
+            // 내부 연결 상태를 사용자에게 노출하지 않는다. 매칭 중 끊겼다면
+            // 기다리게 두지 않고 기록된 상대와 즉시 자연스럽게 이어간다.
+            this.callbacks.onStatus('');
+            if (wasQueued) this.callbacks.onMatchmakingTimeout();
           }
         };
 
@@ -257,6 +271,11 @@ export class OnlineClient {
     this.send({ type: 'UPDATE_PROFILE', name });
   }
 
+  async migrateLegacyProfile(legacyProfile: LegacyProfileClaim) {
+    await this.connect();
+    this.send({ type: 'MIGRATE_LEGACY_PROFILE', legacyProfile });
+  }
+
   async startMatchmaking() {
     await this.connect();
     this.clearMatchmakingTimer();
@@ -288,6 +307,11 @@ export class OnlineClient {
 
   sendMove(move: Move) {
     this.send({ type: 'MOVE', move });
+  }
+
+  /** 서버에 항복을 알려 상대에게 패배로 기록한다 */
+  sendResign() {
+    this.send({ type: 'RESIGN' });
   }
 
   private send(msg: ClientMessage) {

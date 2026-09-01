@@ -306,11 +306,11 @@ function renderHomeTab() {
 
 function renderProfile() {
   const profile = displayProfile();
-  const online = game.getSnapshot().profile !== null;
+  const onlineProfile = game.getSnapshot().profile;
   document.querySelector<HTMLElement>('#home-profile-name')!.textContent = profile.name;
   document.querySelector<HTMLElement>('#home-profile-record')!.textContent = `Elo ${profile.rating} · ${profile.wins}승`;
-  document.querySelector<HTMLElement>('#profile-rank-kind')!.textContent = online ? '온라인 순위' : '로컬 순위';
-  document.querySelector<HTMLElement>('#profile-elo')!.textContent = `Elo ${profile.rating}`;
+  document.querySelector<HTMLElement>('#profile-rank-kind')!.textContent = onlineProfile ? '온라인 순위' : '로컬 Elo';
+  document.querySelector<HTMLElement>('#profile-elo')!.textContent = onlineProfile ? `${onlineProfile.rank}위` : `Elo ${profile.rating}`;
   document.querySelector<HTMLElement>('#profile-summary')!.textContent = `${profile.wins}승 ${profile.losses}패 · 승률 ${profile.winRate}%`;
   if (document.activeElement !== profileNameInput) profileNameInput.value = profile.name;
 }

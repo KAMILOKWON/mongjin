@@ -1,4 +1,31 @@
+require "open3"
+
 default_platform(:ios)
+
+def keychain_value(service)
+  value, _error, status = Open3.capture3(
+    "security",
+    "find-generic-password",
+    "-s",
+    service,
+    "-w"
+  )
+  return value.strip if status.success? && !value.strip.empty?
+
+  UI.user_error!("Missing required macOS Keychain item: #{service}")
+end
+
+def load_ios_admob_configuration
+  {
+    "ADMOB_IOS_APP_ID" => "mongjin.admob.ios.app.id",
+    "ADMOB_IOS_BANNER_UNIT_ID" => "mongjin.admob.ios.banner.unit.id",
+    "ADMOB_IOS_INTERSTITIAL_UNIT_ID" => "mongjin.admob.ios.interstitial.unit.id"
+  }.each do |environment_name, service|
+    next unless ENV.fetch(environment_name, "").empty?
+
+    ENV[environment_name] = keychain_value(service)
+  end
+end
 
 def studio_api_key
   app_store_connect_api_key(
@@ -8,38 +35,112 @@ def studio_api_key
   )
 end
 
+def store_metadata_path(platform)
+  File.expand_path("../store/#{platform}", __dir__)
+end
+
 platform :ios do
   desc "Archive Mongjin and upload it to TestFlight"
   lane :beta do
     setup_ci if ENV["CI"]
-    sh("cd ../apps/mobile && npx expo prebuild --clean --no-install")
-    sh("cd ../apps/mobile/ios && env -u BUNDLE_GEMFILE -u BUNDLE_BIN_PATH -u RUBYOPT -u GEM_HOME -u GEM_PATH pod install")
-    build_app(
-      workspace: "apps/mobile/ios/app.xcworkspace",
-      scheme: "app",
-      clean: true,
-      export_method: "app-store",
-      output_directory: "artifacts/ios",
-      xcargs: "CODE_SIGN_STYLE=Manual CODE_SIGN_IDENTITY='Apple Distribution' DEVELOPMENT_TEAM=M9RZNRX9T4 PROVISIONING_PROFILE_SPECIFIER='Mongjin App Store Distribution' -allowProvisioningUpdates",
-      export_options: {
-        method: "app-store-connect",
-        signingStyle: "manual",
-        teamID: "M9RZNRX9T4",
-        signingCertificate: "Apple Distribution",
-        provisioningProfiles: {
-          "com.studiozzg.mongjin" => "Mongjin App Store Distribution"
-        },
-        uploadSymbols: true
-      }
-    )
+    ipa_path = ENV.fetch("MONGJIN_IOS_IPA", "")
+
+    if ipa_path.empty?
+      load_ios_admob_configuration
+      sh("cd ../apps/mobile && npx expo prebuild --clean --no-install")
+      sh("cd ../apps/mobile/ios && env -u BUNDLE_GEMFILE -u BUNDLE_BIN_PATH -u RUBYOPT -u GEM_HOME -u GEM_PATH pod install")
+      build_app(
+        workspace: "apps/mobile/ios/app.xcworkspace",
+        scheme: "app",
+        clean: true,
+        export_method: "app-store",
+        output_directory: "artifacts/ios",
+        xcargs: "CODE_SIGN_STYLE=Manual CODE_SIGN_IDENTITY='Apple Distribution' DEVELOPMENT_TEAM=M9RZNRX9T4 PROVISIONING_PROFILE_SPECIFIER='Mongjin App Store Distribution' -allowProvisioningUpdates",
+        export_options: {
+          method: "app-store-connect",
+          signingStyle: "manual",
+          teamID: "M9RZNRX9T4",
+          signingCertificate: "Apple Distribution",
+          provisioningProfiles: {
+            "com.studiozzg.mongjin" => "Mongjin App Store Distribution"
+          },
+          uploadSymbols: true
+        }
+      )
+      ipa_path = lane_context[SharedValues::IPA_OUTPUT_PATH]
+    else
+      ipa_path = File.expand_path(ipa_path)
+      UI.user_error!("Verified IPA was not found: #{ipa_path}") unless File.file?(ipa_path)
+    end
+
     upload_to_testflight(
       api_key: studio_api_key,
+      ipa: ipa_path,
       skip_waiting_for_build_processing: true
+    )
+  end
+
+  desc "Upload localized App Store listing metadata without a binary or review submission"
+  lane :metadata do
+    app_json = JSON.parse(File.read(File.expand_path("../apps/mobile/app.json", __dir__)))
+    deliver(
+      api_key: studio_api_key,
+      app_identifier: "com.studiozzg.mongjin",
+      app_version: app_json["expo"]["version"],
+      metadata_path: store_metadata_path("app-store"),
+      submit_for_review: false,
+      skip_binary_upload: true,
+      skip_screenshots: true,
+      reject_if_possible: ENV["MONGJIN_REJECT_REVIEW"] == "1",
+      force: true,
+      precheck_include_in_app_purchases: false
+    )
+  end
+
+  desc "Submit the uploaded build for App Store review"
+  lane :production do
+    app_json = JSON.parse(File.read(File.expand_path("../apps/mobile/app.json", __dir__)))
+    deliver(
+      api_key: studio_api_key,
+      app_identifier: "com.studiozzg.mongjin",
+      app_version: app_json["expo"]["version"],
+      build_number: app_json["expo"]["ios"]["buildNumber"],
+      metadata_path: store_metadata_path("app-store"),
+      submit_for_review: true,
+      automatic_release: false,
+      skip_screenshots: true,
+      force: true,
+      precheck_include_in_app_purchases: false,
+      release_notes: { "ko" => ENV.fetch("MONGJIN_RELEASE_NOTES_KO") },
+      submission_information: {
+        add_id_info_uses_idfa: true,
+        add_id_info_serves_ads: true,
+        add_id_info_tracks_install: true,
+        add_id_info_tracks_action: true,
+        add_id_info_limits_tracking: true,
+        export_compliance_uses_encryption: false,
+        export_compliance_encryption_updated: false,
+        export_compliance_is_exempt: true
+      }
     )
   end
 end
 
 platform :android do
+  desc "Upload localized Google Play listing metadata without an app bundle"
+  lane :metadata do
+    upload_to_play_store(
+      package_name: "com.studiozzg.mongjin",
+      json_key: ENV.fetch("GOOGLE_PLAY_SERVICE_ACCOUNT_JSON"),
+      metadata_path: store_metadata_path("google-play"),
+      skip_upload_apk: true,
+      skip_upload_aab: true,
+      skip_upload_changelogs: true,
+      skip_upload_images: true,
+      skip_upload_screenshots: true
+    )
+  end
+
   desc "Upload the signed Mongjin bundle to Google Play internal testing"
   lane :internal do
     sh("cd ../apps/mobile && npx expo prebuild --clean --no-install")
@@ -49,6 +150,21 @@ platform :android do
       json_key: ENV.fetch("GOOGLE_PLAY_SERVICE_ACCOUNT_JSON"),
       aab: "apps/mobile/android/app/build/outputs/bundle/release/app-release.aab",
       track: "internal",
+      release_status: "completed",
+      skip_upload_apk: true,
+      skip_upload_metadata: true,
+      skip_upload_images: true,
+      skip_upload_screenshots: true
+    )
+  end
+
+  desc "Upload the signed Mongjin bundle to Google Play closed testing (비공개 테스트)"
+  lane :alpha do
+    upload_to_play_store(
+      package_name: "com.studiozzg.mongjin",
+      json_key: ENV.fetch("GOOGLE_PLAY_SERVICE_ACCOUNT_JSON"),
+      aab: ENV.fetch("MONGJIN_ANDROID_AAB", "apps/mobile/android/app/build/outputs/bundle/release/app-release.aab"),
+      track: "alpha",
       release_status: "completed",
       skip_upload_apk: true,
       skip_upload_metadata: true,

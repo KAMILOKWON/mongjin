@@ -1,13 +1,15 @@
 {
   "name": "mongjin",
   "private": true,
-  "version": "1.0.0",
+  "version": "1.0.7",
   "type": "module",
   "scripts": {
     "dev": "vite --host",
     "dev:app": "vite --host --open /?app=1",
     "dev:mobile": "npm run start --prefix apps/mobile",
     "build:mobile": "npm run build --prefix apps/mobile",
+    "build:android:release": "bash scripts/build-mongjin-android-release.sh",
+    "validate:store-metadata": "node scripts/validate-store-metadata.mjs",
     "typecheck:mobile": "npm run typecheck --prefix apps/mobile",
     "device:doctor": "agent-device doctor",
     "device:help": "agent-device help workflow",
@@ -27,10 +29,16 @@
     "build:steam-web": "vite build --config vite.config.steam.ts",
     "build:steam": "npm run build:steam-web && npm run package --prefix apps/steam"
   },
-  "dependencies": {},
+  "dependencies": {
+    "expo": "^57.0.14",
+    "expo-dev-client": "~57.0.13",
+    "react": "19.2.3",
+    "react-native": "0.86.2"
+  },
   "devDependencies": {
+    "@types/react": "~19.2.4",
     "agent-device": "^0.20.3",
-    "typescript": "^5.6.0",
+    "typescript": "~6.0.3",
     "vite": "^6.0.0",
     "vitest": "^3.0.0"
   }

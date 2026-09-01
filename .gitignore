@@ -24,3 +24,6 @@ fastlane/screenshots/
 fastlane/test_output/
 apps/steam/game/
 apps/steam/release/
+
+# nested checkout
+parrotfish/

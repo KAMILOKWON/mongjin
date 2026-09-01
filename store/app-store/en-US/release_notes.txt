@@ -1,0 +1,4 @@
+• Added Korean, English, Japanese, and Simplified Chinese language support.
+• Friend invitation links now open room codes more conveniently.
+• Added a Discord community button.
+• Improved the tutorial and overall usability.
