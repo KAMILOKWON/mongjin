@@ -374,8 +374,23 @@ p {
 
 .home-language-row {
   display: flex;
-  justify-content: flex-end;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
   margin-top: auto;
+}
+
+.home-pnp-link {
+  padding: 4px 8px;
+  color: var(--blue);
+  font-size: 14px;
+  font-weight: 500;
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.home-pnp-link:hover {
+  text-decoration: underline;
 }
 
 .app-store-badge-link {
@@ -394,26 +409,6 @@ p {
 
 .menu-button-tutorial {
   background: var(--surface-muted);
-}
-
-.home-footer-links {
-  display: flex;
-  justify-content: center;
-  margin-block-start: 8px;
-}
-
-.footer-link {
-  padding: 4px 12px;
-  color: var(--blue);
-  background: transparent;
-  font-size: 14px;
-  font-weight: 500;
-  text-decoration: none;
-  cursor: pointer;
-}
-
-.footer-link:hover {
-  text-decoration: underline;
 }
 
 .home-preview {
