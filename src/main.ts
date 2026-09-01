@@ -86,7 +86,7 @@ app.innerHTML = `
         <i class="ph ph-book-open-text" aria-hidden="true"></i>
         <span><strong data-i18n="menu.tutorial.title">튜토리얼</strong><small data-i18n="menu.tutorial.description">4단계로 규칙 익히기</small></span>
       </button>
-      <a href="/mongjin-print-and-play.pdf" target="_blank" rel="noopener noreferrer" class="menu-button menu-button-pnp" data-i18n="menu.pnp.title">인쇄해서 두기</a>
+      <a href="./mongjin-print-and-play.pdf" target="_blank" rel="noopener noreferrer" class="menu-button menu-button-pnp" data-i18n="menu.pnp.title">인쇄해서 두기</a>
     </section>
 
     <section class="home-preview" data-i18n-aria="preview.aria" aria-label="몽진 초기 배치 미리보기">

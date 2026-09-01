@@ -84,8 +84,11 @@ app.innerHTML = `
           </div>
           <p class="home-blurb" id="home-blurb" data-i18n="menu.random.description">접속 중인 상대와 자동 매칭</p>
           <button class="primary-button" id="home-primary" type="button" data-i18n="menu.random.title">대국 시작</button>
-          <button class="text-link" id="open-tutorial" type="button" data-i18n="menu.tutorial.title">튜토리얼</button>
-          <a href="/mongjin-print-and-play.pdf" target="_blank" rel="noopener noreferrer" class="text-link" data-i18n="menu.pnp.title">인쇄해서 두기</a>
+          <div class="home-links">
+            <button class="text-link" id="open-tutorial" type="button" data-i18n="menu.tutorial.title">튜토리얼</button>
+            <span class="link-separator">·</span>
+            <a href="./mongjin-print-and-play.pdf" target="_blank" rel="noopener noreferrer" class="text-link" data-i18n="menu.pnp.title">인쇄해서 두기</a>
+          </div>
           <div class="language-toggle" role="group" data-i18n-aria="language.selector" aria-label="언어 선택">
             <button type="button" data-locale="ko" data-i18n="language.ko">한국어</button>
             <button type="button" data-locale="en" data-i18n="language.en">English</button>
