@@ -2,7 +2,7 @@
   "expo": {
     "name": "몽진",
     "slug": "mongjin",
-    "version": "1.0.7",
+    "version": "1.0.8",
     "runtimeVersion": {
       "policy": "appVersion"
     },
