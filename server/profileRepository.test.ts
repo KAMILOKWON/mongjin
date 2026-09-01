@@ -3,7 +3,12 @@ import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'vitest';
-import { FileProfileRepository, applyEloResult, type StoredProfile } from './profileRepository';
+import {
+  FileProfileRepository,
+  applyBotEloResult,
+  applyEloResult,
+  type StoredProfile,
+} from './profileRepository';
 
 function profile(playerId: string, rating = 1200): StoredProfile {
   return {
@@ -44,6 +49,41 @@ test('같은 matchId는 한 번만 반영한다', async () => {
   const profiles = await repository.loadProfiles();
   assert.equal(profiles.find((item) => item.playerId === 'winner')?.wins, 1);
   assert.equal(profiles.find((item) => item.playerId === 'loser')?.losses, 1);
+});
+
+test('공식 봇 대전도 같은 K=24로 승패와 Elo를 반영한다', () => {
+  const won = applyBotEloResult(profile('player'), 1200, true, '2026-09-01T01:00:00.000Z');
+  const lost = applyBotEloResult(profile('player'), 1200, false, '2026-09-01T01:00:00.000Z');
+
+  assert.equal(won.wins, 1);
+  assert.equal(won.losses, 0);
+  assert.equal(won.rating, 1212);
+  assert.equal(lost.wins, 0);
+  assert.equal(lost.losses, 1);
+  assert.equal(lost.rating, 1188);
+});
+
+test('공식 봇 경기 결과는 이용자에게 한 번만 반영하고 봇 프로필은 만들지 않는다', async () => {
+  const directory = mkdtempSync(join(tmpdir(), 'mongjin-bot-match-'));
+  const repository = new FileProfileRepository(join(directory, 'profiles.json'));
+  await repository.importProfiles([profile('player')]);
+  const match = {
+    matchId: 'bot-match-1',
+    roomId: 'BOT001',
+    playerId: 'player',
+    playerWon: true,
+    botName: '고요한별',
+    botRating: 1200,
+    reason: 'goal',
+    completedAt: '2026-09-01T01:00:00.000Z',
+  };
+
+  assert.equal((await repository.recordBotMatch(match)).recorded, true);
+  assert.equal((await repository.recordBotMatch(match)).recorded, false);
+  const profiles = await repository.loadProfiles();
+  assert.equal(profiles.length, 1);
+  assert.equal(profiles[0]?.wins, 1);
+  assert.equal(profiles[0]?.rating, 1212);
 });
 
 test('기존 JSON 프로필을 ID 기준으로 중복 없이 가져온다', async () => {

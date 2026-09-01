@@ -47,6 +47,22 @@ export interface MatchResult {
   loser?: StoredProfile;
 }
 
+export interface RecordedBotMatch {
+  matchId: string;
+  roomId: string;
+  playerId: string;
+  playerWon: boolean;
+  botName: string;
+  botRating: number;
+  reason: string;
+  completedAt: string;
+}
+
+export interface BotMatchResult {
+  recorded: boolean;
+  player?: StoredProfile;
+}
+
 export interface ProfileRepository {
   readonly kind: 'file' | 'postgres';
   loadProfiles(): Promise<StoredProfile[]>;
@@ -54,6 +70,7 @@ export interface ProfileRepository {
   saveProfile(profile: StoredProfile): Promise<void>;
   migrateLegacyProfile(playerId: string, claim: LegacyProfileClaim): Promise<LegacyProfileMigrationResult>;
   recordMatch(match: RecordedMatch): Promise<MatchResult>;
+  recordBotMatch(match: RecordedBotMatch): Promise<BotMatchResult>;
   close(): Promise<void>;
 }
 
@@ -83,6 +100,22 @@ export function applyEloResult(
       rating: Math.max(100, Math.round(loser.rating + ELO_K * (0 - loserExpected))),
       updatedAt: completedAt,
     },
+  };
+}
+
+export function applyBotEloResult(
+  player: StoredProfile,
+  botRating: number,
+  playerWon: boolean,
+  completedAt: string,
+): StoredProfile {
+  const expected = 1 / (1 + 10 ** ((botRating - player.rating) / 400));
+  return {
+    ...player,
+    wins: player.wins + (playerWon ? 1 : 0),
+    losses: player.losses + (playerWon ? 0 : 1),
+    rating: Math.max(100, Math.round(player.rating + ELO_K * ((playerWon ? 1 : 0) - expected))),
+    updatedAt: completedAt,
   };
 }
 
@@ -168,6 +201,18 @@ export class FileProfileRepository implements ProfileRepository {
     this.persistProfiles();
     atomicWriteJson(this.matchIdsFile, [...this.recordedMatchIds]);
     return { recorded: true, ...result };
+  }
+
+  async recordBotMatch(match: RecordedBotMatch): Promise<BotMatchResult> {
+    if (this.recordedMatchIds.has(match.matchId)) return { recorded: false };
+    const current = this.profiles.get(match.playerId);
+    if (!current) throw new Error('봇 경기 결과를 저장할 프로필이 없습니다');
+    const player = applyBotEloResult(current, match.botRating, match.playerWon, match.completedAt);
+    this.profiles.set(player.playerId, player);
+    this.recordedMatchIds.add(match.matchId);
+    this.persistProfiles();
+    atomicWriteJson(this.matchIdsFile, [...this.recordedMatchIds]);
+    return { recorded: true, player: cloneProfile(player) };
   }
 
   async close(): Promise<void> {}
@@ -278,6 +323,22 @@ export class PostgresProfileRepository implements ProfileRepository {
 
       CREATE INDEX IF NOT EXISTS mongjin_matches_completed_at_idx
         ON mongjin_matches (completed_at DESC);
+
+      CREATE TABLE IF NOT EXISTS mongjin_bot_matches (
+        match_id TEXT PRIMARY KEY,
+        room_id TEXT NOT NULL,
+        player_id TEXT NOT NULL REFERENCES mongjin_profiles(player_id),
+        player_won BOOLEAN NOT NULL,
+        bot_name TEXT NOT NULL,
+        bot_rating INTEGER NOT NULL CHECK (bot_rating >= 100),
+        reason TEXT NOT NULL,
+        player_rating_before INTEGER NOT NULL,
+        player_rating_after INTEGER NOT NULL,
+        completed_at TIMESTAMPTZ NOT NULL
+      );
+
+      CREATE INDEX IF NOT EXISTS mongjin_bot_matches_completed_at_idx
+        ON mongjin_bot_matches (completed_at DESC);
 
       CREATE TABLE IF NOT EXISTS mongjin_legacy_profile_migrations (
         player_id TEXT PRIMARY KEY REFERENCES mongjin_profiles(player_id),
@@ -437,6 +498,63 @@ export class PostgresProfileRepository implements ProfileRepository {
       );
       await client.query('COMMIT');
       return { recorded: true, ...result };
+    } catch (error) {
+      await client.query('ROLLBACK');
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
+  async recordBotMatch(match: RecordedBotMatch): Promise<BotMatchResult> {
+    const client = await this.pool.connect();
+    try {
+      await client.query('BEGIN');
+      const locked = await client.query<ProfileRow>(
+        `SELECT ${PROFILE_COLUMNS}
+           FROM mongjin_profiles
+          WHERE player_id = $1
+          FOR UPDATE`,
+        [match.playerId],
+      );
+      const row = locked.rows[0];
+      if (!row) throw new Error('봇 경기 결과를 저장할 프로필이 없습니다');
+      const current = rowToProfile(row);
+
+      const claim = await client.query(
+        `INSERT INTO mongjin_bot_matches (
+           match_id, room_id, player_id, player_won, bot_name, bot_rating, reason,
+           player_rating_before, player_rating_after, completed_at
+         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $8, $9)
+         ON CONFLICT (match_id) DO NOTHING
+         RETURNING match_id`,
+        [
+          match.matchId,
+          match.roomId,
+          match.playerId,
+          match.playerWon,
+          match.botName,
+          match.botRating,
+          match.reason,
+          current.rating,
+          match.completedAt,
+        ],
+      );
+      if (claim.rowCount === 0) {
+        await client.query('ROLLBACK');
+        return { recorded: false };
+      }
+
+      const player = applyBotEloResult(current, match.botRating, match.playerWon, match.completedAt);
+      await this.upsertProfile(client, player, false);
+      await client.query(
+        `UPDATE mongjin_bot_matches
+            SET player_rating_after = $2
+          WHERE match_id = $1`,
+        [match.matchId, player.rating],
+      );
+      await client.query('COMMIT');
+      return { recorded: true, player };
     } catch (error) {
       await client.query('ROLLBACK');
       throw error;

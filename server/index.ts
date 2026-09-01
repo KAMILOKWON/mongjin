@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import { WebSocketServer, type WebSocket } from 'ws';
 import type { GameState, Move, Player } from '../src/core/types';
 import { DEFAULT_CONFIG } from '../src/core/config';
-import { initialState, legalMoves } from '../src/core/rules';
+import { initialState, legalMoves, opponent } from '../src/core/rules';
 import { applyMove } from '../src/core/apply';
 import { getResult, type WinReason } from '../src/core/result';
 import { calculateEloRank } from '../src/profile/eloRanking';
@@ -16,6 +16,7 @@ import {
 } from './profileRepository';
 import { buildLeaderboard } from './leaderboard';
 import { validateLegacyProfileClaim } from './legacyProfileMigration';
+import { chooseOfficialBotMove, createOfficialBot, type OfficialBot } from './officialBot';
 
 const PORT = Number(process.env.PORT ?? 3001);
 const HOST = process.env.HOST ?? '0.0.0.0';
@@ -39,12 +40,13 @@ interface PublicProfile {
 interface Room {
   id: string;
   matchId: string;
-  kind: 'friend' | 'random';
+  kind: 'friend' | 'random' | 'bot';
   state: GameState;
   black: WebSocket | null;
   white: WebSocket | null;
   blackPlayerId: string | null;
   whitePlayerId: string | null;
+  bot?: OfficialBot;
   finished: boolean;
 }
 
@@ -226,6 +228,104 @@ async function finishRandomMatch(room: Room, winner: Player, reason: MatchReason
   }
 }
 
+async function finishBotMatch(room: Room, winner: Player, reason: MatchReason) {
+  if (room.kind !== 'bot' || room.finished || !room.bot) return;
+  const playerSide = opponent(room.bot.side);
+  const playerId = playerSide === 'BLACK' ? room.blackPlayerId : room.whitePlayerId;
+  const playerSocket = playerSide === 'BLACK' ? room.black : room.white;
+  if (!playerId) return;
+  room.finished = true;
+  try {
+    const result = await profileRepository.recordBotMatch({
+      matchId: room.matchId,
+      roomId: room.id,
+      playerId,
+      playerWon: winner === playerSide,
+      botName: room.bot.name,
+      botRating: room.bot.rating,
+      reason,
+      completedAt: new Date().toISOString(),
+    });
+    if (result.recorded && result.player) profiles.set(result.player.playerId, result.player);
+    if (playerSocket) {
+      send(playerSocket, { type: 'MATCH_RESULT', winner, reason, profile: publicProfile(playerId) });
+    }
+    sendProfileToPlayer(playerId);
+  } catch (error) {
+    console.error('[profiles] 공식 봇 경기 결과 저장에 실패했습니다:', error);
+    if (playerSocket) {
+      send(playerSocket, { type: 'ERROR', message: '경기 결과를 저장하지 못했습니다. 잠시 후 다시 시도해 주세요' });
+    }
+  }
+}
+
+function scheduleBotMove(room: Room) {
+  if (
+    room.kind !== 'bot' ||
+    room.finished ||
+    !room.bot ||
+    room.bot.thinking ||
+    room.state.turn !== room.bot.side
+  ) return;
+  room.bot.thinking = true;
+  setTimeout(() => {
+    void (async () => {
+      if (rooms.get(room.id) !== room || room.finished || !room.bot) return;
+      const terminal = getResult(room.state, config);
+      if (terminal) {
+        await finishBotMatch(room, terminal.winner, terminal.reason);
+        return;
+      }
+      const move = chooseOfficialBotMove(room.bot, room.state, config);
+      if (!move) {
+        const result = getResult(room.state, config);
+        if (result) await finishBotMatch(room, result.winner, result.reason);
+        return;
+      }
+      room.state = applyMove(room.state, move);
+      broadcastRoom(room, { type: 'STATE', state: room.state });
+      const result = getResult(room.state, config);
+      if (result) await finishBotMatch(room, result.winner, result.reason);
+    })().catch((error) => {
+      console.error('[bot] 공식 봇 수 처리에 실패했습니다:', error);
+      broadcastRoom(room, { type: 'ERROR', message: '상대의 수를 처리하지 못했습니다. 다시 시도해 주세요' });
+    }).finally(() => {
+      if (room.bot) room.bot.thinking = false;
+    });
+  }, 180);
+}
+
+function startBotMatch(ws: WebSocket) {
+  const playerId = sessions.get(ws)?.playerId;
+  const profile = playerId ? profiles.get(playerId) : undefined;
+  if (!playerId || !profile) return;
+  const id = makeRoomId();
+  const bot = createOfficialBot(profile.rating, profile.name);
+  const playerSide = opponent(bot.side);
+  const room: Room = {
+    id,
+    matchId: makeId(16),
+    kind: 'bot',
+    state: initialState(config),
+    black: playerSide === 'BLACK' ? ws : null,
+    white: playerSide === 'WHITE' ? ws : null,
+    blackPlayerId: playerSide === 'BLACK' ? playerId : null,
+    whitePlayerId: playerSide === 'WHITE' ? playerId : null,
+    bot,
+    finished: false,
+  };
+  rooms.set(id, room);
+  sessions.get(ws)!.roomId = id;
+  send(ws, {
+    type: 'MATCH_FOUND',
+    roomId: id,
+    side: playerSide,
+    state: room.state,
+    opponent: { name: bot.name, rating: bot.rating, isBot: true },
+  });
+  scheduleBotMove(room);
+}
+
 function startRandomMatch(first: WebSocket, second: WebSocket) {
   const firstId = sessions.get(first)?.playerId;
   const secondId = sessions.get(second)?.playerId;
@@ -284,6 +384,9 @@ function detachPlayer(ws: WebSocket) {
   const room = session?.roomId ? rooms.get(session.roomId) : undefined;
   if (room) {
     const side: Player | null = room.black === ws ? 'BLACK' : room.white === ws ? 'WHITE' : null;
+    if (room.kind === 'bot' && !room.finished && room.state.history.length > 0 && side && room.bot) {
+      void finishBotMatch(room, room.bot.side, 'forfeit');
+    }
     if (side === 'BLACK') room.black = null;
     if (side === 'WHITE') room.white = null;
     const other = room.black ?? room.white;
@@ -484,6 +587,7 @@ const httpServer = createServer((req, res) => {
       registeredProfiles: profiles.size,
       activeSessions: sessions.size,
       profileStore: profileRepository.kind,
+      officialBotMatches: true,
     });
     return;
   }
@@ -610,6 +714,17 @@ wss.on('connection', (ws) => {
       return;
     }
 
+    if (msg.type === 'MATCHMAKE_BOT') {
+      const session = sessions.get(ws)!;
+      if (session.roomId) {
+        send(ws, { type: 'ERROR', message: '이미 대국에 참가 중입니다' });
+        return;
+      }
+      removeFromQueue(ws);
+      startBotMatch(ws);
+      return;
+    }
+
     if (msg.type === 'CREATE') {
       const id = makeRoomId();
       const room: Room = {
@@ -671,7 +786,8 @@ wss.on('connection', (ws) => {
       const room = roomId ? rooms.get(roomId) : undefined;
       const side: Player | null = room && room.black === ws ? 'BLACK' : room && room.white === ws ? 'WHITE' : null;
       if (!room || !side) send(ws, { type: 'ERROR', message: '방에 참가한 뒤 항복할 수 있습니다' });
-      else if (room.kind === 'random' && !room.finished) await finishRandomMatch(room, side === 'BLACK' ? 'WHITE' : 'BLACK', 'forfeit');
+      else if (room.kind === 'random' && !room.finished) await finishRandomMatch(room, opponent(side), 'forfeit');
+      else if (room.kind === 'bot' && !room.finished && room.bot) await finishBotMatch(room, room.bot.side, 'forfeit');
       return;
     }
 
@@ -690,7 +806,12 @@ wss.on('connection', (ws) => {
           room.state = applyMove(room.state, msg.move);
           broadcastRoom(room, { type: 'STATE', state: room.state });
           const result = getResult(room.state, config);
-          if (result) await finishRandomMatch(room, result.winner, result.reason);
+          if (result) {
+            if (room.kind === 'bot') await finishBotMatch(room, result.winner, result.reason);
+            else await finishRandomMatch(room, result.winner, result.reason);
+          } else if (room.kind === 'bot') {
+            scheduleBotMove(room);
+          }
         }
       }
       return;
