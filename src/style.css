@@ -124,11 +124,15 @@ button {
 .home-brand {
   grid-area: brand;
   display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 18px;
+  flex-direction: column;
+  gap: 16px;
   padding: clamp(38px, 4vw, 64px) clamp(30px, 3.2vw, 48px) 28px;
   border-right: 1px solid var(--line);
+}
+
+.home-brand-title {
+  display: flex;
+  flex-direction: column;
 }
 
 .home-brand > div {
@@ -136,7 +140,17 @@ button {
   min-width: 0;
 }
 
-.home-brand-tools,
+.home-brand-tools {
+  position: relative;
+  z-index: 10;
+  display: flex;
+  flex: 0 0 auto;
+  flex-direction: row;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 10px;
+}
+
 .game-top-tools {
   position: relative;
   z-index: 10;
@@ -145,7 +159,6 @@ button {
   flex-direction: column;
   align-items: flex-end;
   gap: 10px;
-  margin-top: 56px;
 }
 
 .language-toggle {
