@@ -1,0 +1,916 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Mongjin Print & Play - Rules v0.3</title>
+    <style>
+        /* Import Noto Serif CJK for full Hanja support */
+        @import url('https://fonts.googleapis.com/css2?family=Noto+Serif+KR:wght@400;700&display=swap');
+        
+        @page {
+            size: A4;
+            margin: 0;
+        }
+        
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Noto Serif KR', 'Liberation Serif', serif;
+            font-size: 10pt;
+            line-height: 1.4;
+            color: #000;
+            -webkit-print-color-adjust: exact;
+            print-color-adjust: exact;
+        }
+        
+        .page {
+            page-break-after: always;
+            break-after: page;
+            page-break-inside: avoid;
+            height: 277mm;
+            overflow: hidden;
+            padding: 10mm;
+            position: relative;
+            box-sizing: border-box;
+        }
+        
+        .page:last-child {
+            page-break-after: auto;
+            break-after: auto;
+        }
+        
+        /* Page 1: Cover */
+        .page-1 {
+            display: flex;
+            flex-direction: column;
+        }
+        
+        .title-block {
+            text-align: center;
+            margin-bottom: 8mm;
+        }
+        
+        .hanja-title {
+            font-size: 22pt;
+            font-weight: bold;
+            margin-bottom: 2mm;
+        }
+        
+        .korean-title {
+            font-size: 16pt;
+            margin-bottom: 2mm;
+        }
+        
+        .english-title {
+            font-size: 13pt;
+            margin-bottom: 4mm;
+        }
+        
+        .subtitle {
+            font-size: 9.5pt;
+            line-height: 1.4;
+            margin-bottom: 1.5mm;
+        }
+        
+        .game-info {
+            margin: 4mm 0;
+            font-size: 8.5pt;
+            line-height: 1.3;
+        }
+        
+        .game-info-row {
+            display: flex;
+            margin-bottom: 1mm;
+        }
+        
+        .game-info-label {
+            font-weight: bold;
+            width: 60px;
+        }
+        
+        .section-title {
+            font-size: 10.5pt;
+            font-weight: bold;
+            margin: 4mm 0 2mm 0;
+        }
+        
+        .content-columns {
+            display: block;
+            margin-bottom: 8mm;
+        }
+        
+        .column {
+            margin-bottom: 5mm;
+        }
+        
+        .print-list, .assemble-list {
+            font-size: 9pt;
+            line-height: 1.4;
+        }
+        
+        .print-list li, .assemble-list li {
+            margin-bottom: 1.5mm;
+        }
+        
+        .indent {
+            margin-left: 5mm;
+            font-size: 8.5pt;
+        }
+        
+        .components-box {
+            background: #f5f5f5;
+            border: 1px solid #ddd;
+            padding: 3mm;
+            margin-top: 4mm;
+            line-height: 1.3;
+            font-size: 9pt;
+        }
+        
+        .components-title {
+            font-weight: bold;
+            margin-bottom: 1.5mm;
+        }
+        
+        .online-box {
+            background: #e8e8e8;
+            border: 1px solid #999;
+            padding: 3mm;
+            margin: 3mm 0 3mm 0;
+            line-height: 1.3;
+            font-size: 9pt;
+        }
+        
+        .online-title {
+            font-weight: bold;
+            margin-bottom: 1.5mm;
+        }
+        
+        .online-url {
+            color: #0066cc;
+            text-decoration: none;
+        }
+        
+        .footer {
+            font-size: 7.5pt;
+            text-align: center;
+            color: #666;
+            padding-top: 2mm;
+            border-top: 1px solid #ddd;
+            page-break-inside: avoid;
+            line-height: 1.2;
+        }
+        
+        /* Page 2: Rules */
+        .page-2 {
+            font-size: 9pt;
+        }
+        
+        .rules-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 6mm;
+            padding-bottom: 2mm;
+            border-bottom: 2px solid #000;
+        }
+        
+        .rules-title {
+            font-size: 14pt;
+            font-weight: bold;
+        }
+        
+        .version {
+            font-size: 12pt;
+        }
+        
+        .rules-content {
+            display: flex;
+            gap: 6mm;
+        }
+        
+        .rules-main {
+            flex: 1;
+        }
+        
+        .rules-diagram {
+            width: 60mm;
+            flex-shrink: 0;
+        }
+        
+        .rule-section {
+            margin-bottom: 3mm;
+        }
+        
+        .rule-section-title {
+            font-weight: bold;
+            font-size: 9.5pt;
+            margin-bottom: 1.5mm;
+        }
+        
+        .rule-text {
+            margin-bottom: 1.5mm;
+            line-height: 1.4;
+        }
+        
+        .rule-text-indent {
+            margin-left: 3mm;
+        }
+        
+        /* Board diagram on page 2 */
+        .mini-board {
+            width: 100%;
+            aspect-ratio: 1;
+            border: 2px solid #000;
+            position: relative;
+            background: #fff;
+        }
+        
+        .mini-board-grid {
+            display: grid;
+            grid-template-columns: repeat(9, 1fr);
+            grid-template-rows: repeat(9, 1fr);
+            height: 100%;
+            width: 100%;
+        }
+        
+        .mini-cell {
+            border: 0.5px solid #999;
+            position: relative;
+        }
+        
+        .mini-cell.goal-black {
+            background: #ddd;
+        }
+        
+        .mini-cell.goal-white {
+            background: #eee;
+        }
+        
+        .mini-king-mark {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            width: 30%;
+            height: 30%;
+            border: 1px solid #666;
+            border-radius: 50%;
+            background: transparent;
+        }
+        
+        /* Page 3: Board */
+        .page-3 {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            position: relative;
+            contain: layout style paint;
+        }
+        
+        .board-header {
+            width: 100%;
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 5mm;
+        }
+        
+        .board-title {
+            font-size: 12pt;
+            font-weight: bold;
+        }
+        
+        .board-container {
+            width: 140mm;
+            height: 140mm;
+            position: relative;
+            margin-bottom: 6mm;
+        }
+        
+        .board-grid {
+            display: grid;
+            grid-template-columns: repeat(9, 1fr);
+            grid-template-rows: repeat(9, 1fr);
+            width: 100%;
+            height: 100%;
+            border: 2px solid #000;
+        }
+        
+        .board-cell {
+            border: 0.5px solid #333;
+            position: relative;
+        }
+        
+        .board-cell.goal-top {
+            background: #d0d0d0;
+        }
+        
+        .board-cell.goal-bottom {
+            background: #e5e5e5;
+        }
+        
+        .start-circle {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            width: 40%;
+            height: 40%;
+            border: 1.5px solid #aaa;
+            border-radius: 50%;
+            background: transparent;
+        }
+        
+        .board-labels {
+            position: absolute;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+            top: 0;
+            left: 0;
+        }
+        
+        .file-label {
+            position: absolute;
+            font-size: 9pt;
+            font-weight: 400;
+            color: #000;
+            left: 50%;
+            transform: translateX(-50%);
+        }
+        
+        .file-label.top {
+            top: -7mm;
+        }
+        
+        .file-label.bottom {
+            bottom: -7mm;
+        }
+        
+        .rank-label {
+            position: absolute;
+            font-size: 9pt;
+            font-weight: 400;
+            color: #000;
+            top: 50%;
+            transform: translateY(-50%);
+        }
+        
+        .rank-label.left {
+            left: -6mm;
+        }
+        
+        .rank-label.right {
+            right: -6mm;
+        }
+        
+        .board-legend {
+            font-size: 8pt;
+            text-align: center;
+            line-height: 1.5;
+            margin-top: 5mm;
+        }
+        
+        /* Page 4: Pieces */
+        .page-4 {
+            position: relative;
+            contain: layout style paint;
+        }
+        
+        .pieces-header {
+            text-align: center;
+            margin-bottom: 8mm;
+        }
+        
+        .pieces-title {
+            font-size: 11pt;
+            font-weight: bold;
+            margin-bottom: 2mm;
+        }
+        
+        .pieces-subtitle {
+            font-size: 9pt;
+        }
+        
+        .kings-row {
+            display: flex;
+            justify-content: space-around;
+            margin-bottom: 15mm;
+        }
+        
+        .king-piece {
+            text-align: center;
+        }
+        
+        .piece-circle {
+            width: 25mm;
+            height: 25mm;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 20pt;
+            font-weight: bold;
+            position: relative;
+            margin: 0 auto 3mm auto;
+        }
+        
+        .piece-circle.black {
+            background: #000;
+            color: #fff;
+        }
+        
+        .piece-circle.white {
+            background: #fff;
+            color: #000;
+            border: 2px solid #000;
+        }
+        
+        .piece-circle::after {
+            content: '';
+            position: absolute;
+            width: calc(100% + 2mm);
+            height: calc(100% + 2mm);
+            border: 1px dashed #999;
+            border-radius: 50%;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+        }
+        
+        .piece-label {
+            font-size: 8pt;
+            font-weight: bold;
+        }
+        
+        .guards-section {
+            margin-bottom: 10mm;
+        }
+        
+        .guards-header {
+            font-size: 8pt;
+            font-weight: bold;
+            margin-bottom: 3mm;
+        }
+        
+        .guards-grid {
+            display: grid;
+            grid-template-columns: repeat(5, 1fr);
+            gap: 5mm;
+            margin-bottom: 3mm;
+        }
+        
+        .guard-piece {
+            text-align: center;
+        }
+        
+        .guard-circle {
+            width: 25mm;
+            height: 25mm;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 16pt;
+            position: relative;
+            margin: 0 auto;
+        }
+        
+        .guard-circle.black {
+            background: #000;
+            color: #fff;
+        }
+        
+        .guard-circle.white {
+            background: #fff;
+            color: #000;
+            border: 2px solid #000;
+        }
+        
+        .guard-circle::after {
+            content: '';
+            position: absolute;
+            width: calc(100% + 2mm);
+            height: calc(100% + 2mm);
+            border: 1px dashed #999;
+            border-radius: 50%;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+        }
+        
+        .spare-label {
+            font-size: 6pt;
+            margin-top: 1mm;
+        }
+        
+        .pieces-footer {
+            font-size: 7pt;
+            line-height: 1.5;
+            margin-top: 10mm;
+            border-top: 1px solid #ddd;
+            padding-top: 3mm;
+        }
+    </style>
+</head>
+<body>
+    <!-- PAGE 1: COVER -->
+    <div class="page page-1">
+        <div class="title-block">
+            <div class="hanja-title">蒙塵</div>
+            <div class="korean-title">몽진</div>
+            <div class="english-title">Mongjin</div>
+            <div class="subtitle">
+                <strong>KO</strong> — 임금이 난리를 피해 도망을 떠나다. 왕의 피난.
+            </div>
+            <div class="subtitle">
+                <strong>EN</strong> — The king's flight from the capital. Escort your king to an enemy goal before your opponent does.
+            </div>
+        </div>
+        
+        <div class="game-info">
+            <div class="game-info-row">
+                <span class="game-info-label"><strong>Players</strong></span>
+                <span>2 · 2인</span>
+            </div>
+            <div class="game-info-row">
+                <span class="game-info-label"><strong>Type</strong></span>
+                <span>Abstract strategy · 추상 전략</span>
+            </div>
+            <div class="game-info-row">
+                <span class="game-info-label"><strong>Board</strong></span>
+                <span>9×9</span>
+            </div>
+            <div class="game-info-row">
+                <span class="game-info-label"><strong>Year</strong></span>
+                <span>2026</span>
+            </div>
+            <div class="game-info-row">
+                <span class="game-info-label"><strong>Designer</strong></span>
+                <span>Oin Kwon</span>
+            </div>
+        </div>
+        
+        <div class="section-title">What to print · 무엇을 인쇄할까</div>
+        
+        <ul class="print-list">
+            <li>• Page 3 — one 9×9 board
+                <div class="indent">3쪽 — 9×9 보드 1장</div>
+            </li>
+            <li>• Page 4 — 2 kings (王) + 16 guards (衛)
+                <div class="indent">4쪽 — 왕 2 + 호위 16 (각 진영 왕 1, 호위 8)</div>
+            </li>
+            <li>• Pages 1–2 — keep as reference
+                <div class="indent">1–2쪽 — 조립 규칙 참고용</div>
+            </li>
+        </ul>
+        
+        <div class="section-title">How to assemble · 조립 방법</div>
+        
+        <ol class="assemble-list">
+            <li>Print pages 3 and 4 (and optionally 1–2).
+                <div class="indent">3+4쪽을 인쇄합니다 (1–2쪽은 선택).</div>
+            </li>
+            <li>Cut out the circular tokens along the dashed guides.
+                <div class="indent">점선 가이드를 따라 원형 돌을 오립니다.</div>
+            </li>
+            <li>Optional: glue tokens onto cardboard or bottle caps for weight.
+                <div class="indent">선택: 글루건이나 병뚜껑에 돌을 부착해 무게를 줍니다.</div>
+            </li>
+            <li>No scissors? Use two colors of coins/stones as kings & guards.
+                <div class="indent">가위가 없다면 돌을 바둑돌 두 색으로 대체 가능.</div>
+            </li>
+        </ol>
+        
+        <div class="components-box">
+            <div class="components-title">Components · 구성물</div>
+            <div>• 1 × board (9×9) · 보드 1</div>
+            <div>• 1 × black king 王 · 흑 왕 1</div>
+            <div>• 1 × white king 王 · 백 왕 1</div>
+            <div>• 8 × black guards 衛 · 흑 호위 8</div>
+            <div>• 8 × white guards 衛 · 백 호위 8</div>
+            <div style="font-size: 8pt; margin-top: 2mm;">* Spares on page 4 · 4페이지 예비 포함</div>
+        </div>
+        
+        <div class="online-box">
+            <div class="online-title">Also play online · 온라인으로도 플레이하세요</div>
+            <div>Optional web client (not required for this physical game):</div>
+            <div><a href="https://kamilokwon.github.io/mongjin/" class="online-url">https://kamilokwon.github.io/mongjin/</a></div>
+            <div class="indent" style="margin-top: 1mm;">이 PnP로만 플레이 가능하며, 웹 클라이언트는 선택 사항입니다.</div>
+        </div>
+        
+        <div class="footer">
+            Designed by Oin Kwon, 2026 · Rules v0.3<br>
+            https://kamilokwon.github.io/mongjin/
+        </div>
+    </div>
+    
+    <!-- PAGE 2: RULES -->
+    <div class="page page-2">
+        <div class="rules-header">
+            <div class="rules-title">Rules · 규칙</div>
+            <div class="version">v0.3</div>
+        </div>
+        
+        <div class="rules-content">
+            <div class="rules-main">
+                <div class="rule-section">
+                    <div class="rule-section-title">Setup · 초기 배치</div>
+                    <div class="rule-text">
+                        <strong>EN</strong> — Pieces sit on squares (janggi-style). Black at bottom (rank 1), White at top (rank 9). Black goals d9/e9/f9; White goals d1/e1/f1. Files a–i (left→right from Black's view). Black king e1, White king e9. All 8 guards start in hand (0 on board).
+                    </div>
+                    <div class="rule-text">
+                        <strong>KO</strong> — 말은 칸 위(교점 아님, 장기식). 흑 아래(1단), 백 위(9단). 흑 목적지 d9/e9/f9, 백 목적지 d1/e1/f1. 열 a-i (흑 기준 왼→오). 초기 왕은 흑 e1, 백 e9. 호위 8개는 손에 들고 시작 (보드=0).
+                    </div>
+                </div>
+                
+                <div class="rule-section">
+                    <div class="rule-section-title">Turn · 턴</div>
+                    <div class="rule-text">
+                        Each turn, do exactly one: place one remaining guard, or move one of your pieces — not both.
+                    </div>
+                    <div class="rule-text">
+                        매 턴 하나만: 남은 호위 1개 두거나, 내 말 1개 옮기기. 둘 다 불가.
+                    </div>
+                </div>
+                
+                <div class="rule-section">
+                    <div class="rule-section-title">Movement · 이동</div>
+                    <div class="rule-text">
+                        • <strong>King 王</strong>: one step orthogonally or diagonally (chess king). Cannot capture — empty squares only.
+                    </div>
+                    <div class="rule-text rule-text-indent">
+                        왕 王: 8방향 (체스 킹식) 1칸. 잡지 못함.
+                    </div>
+                    <div class="rule-text">
+                        • <strong>Guard 衛</strong>: one step orthogonally. Captures by replacement: enemy guards AND the enemy king (yes guards can take the king too).
+                    </div>
+                    <div class="rule-text rule-text-indent">
+                        호위 衛: 상하좌우 1칸. 상대 호위와 왕을 이동으로 잡음.
+                    </div>
+                    <div class="rule-text">
+                        • Guards cannot move onto goal squares, except when capturing a king that is on a goal.
+                    </div>
+                    <div class="rule-text rule-text-indent">
+                        호위는 목적지 칸에 들어갈 수 없지만 예외: 목적지 칸에 상대 왕이 있으면 잡을 수 있음.
+                    </div>
+                </div>
+                
+                <div class="rule-section">
+                    <div class="rule-section-title">Placement · 착수</div>
+                    <div class="rule-text">
+                        Empty square orthogonally adjacent to one of your pieces (including the king). Guards cannot be placed on goal squares.
+                    </div>
+                    <div class="rule-text">
+                        자기 말과 상하좌우로 맞닿은 빈 칸. 목적지 칸에는 호위를 둘 수 없음.
+                    </div>
+                </div>
+                
+                <div class="rule-section">
+                    <div class="rule-section-title">Winning & losing · 승패</div>
+                    <div class="rule-text">
+                        • <strong>Win</strong>: your king is on an enemy goal square at the end of your turn. Black goals d9/e9/f9, White goals d1/e1/f1.
+                    </div>
+                    <div class="rule-text rule-text-indent">
+                        승: 자기 턴 종료 시 왕이 상대 목적지 칸에 있을 때. 흑 d9/e9/f9, 백 d1/e1/f1.
+                    </div>
+                    <div class="rule-text">
+                        • <strong>Instant loss</strong>: your king is captured.
+                    </div>
+                    <div class="rule-text rule-text-indent">
+                        즉시 패: 왕이 잡힘.
+                    </div>
+                    <div class="rule-text">
+                        • <strong>Surround loss</strong>: if every orthogonal neighbor of your king is off-board or occupied by an enemy piece, you lose.
+                    </div>
+                    <div class="rule-text rule-text-indent">
+                        포위 패: 왕의 상하좌우가 모두 보드 밖이거나 상대 기물이 있으면 진다.
+                    </div>
+                    <div class="rule-text">
+                        • <strong>No moves</strong>: if you have no legal action on your turn, you lose.
+                    </div>
+                    <div class="rule-text rule-text-indent">
+                        수 없음 패: 합법적 행동이 없으면 패.
+                    </div>
+                    <div class="rule-text">
+                        • Guards cannot occupy goals — goals cannot be blocked by guards.
+                    </div>
+                    <div class="rule-text rule-text-indent">
+                        호위는 목적지를 점유 불가 — 목적지는 호위로 막지 못함.
+                    </div>
+                </div>
+            </div>
+            
+            <div class="rules-diagram">
+                <div class="mini-board">
+                    <div class="mini-board-grid" id="mini-board-grid"></div>
+                </div>
+                <div style="font-size: 8pt; text-align: center; margin-top: 3mm; line-height: 1.4;">
+                    <div>Black goals (흑 목적지) d9/e9/f9</div>
+                    <div>White goals (백 목적지) d1/e1/f1</div>
+                    <div>King starts: e1 / e9</div>
+                </div>
+            </div>
+        </div>
+        
+        <div class="footer">
+            Mongjin / 몽진 / 蒙塵 · Designed by Oin Kwon, 2026 · https://kamilokwon.github.io/mongjin/
+        </div>
+    </div>
+    
+    <!-- PAGE 3: BOARD -->
+    <div class="page page-3">
+        <div class="board-header">
+            <div class="board-title">Board · 보드</div>
+            <div>9×9</div>
+        </div>
+        
+        <div class="board-container">
+            <div class="board-grid" id="board-grid"></div>
+            <div class="board-labels" id="board-labels"></div>
+        </div>
+        
+        <div class="board-legend">
+            Black goals d9/e9/f9 (흑 목적지) · White goals d1/e1/f1 (백 목적지)<br>
+            King starts: e1 (흑) and e9 (백) · Pieces on squares, not intersections<br>
+            Print at 100% on A4. · A4 실제 크기 100% 인쇄.
+        </div>
+    </div>
+    
+    <!-- PAGE 4: PIECES -->
+    <div class="page page-4">
+        <div class="pieces-header">
+            <div class="pieces-title">Pieces · 말 펀치 아웃</div>
+            <div class="pieces-subtitle">
+                Cut along dashed circles. Kings show 王, guards show 衛.<br>
+                점선 원을 따라 자르세요. 왕은 王를, 호위는 衛를 표시합니다.
+            </div>
+        </div>
+        
+        <div class="kings-row">
+            <div class="king-piece">
+                <div class="piece-circle black">王</div>
+                <div class="piece-label">BLACK</div>
+            </div>
+            <div class="king-piece">
+                <div class="piece-circle white">王</div>
+                <div class="piece-label">WHITE</div>
+            </div>
+        </div>
+        
+        <div class="guards-section">
+            <div class="guards-header">Black guards · 흑 호위 (衛) — 8 — 2 spares</div>
+            <div class="guards-grid" id="black-guards"></div>
+        </div>
+        
+        <div class="guards-section">
+            <div class="guards-header">White guards · 백 호위 (衛) — 8 — 2 spares</div>
+            <div class="guards-grid" id="white-guards"></div>
+        </div>
+        
+        <div class="pieces-footer">
+            <strong>Tip · 팁</strong> — High-contrast tokens: filled black vs outlined white. If printing B&W, mark one side with a dot. Optional mounts: cardboard, bottle caps, wood discs, or two colors of go stones / coins. · 선택 재료: 병뚜껑, 나무, 바둑돌, 동전.
+        </div>
+        
+        <div class="footer">
+            Mongjin print-and-play · Oin Kwon, 2026 · https://kamilokwon.github.io/mongjin/
+        </div>
+    </div>
+    
+    <script>
+        // Generate mini board on page 2
+        const miniBoardGrid = document.getElementById('mini-board-grid');
+        for (let row = 8; row >= 0; row--) {
+            for (let col = 0; col < 9; col++) {
+                const cell = document.createElement('div');
+                cell.className = 'mini-cell';
+                
+                // Black goals: d9, e9, f9 (row 8, cols 3,4,5)
+                if (row === 8 && (col === 3 || col === 4 || col === 5)) {
+                    cell.classList.add('goal-black');
+                }
+                // White goals: d1, e1, f1 (row 0, cols 3,4,5)
+                if (row === 0 && (col === 3 || col === 4 || col === 5)) {
+                    cell.classList.add('goal-white');
+                }
+                
+                // King start marks: e1 (row 0, col 4) and e9 (row 8, col 4)
+                if ((row === 0 || row === 8) && col === 4) {
+                    const mark = document.createElement('div');
+                    mark.className = 'mini-king-mark';
+                    cell.appendChild(mark);
+                }
+                
+                miniBoardGrid.appendChild(cell);
+            }
+        }
+        
+        // Generate full board on page 3
+        const boardGrid = document.getElementById('board-grid');
+        const boardLabels = document.getElementById('board-labels');
+        
+        // Create cells
+        for (let row = 8; row >= 0; row--) {
+            for (let col = 0; col < 9; col++) {
+                const cell = document.createElement('div');
+                cell.className = 'board-cell';
+                
+                // Black goals: d9, e9, f9
+                if (row === 8 && (col === 3 || col === 4 || col === 5)) {
+                    cell.classList.add('goal-top');
+                }
+                // White goals: d1, e1, f1
+                if (row === 0 && (col === 3 || col === 4 || col === 5)) {
+                    cell.classList.add('goal-bottom');
+                }
+                
+                // Start circles at e1 and e9 (col 4)
+                if ((row === 0 || row === 8) && col === 4) {
+                    const circle = document.createElement('div');
+                    circle.className = 'start-circle';
+                    cell.appendChild(circle);
+                }
+                
+                boardGrid.appendChild(cell);
+            }
+        }
+        
+        // Add file labels (a-i) top and bottom
+        const files = 'abcdefghi';
+        for (let i = 0; i < 9; i++) {
+            const topLabel = document.createElement('div');
+            topLabel.className = 'file-label top';
+            topLabel.textContent = files[i];
+            topLabel.style.left = `${(i + 0.5) * 11.11}%`;
+            boardLabels.appendChild(topLabel);
+            
+            const bottomLabel = document.createElement('div');
+            bottomLabel.className = 'file-label bottom';
+            bottomLabel.textContent = files[i];
+            bottomLabel.style.left = `${(i + 0.5) * 11.11}%`;
+            boardLabels.appendChild(bottomLabel);
+        }
+        
+        // Add rank labels (1-9) left and right
+        for (let i = 0; i < 9; i++) {
+            const leftLabel = document.createElement('div');
+            leftLabel.className = 'rank-label left';
+            leftLabel.textContent = i + 1;
+            leftLabel.style.top = `${(8.5 - i) * 11.11}%`;
+            boardLabels.appendChild(leftLabel);
+            
+            const rightLabel = document.createElement('div');
+            rightLabel.className = 'rank-label right';
+            rightLabel.textContent = i + 1;
+            rightLabel.style.top = `${(8.5 - i) * 11.11}%`;
+            boardLabels.appendChild(rightLabel);
+        }
+        
+        // Generate black guards
+        const blackGuards = document.getElementById('black-guards');
+        for (let i = 0; i < 10; i++) {
+            const guard = document.createElement('div');
+            guard.className = 'guard-piece';
+            
+            const circle = document.createElement('div');
+            circle.className = 'guard-circle black';
+            circle.textContent = '衛';
+            guard.appendChild(circle);
+            
+            if (i >= 8) {
+                const spare = document.createElement('div');
+                spare.className = 'spare-label';
+                spare.textContent = 'spare';
+                guard.appendChild(spare);
+            }
+            
+            blackGuards.appendChild(guard);
+        }
+        
+        // Generate white guards
+        const whiteGuards = document.getElementById('white-guards');
+        for (let i = 0; i < 10; i++) {
+            const guard = document.createElement('div');
+            guard.className = 'guard-piece';
+            
+            const circle = document.createElement('div');
+            circle.className = 'guard-circle white';
+            circle.textContent = '衛';
+            guard.appendChild(circle);
+            
+            if (i >= 8) {
+                const spare = document.createElement('div');
+                spare.className = 'spare-label';
+                spare.textContent = 'spare';
+                guard.appendChild(spare);
+            }
+            
+            whiteGuards.appendChild(guard);
+        }
+    </script>
+</body>
+</html>
