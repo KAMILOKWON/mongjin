@@ -2,7 +2,17 @@
 """
 Create Print & Play PDF for Mongjin
 Based on rules v0.3, A4 format, bilingual KO+EN
-Uses Noto Sans CJK for proper Korean/Hanja rendering
+Uses Nanum Gothic (downloaded) for Korean text
+Uses CID font (MSung-Light/STSong-Light) for Hanja characters (蒙塵, 王, 衛)
+
+NOTE: Hanja characters use CID fonts which may not render in all PDF viewers
+due to missing CMap files. The Korean text (몽진) and all game rules render correctly.
+
+CRITICAL FIXES in this version:
+- Page 3: Removed filled king tokens from board (now shows only faint start marks)
+- Movement text: Fixed "Cannot capture — empty squares only" (was "capture squares")
+- Goal positions: Verified Black d9/e9/f9, White d1/e1/f1
+- Footer spacing: Increased clearance to prevent text overlap
 """
 
 from reportlab.lib.pagesizes import A4
@@ -17,33 +27,58 @@ import os
 
 WIDTH, HEIGHT = A4  # 210mm x 297mm
 
-# Register CJK fonts
+# Register CJK fonts - use Nanum Gothic (downloaded fonts work better than TTC)
 CJK_FONT_PATHS = [
-    '/usr/share/fonts/truetype/nanum/NanumGothic.ttf',
-    '/usr/share/fonts/truetype/nanum/NanumBarunGothic.ttf',
+    # Downloaded Nanum Gothic
+    ('/tmp/fonts/NanumGothic-Regular.ttf', None),
+    # System Nanum if available
+    ('/usr/share/fonts/truetype/nanum/NanumGothic.ttf', None),
+    ('/usr/share/fonts/truetype/nanum/NanumBarunGothic.ttf', None),
+    # Noto Sans CJK KR (TTC files may not work with reportlab)
+    ('/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc', 0),
 ]
 
 CJK_BOLD_FONT_PATHS = [
-    '/usr/share/fonts/truetype/nanum/NanumGothicBold.ttf',
-    '/usr/share/fonts/truetype/nanum/NanumBarunGothicBold.ttf',
+    ('/tmp/fonts/NanumGothic-Bold.ttf', None),
+    ('/usr/share/fonts/truetype/nanum/NanumGothicBold.ttf', None),
+    ('/usr/share/fonts/truetype/nanum/NanumBarunGothicBold.ttf', None),
+    ('/usr/share/fonts/opentype/noto/NotoSansCJK-Bold.ttc', 0),
 ]
 
 def setup_fonts():
     """Register fonts for CJK support"""
-    # Try to use Nanum Gothic (TrueType Korean font)
-    for font_path in CJK_FONT_PATHS:
+    # Try to use Noto Sans CJK KR or Nanum Gothic
+    for font_info in CJK_FONT_PATHS:
+        if isinstance(font_info, tuple):
+            font_path, subfont = font_info
+        else:
+            font_path, subfont = font_info, None
+            
         if os.path.exists(font_path):
             try:
-                pdfmetrics.registerFont(TTFont('NanumGothic', font_path))
+                if subfont is not None:
+                    # TTC file - specify subfont index for Korean (KR)
+                    pdfmetrics.registerFont(TTFont('CJKFont', font_path, subfontIndex=subfont))
+                else:
+                    pdfmetrics.registerFont(TTFont('CJKFont', font_path))
+                    
                 # Also register bold variant if available
-                for bold_path in CJK_BOLD_FONT_PATHS:
+                for bold_info in CJK_BOLD_FONT_PATHS:
+                    if isinstance(bold_info, tuple):
+                        bold_path, bold_sub = bold_info
+                    else:
+                        bold_path, bold_sub = bold_info, None
+                        
                     if os.path.exists(bold_path):
                         try:
-                            pdfmetrics.registerFont(TTFont('NanumGothic-Bold', bold_path))
+                            if bold_sub is not None:
+                                pdfmetrics.registerFont(TTFont('CJKFont-Bold', bold_path, subfontIndex=bold_sub))
+                            else:
+                                pdfmetrics.registerFont(TTFont('CJKFont-Bold', bold_path))
                         except:
                             pass
                         break
-                return 'NanumGothic'
+                return 'CJKFont'
             except Exception as e:
                 print(f"Failed to load {font_path}: {e}")
                 continue
@@ -63,6 +98,18 @@ def setup_fonts():
 CJK_FONT = setup_fonts()
 FALLBACK_FONT = 'Helvetica'
 
+# Register CID font for Hanja (Chinese characters) which have better coverage
+HANJA_FONT = None
+try:
+    pdfmetrics.registerFont(UnicodeCIDFont('MSung-Light'))
+    HANJA_FONT = 'MSung-Light'
+except:
+    try:
+        pdfmetrics.registerFont(UnicodeCIDFont('STSong-Light'))
+        HANJA_FONT = 'STSong-Light'
+    except:
+        HANJA_FONT = CJK_FONT
+
 
 def draw_text(c, x, y, text, font_name=None, font_size=10):
     """Draw text with proper font selection"""
@@ -80,10 +127,19 @@ def draw_text_centered(c, x, y, text, font_name=None, font_size=10):
     c.drawCentredString(x, y, text)
 
 
+def draw_hanja(c, x, y, text, font_size=24, centered=True):
+    """Draw Hanja (Chinese characters) using CID font for better coverage"""
+    c.setFont(HANJA_FONT, font_size)
+    if centered:
+        c.drawCentredString(x, y, text)
+    else:
+        c.drawString(x, y, text)
+
+
 def draw_page1_cover(c):
     """Page 1: Cover and print instructions"""
-    # Title - Hanja
-    draw_text_centered(c, WIDTH/2, HEIGHT - 60*mm, "蒙塵", CJK_FONT, 24)
+    # Title - Hanja (using CID font for better Hanja support)
+    draw_hanja(c, WIDTH/2, HEIGHT - 60*mm, "蒙塵", 24, centered=True)
     
     # Korean title
     draw_text_centered(c, WIDTH/2, HEIGHT - 70*mm, "몽진", CJK_FONT, 18)
@@ -188,8 +244,10 @@ def draw_page1_cover(c):
     y -= 5*mm
     draw_text(c, 40*mm, y, "가위가 없다면 돌을 바둑돌 두 색으로 대체 가능.", CJK_FONT, 9)
     
-    # Web link
-    y -= 12*mm
+    # Web link (ensure y stays above 35mm to avoid footer overlap)
+    y -= 10*mm
+    if y < 45*mm:
+        y = 45*mm
     c.setFont(FALLBACK_FONT + "-Bold", 10)
     draw_text(c, 30*mm, y, "Also play online · 온라인으로도 플레이하세요", CJK_FONT, 10)
     y -= 7*mm
@@ -200,14 +258,12 @@ def draw_page1_cover(c):
     c.setFillColorRGB(0, 0, 0.8)
     c.drawString(35*mm, y, "https://kamilokwon.github.io/mongjin/")
     c.setFillColorRGB(0, 0, 0)
-    y -= 5*mm
-    draw_text(c, 35*mm, y, "이 PnP로만 플레이 가능하며, 웹 클라이언트는 선택 사항입니다.", CJK_FONT, 9)
     
-    # Footer
+    # Footer (ensure adequate clearance)
     c.setFont(FALLBACK_FONT, 8)
-    c.drawString(30*mm, 20*mm, "Mongjin print-and-play · Oin Kwon, 2026")
-    c.drawRightString(WIDTH - 30*mm, 20*mm, "Rules v0.3")
-    c.drawCentredString(WIDTH/2, 15*mm, "https://kamilokwon.github.io/mongjin/")
+    c.drawString(30*mm, 22*mm, "Mongjin print-and-play · Oin Kwon, 2026")
+    c.drawRightString(WIDTH - 30*mm, 22*mm, "Rules v0.3")
+    c.drawCentredString(WIDTH/2, 16*mm, "https://kamilokwon.github.io/mongjin/")
 
 
 def draw_page2_rules(c):
@@ -264,9 +320,9 @@ def draw_page2_rules(c):
     c.setFont(FALLBACK_FONT, 9)
     c.drawString(35*mm, y, "• King ")
     draw_text(c, 52*mm, y, "王", CJK_FONT, 9)
-    c.drawString(57*mm, y, ": one step orthogonally or diagonally (chess king). Cannot")
+    c.drawString(57*mm, y, ": one step orthogonally or diagonally (chess king).")
     y -= 4*mm
-    c.drawString(37*mm, y, "capture squares.")
+    c.drawString(37*mm, y, "Cannot capture — empty squares only.")
     y -= 4*mm
     c.drawString(35*mm, y, "• Guard ")
     draw_text(c, 54*mm, y, "衛", CJK_FONT, 9)
@@ -347,12 +403,14 @@ def draw_page2_rules(c):
     y -= 4*mm
     draw_text(c, 35*mm, y, "• 호위는 목적지 칸에 들어갈 수 없음 — 목적지는 호위로 막지 못함.", CJK_FONT, 9)
     
-    # Footer
+    # Footer (ensure clearance from last Korean rule text)
     c.setFont(FALLBACK_FONT, 8)
-    c.drawString(30*mm, 20*mm, "Mongjin / ")
-    draw_text(c, 52*mm, 20*mm, "몽진 / 蒙塵", CJK_FONT, 8)
-    c.drawString(75*mm, 20*mm, " · Designed by Oin Kwon, 2026")
-    c.drawRightString(WIDTH - 30*mm, 20*mm, "https://kamilokwon.github.io/mongjin/")
+    c.drawString(30*mm, 24*mm, "Mongjin / ")
+    draw_text(c, 52*mm, 24*mm, "몽진", CJK_FONT, 8)
+    c.drawString(62*mm, 24*mm, " / ")
+    draw_hanja(c, 68*mm, 24*mm, "蒙塵", 8, centered=False)
+    c.drawString(78*mm, 24*mm, " · Designed by Oin Kwon, 2026")
+    c.drawRightString(WIDTH - 30*mm, 24*mm, "https://kamilokwon.github.io/mongjin/")
 
 
 def draw_page3_board(c):
@@ -412,25 +470,20 @@ def draw_page3_board(c):
         y = start_y + i * cell_size
         c.line(start_x, y, start_x + board_width, y)
     
-    # Draw king positions
-    # Black king at e1 (bottom, index [0,4]) - BLACK STARTS AT BOTTOM
+    # Draw king start marks (faint empty circles, NO filled tokens)
+    # Black king starts at e1 (bottom, index [0,4]) - BLACK STARTS AT BOTTOM
     x = start_x + 4 * cell_size + cell_size/2
-    y = start_y + cell_size/2 - 3*mm
-    c.setFillColorRGB(0.1, 0.1, 0.1)
-    c.circle(x, y, 6*mm, fill=1, stroke=0)
-    c.setFillColorRGB(1, 1, 1)
-    draw_text_centered(c, x, y - 2.5*mm, "王", CJK_FONT, 16)
+    y = start_y + cell_size/2
+    c.setStrokeColorRGB(0.7, 0.7, 0.7)
+    c.setLineWidth(0.5)
+    c.circle(x, y, 5*mm, fill=0, stroke=1)
     
-    # White king at e9 (top, index [8,4]) - WHITE STARTS AT TOP
+    # White king starts at e9 (top, index [8,4]) - WHITE STARTS AT TOP
     x = start_x + 4 * cell_size + cell_size/2
-    y = start_y + 8 * cell_size + cell_size/2 - 3*mm
-    c.setFillColorRGB(0.9, 0.9, 0.9)
-    c.circle(x, y, 6*mm, fill=1, stroke=1)
-    c.setStrokeColor(colors.black)
-    c.setLineWidth(1)
-    c.circle(x, y, 6*mm, fill=0, stroke=1)
-    c.setFillColorRGB(0, 0, 0)
-    draw_text_centered(c, x, y - 2.5*mm, "王", CJK_FONT, 16)
+    y = start_y + 8 * cell_size + cell_size/2
+    c.setStrokeColorRGB(0.7, 0.7, 0.7)
+    c.setLineWidth(0.5)
+    c.circle(x, y, 5*mm, fill=0, stroke=1)
     
     # Labels
     c.setFillColorRGB(0, 0, 0)
@@ -446,15 +499,22 @@ def draw_page3_board(c):
         y = start_y + i * cell_size + cell_size/2 - 1.5*mm
         c.drawRightString(start_x - 4*mm, y, str(i + 1))
     
-    # Footer
+    # Legend and footer
     c.setFont(FALLBACK_FONT, 8)
-    c.drawString(30*mm, 20*mm, "Black goals d9, e9, f9 · ")
-    draw_text(c, 75*mm, 20*mm, "흑 목적지 d9/e9/f9", CJK_FONT, 8)
-    c.drawRightString(WIDTH - 30*mm, 20*mm, "White goals d1, e1, f1 · ")
-    draw_text(c, WIDTH - 85*mm, 20*mm, "백 목적지 d1/e1/f1", CJK_FONT, 8)
-    c.drawCentredString(WIDTH/2, 15*mm, "Pieces on squares (not intersections) · ")
-    draw_text(c, WIDTH/2 + 52*mm, 15*mm, "말은 교점이 아닌 칸 위.", CJK_FONT, 8)
-    c.drawCentredString(WIDTH/2, 10*mm, "Print at 100% on A4.")
+    c.setFillColorRGB(0, 0, 0)
+    legend_y = 22*mm
+    c.drawString(30*mm, legend_y, "Black goals d9/e9/f9 (")
+    draw_text(c, 74*mm, legend_y, "흑 목적지", CJK_FONT, 8)
+    c.drawString(92*mm, legend_y, ") · White goals d1/e1/f1 (")
+    draw_text(c, WIDTH - 60*mm, legend_y, "백 목적지", CJK_FONT, 8)
+    c.drawString(WIDTH - 42*mm, legend_y, ")")
+    
+    legend_y -= 5*mm
+    c.drawString(30*mm, legend_y, "King start: e1 / ")
+    draw_text(c, 60*mm, legend_y, "왕 시작", CJK_FONT, 8)
+    c.drawString(75*mm, legend_y, " e1 and e9 / e9 · Pieces on squares (not intersections)")
+    
+    c.drawCentredString(WIDTH/2, 12*mm, "Print at 100% on A4. · A4 실제 크기 100% 인쇄.")
 
 
 def draw_page4_pieces(c):
@@ -568,15 +628,18 @@ def draw_page4_pieces(c):
             c.setFont(FALLBACK_FONT, 6)
             c.drawCentredString(x, y - 12*mm, "spare")
     
-    # Footer
+    # Footer (ensure adequate clearance from pieces)
     c.setFont(FALLBACK_FONT, 8)
     c.setFillColorRGB(0, 0, 0)
-    c.drawString(30*mm, 20*mm, "Tip · ")
-    draw_text(c, 40*mm, 20*mm, "팁", CJK_FONT, 8)
-    c.drawString(45*mm, 20*mm, " — High-contrast tokens: filled black vs outlined white. If printing B&W only,")
-    c.drawString(30*mm, 15*mm, "mark one side with a dot on the reverse. Optional mounts: cardboard, wood discs, or two")
-    c.drawString(30*mm, 10*mm, "colors of go stones / coins. · ")
-    draw_text(c, 82*mm, 10*mm, "선택 재료: 병뚜껑, 나무 말, 바둑돌, 동전 두 색.", CJK_FONT, 8)
+    footer_y = 24*mm
+    c.drawString(30*mm, footer_y, "Tip · ")
+    draw_text(c, 40*mm, footer_y, "팁", CJK_FONT, 8)
+    c.drawString(45*mm, footer_y, " — High-contrast tokens: filled black vs outlined white.")
+    footer_y -= 4*mm
+    c.drawString(30*mm, footer_y, "If printing B&W, mark one side with a dot. Optional mounts: cardboard, bottle caps,")
+    footer_y -= 4*mm
+    c.drawString(30*mm, footer_y, "wood discs, or two colors of go stones / coins. · ")
+    draw_text(c, 123*mm, footer_y, "선택 재료: 병뚜껑, 나무 말, 바둑돌, 동전.", CJK_FONT, 8)
 
 
 def main():
