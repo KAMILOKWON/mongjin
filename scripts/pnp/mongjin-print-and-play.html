@@ -32,7 +32,8 @@
             page-break-after: always;
             break-after: page;
             page-break-inside: avoid;
-            break-inside: avoid;
+            height: 277mm;
+            overflow: hidden;
             padding: 10mm;
             position: relative;
             box-sizing: border-box;
@@ -267,13 +268,15 @@
             display: flex;
             flex-direction: column;
             align-items: center;
+            position: relative;
+            contain: layout style paint;
         }
         
         .board-header {
             width: 100%;
             display: flex;
             justify-content: space-between;
-            margin-bottom: 8mm;
+            margin-bottom: 5mm;
         }
         
         .board-title {
@@ -282,10 +285,11 @@
         }
         
         .board-container {
-            width: 180mm;
-            height: 180mm;
+            width: 140mm;
+            height: 140mm;
             position: relative;
-            margin-bottom: 10mm;
+            margin-bottom: 6mm;
+            contain: layout style paint;
         }
         
         .board-grid {
@@ -327,6 +331,8 @@
             width: 100%;
             height: 100%;
             pointer-events: none;
+            top: 0;
+            left: 0;
         }
         
         .file-label {
@@ -362,11 +368,14 @@
         .board-legend {
             font-size: 8pt;
             text-align: center;
-            line-height: 1.6;
+            line-height: 1.5;
+            margin-top: 5mm;
         }
         
         /* Page 4: Pieces */
         .page-4 {
+            position: relative;
+            contain: layout style paint;
         }
         
         .pieces-header {
@@ -560,16 +569,16 @@
         <div class="section-title">How to assemble · 조립 방법</div>
         
         <ol class="assemble-list">
-            <li>1. Print pages 3 and 4 (and optionally 1–2).
+            <li>Print pages 3 and 4 (and optionally 1–2).
                 <div class="indent">3+4쪽을 인쇄합니다 (1–2쪽은 선택).</div>
             </li>
-            <li>2. Cut out the circular tokens along the dashed guides.
+            <li>Cut out the circular tokens along the dashed guides.
                 <div class="indent">점선 가이드를 따라 원형 돌을 오립니다.</div>
             </li>
-            <li>3. Optional: glue tokens onto cardboard or bottle caps for weight.
+            <li>Optional: glue tokens onto cardboard or bottle caps for weight.
                 <div class="indent">선택: 글루건이나 병뚜껑에 돌을 부착해 무게를 줍니다.</div>
             </li>
-            <li>4. No scissors? Use two colors of coins/stones as kings & guards.
+            <li>No scissors? Use two colors of coins/stones as kings & guards.
                 <div class="indent">가위가 없다면 돌을 바둑돌 두 색으로 대체 가능.</div>
             </li>
         </ol>
