@@ -16,7 +16,12 @@ import {
 } from './profileRepository';
 import { buildLeaderboard } from './leaderboard';
 import { validateLegacyProfileClaim } from './legacyProfileMigration';
-import { chooseOfficialBotMove, createOfficialBot, type OfficialBot } from './officialBot';
+import {
+  chooseOfficialBotMove,
+  createOfficialBot,
+  type OfficialBot,
+  type PreviousOfficialBot,
+} from './officialBot';
 
 const PORT = Number(process.env.PORT ?? 3001);
 const HOST = process.env.HOST ?? '0.0.0.0';
@@ -58,6 +63,7 @@ interface ClientSession {
 const rooms = new Map<string, Room>();
 const sessions = new Map<WebSocket, ClientSession>();
 const matchmakingQueue: WebSocket[] = [];
+const previousOfficialBots = new Map<string, PreviousOfficialBot>();
 const profileRepository = await createProfileRepository(PROFILE_DATA_FILE);
 let loadedProfiles = await profileRepository.loadProfiles();
 if (profileRepository.kind === 'postgres' && loadedProfiles.length === 0) {
@@ -300,7 +306,13 @@ function startBotMatch(ws: WebSocket) {
   const profile = playerId ? profiles.get(playerId) : undefined;
   if (!playerId || !profile) return;
   const id = makeRoomId();
-  const bot = createOfficialBot(profile.rating, profile.name);
+  const bot = createOfficialBot(
+    profile.rating,
+    profile.name,
+    Math.random,
+    previousOfficialBots.get(playerId),
+  );
+  previousOfficialBots.set(playerId, { name: bot.name, variantKey: bot.variantKey });
   const playerSide = opponent(bot.side);
   const room: Room = {
     id,
