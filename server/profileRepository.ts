@@ -54,6 +54,8 @@ export interface RecordedBotMatch {
   playerWon: boolean;
   botName: string;
   botRating: number;
+  botSearchRating: number;
+  difficultyBand: string;
   reason: string;
   completedAt: string;
 }
@@ -61,6 +63,29 @@ export interface RecordedBotMatch {
 export interface BotMatchResult {
   recorded: boolean;
   player?: StoredProfile;
+}
+
+export interface BotMatchProgress {
+  completed: number;
+  recentWins: number;
+  recentLosses: number;
+}
+
+export type MatchPlatform = 'toss' | 'web' | 'mobile' | 'steam' | 'unknown';
+export type MatchLifecycleEvent = 'started' | 'completed' | 'abandoned';
+
+export interface RecordedMatchEvent {
+  matchId: string;
+  roomId: string;
+  playerId: string;
+  matchKind: 'random' | 'bot';
+  opponentKind: 'human' | 'bot';
+  event: MatchLifecycleEvent;
+  platform: MatchPlatform;
+  plyCount: number;
+  outcome?: 'win' | 'loss';
+  reason?: string;
+  occurredAt: string;
 }
 
 export interface ProfileRepository {
@@ -71,6 +96,8 @@ export interface ProfileRepository {
   migrateLegacyProfile(playerId: string, claim: LegacyProfileClaim): Promise<LegacyProfileMigrationResult>;
   recordMatch(match: RecordedMatch): Promise<MatchResult>;
   recordBotMatch(match: RecordedBotMatch): Promise<BotMatchResult>;
+  getBotMatchProgress(playerId: string, recentLimit?: number): Promise<BotMatchProgress>;
+  recordMatchEvent(event: RecordedMatchEvent): Promise<void>;
   close(): Promise<void>;
 }
 
@@ -137,14 +164,32 @@ export class FileProfileRepository implements ProfileRepository {
   readonly kind = 'file' as const;
   private readonly profiles = new Map<string, StoredProfile>();
   private readonly recordedMatchIds = new Set<string>();
+  private readonly botMatches: RecordedBotMatch[] = [];
+  private readonly matchEvents: RecordedMatchEvent[] = [];
+  private readonly recordedEventKeys = new Set<string>();
   private readonly matchIdsFile: string;
+  private readonly botMatchesFile: string;
+  private readonly matchEventsFile: string;
 
   constructor(private readonly filePath: string) {
     this.matchIdsFile = `${filePath}.matches.json`;
+    this.botMatchesFile = `${filePath}.bot-matches.json`;
+    this.matchEventsFile = `${filePath}.match-events.json`;
     for (const profile of readProfileFile(filePath)) this.profiles.set(profile.playerId, cloneProfile(profile));
     if (existsSync(this.matchIdsFile)) {
       const ids = JSON.parse(readFileSync(this.matchIdsFile, 'utf8')) as string[];
       if (Array.isArray(ids)) for (const id of ids) this.recordedMatchIds.add(id);
+    }
+    if (existsSync(this.botMatchesFile)) {
+      const matches = JSON.parse(readFileSync(this.botMatchesFile, 'utf8')) as RecordedBotMatch[];
+      if (Array.isArray(matches)) this.botMatches.push(...matches);
+    }
+    if (existsSync(this.matchEventsFile)) {
+      const events = JSON.parse(readFileSync(this.matchEventsFile, 'utf8')) as RecordedMatchEvent[];
+      if (Array.isArray(events)) {
+        this.matchEvents.push(...events);
+        for (const event of events) this.recordedEventKeys.add(this.eventKey(event));
+      }
     }
   }
 
@@ -210,15 +255,41 @@ export class FileProfileRepository implements ProfileRepository {
     const player = applyBotEloResult(current, match.botRating, match.playerWon, match.completedAt);
     this.profiles.set(player.playerId, player);
     this.recordedMatchIds.add(match.matchId);
+    this.botMatches.push({ ...match });
     this.persistProfiles();
     atomicWriteJson(this.matchIdsFile, [...this.recordedMatchIds]);
+    atomicWriteJson(this.botMatchesFile, this.botMatches);
     return { recorded: true, player: cloneProfile(player) };
+  }
+
+  async getBotMatchProgress(playerId: string, recentLimit = 8): Promise<BotMatchProgress> {
+    const matches = this.botMatches
+      .filter((match) => match.playerId === playerId)
+      .sort((left, right) => right.completedAt.localeCompare(left.completedAt));
+    const recent = matches.slice(0, Math.max(1, recentLimit));
+    return {
+      completed: matches.length,
+      recentWins: recent.filter((match) => match.playerWon).length,
+      recentLosses: recent.filter((match) => !match.playerWon).length,
+    };
+  }
+
+  async recordMatchEvent(event: RecordedMatchEvent): Promise<void> {
+    const key = this.eventKey(event);
+    if (this.recordedEventKeys.has(key)) return;
+    this.recordedEventKeys.add(key);
+    this.matchEvents.push({ ...event });
+    atomicWriteJson(this.matchEventsFile, this.matchEvents);
   }
 
   async close(): Promise<void> {}
 
   private persistProfiles(): void {
     atomicWriteJson(this.filePath, [...this.profiles.values()]);
+  }
+
+  private eventKey(event: RecordedMatchEvent): string {
+    return `${event.matchId}:${event.playerId}:${event.event}`;
   }
 }
 
@@ -331,6 +402,8 @@ export class PostgresProfileRepository implements ProfileRepository {
         player_won BOOLEAN NOT NULL,
         bot_name TEXT NOT NULL,
         bot_rating INTEGER NOT NULL CHECK (bot_rating >= 100),
+        bot_search_rating INTEGER,
+        difficulty_band TEXT,
         reason TEXT NOT NULL,
         player_rating_before INTEGER NOT NULL,
         player_rating_after INTEGER NOT NULL,
@@ -339,6 +412,39 @@ export class PostgresProfileRepository implements ProfileRepository {
 
       CREATE INDEX IF NOT EXISTS mongjin_bot_matches_completed_at_idx
         ON mongjin_bot_matches (completed_at DESC);
+
+      ALTER TABLE mongjin_bot_matches
+        ADD COLUMN IF NOT EXISTS bot_search_rating INTEGER;
+
+      ALTER TABLE mongjin_bot_matches
+        ADD COLUMN IF NOT EXISTS difficulty_band TEXT;
+
+      CREATE INDEX IF NOT EXISTS mongjin_bot_matches_player_completed_idx
+        ON mongjin_bot_matches (player_id, completed_at DESC);
+
+      CREATE TABLE IF NOT EXISTS mongjin_match_events (
+        match_id TEXT NOT NULL,
+        room_id TEXT NOT NULL,
+        player_id TEXT NOT NULL REFERENCES mongjin_profiles(player_id),
+        match_kind TEXT NOT NULL CHECK (match_kind IN ('random', 'bot')),
+        opponent_kind TEXT NOT NULL CHECK (opponent_kind IN ('human', 'bot')),
+        event_type TEXT NOT NULL CHECK (event_type IN ('started', 'completed', 'abandoned')),
+        platform TEXT NOT NULL CHECK (platform IN ('toss', 'web', 'mobile', 'steam', 'unknown')),
+        ply_count INTEGER NOT NULL CHECK (ply_count >= 0),
+        outcome TEXT CHECK (outcome IN ('win', 'loss')),
+        reason TEXT,
+        occurred_at TIMESTAMPTZ NOT NULL,
+        PRIMARY KEY (match_id, player_id, event_type)
+      );
+
+      CREATE INDEX IF NOT EXISTS mongjin_match_events_player_time_idx
+        ON mongjin_match_events (player_id, occurred_at DESC);
+
+      ALTER TABLE mongjin_match_events
+        ADD COLUMN IF NOT EXISTS outcome TEXT CHECK (outcome IN ('win', 'loss'));
+
+      CREATE INDEX IF NOT EXISTS mongjin_match_events_kind_time_idx
+        ON mongjin_match_events (match_kind, event_type, occurred_at DESC);
 
       CREATE TABLE IF NOT EXISTS mongjin_legacy_profile_migrations (
         player_id TEXT PRIMARY KEY REFERENCES mongjin_profiles(player_id),
@@ -523,9 +629,10 @@ export class PostgresProfileRepository implements ProfileRepository {
 
       const claim = await client.query(
         `INSERT INTO mongjin_bot_matches (
-           match_id, room_id, player_id, player_won, bot_name, bot_rating, reason,
+           match_id, room_id, player_id, player_won, bot_name, bot_rating,
+           bot_search_rating, difficulty_band, reason,
            player_rating_before, player_rating_after, completed_at
-         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $8, $9)
+         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $10, $11)
          ON CONFLICT (match_id) DO NOTHING
          RETURNING match_id`,
         [
@@ -535,6 +642,8 @@ export class PostgresProfileRepository implements ProfileRepository {
           match.playerWon,
           match.botName,
           match.botRating,
+          match.botSearchRating,
+          match.difficultyBand,
           match.reason,
           current.rating,
           match.completedAt,
@@ -561,6 +670,53 @@ export class PostgresProfileRepository implements ProfileRepository {
     } finally {
       client.release();
     }
+  }
+
+  async getBotMatchProgress(playerId: string, recentLimit = 8): Promise<BotMatchProgress> {
+    const [total, recent] = await Promise.all([
+      this.pool.query<{ count: string }>(
+        `SELECT COUNT(*)::text AS count
+           FROM mongjin_bot_matches
+          WHERE player_id = $1`,
+        [playerId],
+      ),
+      this.pool.query<{ player_won: boolean }>(
+        `SELECT player_won
+           FROM mongjin_bot_matches
+          WHERE player_id = $1
+          ORDER BY completed_at DESC
+          LIMIT $2`,
+        [playerId, Math.max(1, recentLimit)],
+      ),
+    ]);
+    return {
+      completed: Number(total.rows[0]?.count ?? 0),
+      recentWins: recent.rows.filter((row) => row.player_won).length,
+      recentLosses: recent.rows.filter((row) => !row.player_won).length,
+    };
+  }
+
+  async recordMatchEvent(event: RecordedMatchEvent): Promise<void> {
+    await this.pool.query(
+      `INSERT INTO mongjin_match_events (
+         match_id, room_id, player_id, match_kind, opponent_kind,
+         event_type, platform, ply_count, outcome, reason, occurred_at
+       ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+       ON CONFLICT (match_id, player_id, event_type) DO NOTHING`,
+      [
+        event.matchId,
+        event.roomId,
+        event.playerId,
+        event.matchKind,
+        event.opponentKind,
+        event.event,
+        event.platform,
+        event.plyCount,
+        event.outcome ?? null,
+        event.reason ?? null,
+        event.occurredAt,
+      ],
+    );
   }
 
   async close(): Promise<void> {

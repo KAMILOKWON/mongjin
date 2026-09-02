@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdtempSync } from 'node:fs';
+import { mkdtempSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'vitest';
@@ -74,6 +74,8 @@ test('공식 봇 경기 결과는 이용자에게 한 번만 반영하고 봇 �
     playerWon: true,
     botName: '고요한별',
     botRating: 1200,
+    botSearchRating: 1120,
+    difficultyBand: 'onboarding',
     reason: 'goal',
     completedAt: '2026-09-01T01:00:00.000Z',
   };
@@ -84,6 +86,57 @@ test('공식 봇 경기 결과는 이용자에게 한 번만 반영하고 봇 �
   assert.equal(profiles.length, 1);
   assert.equal(profiles[0]?.wins, 1);
   assert.equal(profiles[0]?.rating, 1212);
+});
+
+test('공식 봇 완료 횟수와 최근 승패를 난이도 조절용으로 집계한다', async () => {
+  const directory = mkdtempSync(join(tmpdir(), 'mongjin-bot-progress-'));
+  const profileFile = join(directory, 'profiles.json');
+  const repository = new FileProfileRepository(profileFile);
+  await repository.importProfiles([profile('player')]);
+  for (let index = 0; index < 4; index += 1) {
+    await repository.recordBotMatch({
+      matchId: `bot-match-${index}`,
+      roomId: `BOT00${index}`,
+      playerId: 'player',
+      playerWon: index === 0,
+      botName: '고요한별',
+      botRating: 1200,
+      botSearchRating: 1120,
+      difficultyBand: 'onboarding',
+      reason: 'goal',
+      completedAt: `2026-09-01T0${index}:00:00.000Z`,
+    });
+  }
+
+  const reopened = new FileProfileRepository(profileFile);
+  assert.deepEqual(await reopened.getBotMatchProgress('player', 3), {
+    completed: 4,
+    recentWins: 0,
+    recentLosses: 3,
+  });
+});
+
+test('대국 생명주기 이벤트는 같은 이용자·단계마다 한 번만 저장한다', async () => {
+  const directory = mkdtempSync(join(tmpdir(), 'mongjin-match-events-'));
+  const profileFile = join(directory, 'profiles.json');
+  const repository = new FileProfileRepository(profileFile);
+  await repository.importProfiles([profile('player')]);
+  const event = {
+    matchId: 'match-event-1',
+    roomId: 'EVENT1',
+    playerId: 'player',
+    matchKind: 'bot' as const,
+    opponentKind: 'bot' as const,
+    event: 'started' as const,
+    platform: 'toss' as const,
+    plyCount: 0,
+    occurredAt: '2026-09-01T00:00:00.000Z',
+  };
+
+  await repository.recordMatchEvent(event);
+  await repository.recordMatchEvent(event);
+  const events = JSON.parse(readFileSync(`${profileFile}.match-events.json`, 'utf8')) as unknown[];
+  assert.equal(events.length, 1);
 });
 
 test('기존 JSON 프로필을 ID 기준으로 중복 없이 가져온다', async () => {

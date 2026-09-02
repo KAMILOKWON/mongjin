@@ -21,9 +21,19 @@ export interface PreviousOfficialBot {
   variantKey: string;
 }
 
+export interface OfficialBotProgress {
+  completed: number;
+  recentWins: number;
+  recentLosses: number;
+}
+
+export type OfficialBotDifficultyBand = 'onboarding' | 'assist' | 'balanced' | 'challenge';
+
 export interface OfficialBot {
   name: string;
   rating: number;
+  searchRating: number;
+  difficultyBand: OfficialBotDifficultyBand;
   side: Player;
   personality: OfficialBotPersonality;
   variantKey: string;
@@ -45,7 +55,9 @@ interface PersonalityTuning {
   planScale: number;
 }
 
-const RATING_OFFSETS = [-40, -20, 0, 20, 40] as const;
+const ONBOARDING_RATING_OFFSETS = [-80, -60, -40] as const;
+const BALANCED_RATING_OFFSETS = [-40, -20, 0, 20, 40] as const;
+const CHALLENGE_RATING_OFFSETS = [0, 20, 40, 60, 80] as const;
 
 /**
  * 낮은 Elo는 다양한 근접 수를, 높은 Elo는 더 깊고 정밀한 탐색을 사용한다.
@@ -139,11 +151,40 @@ function pick<T>(items: readonly T[], random: () => number): T {
   return items[Math.floor(normalizedRandom(random) * items.length)]!;
 }
 
-function matchedRating(playerRating: number, random: () => number): number {
+function matchedRating(
+  playerRating: number,
+  offsets: readonly number[],
+  random: () => number,
+): number {
   const normalized = Number.isFinite(playerRating) ? playerRating : 1200;
   const rounded = Math.round(normalized / 20) * 20;
-  const offset = pick(RATING_OFFSETS, random);
-  return Math.max(800, Math.min(2400, rounded + offset));
+  const offset = pick(offsets, random);
+  return Math.max(100, Math.min(2400, rounded + offset));
+}
+
+function difficultyPolicy(progress: OfficialBotProgress): {
+  band: OfficialBotDifficultyBand;
+  ratingOffsets: readonly number[];
+  searchOffset: number;
+} {
+  if (progress.completed < 3) {
+    const noWinAdjustment = progress.recentWins === 0 ? progress.completed * 40 : 0;
+    return {
+      band: 'onboarding',
+      ratingOffsets: ONBOARDING_RATING_OFFSETS,
+      searchOffset: -120 - noWinAdjustment,
+    };
+  }
+
+  const recentGames = progress.recentWins + progress.recentLosses;
+  const recentWinRate = recentGames === 0 ? 0.5 : progress.recentWins / recentGames;
+  if (recentGames >= 3 && recentWinRate < 0.4) {
+    return { band: 'assist', ratingOffsets: ONBOARDING_RATING_OFFSETS, searchOffset: -80 };
+  }
+  if (recentGames >= 3 && recentWinRate > 0.55) {
+    return { band: 'challenge', ratingOffsets: CHALLENGE_RATING_OFFSETS, searchOffset: 80 };
+  }
+  return { band: 'balanced', ratingOffsets: BALANCED_RATING_OFFSETS, searchOffset: 0 };
 }
 
 function searchProfile(rating: number, tuning: PersonalityTuning): OfficialBotSearchProfile {
@@ -159,13 +200,33 @@ function searchProfile(rating: number, tuning: PersonalityTuning): OfficialBotSe
   };
 }
 
+function onboardingSearchAdjustment(
+  search: OfficialBotSearchProfile,
+  progress: OfficialBotProgress,
+): OfficialBotSearchProfile {
+  if (progress.completed >= 3 || progress.recentWins > 0 || progress.completed === 0) return search;
+  const step = Math.min(2, progress.completed);
+  return {
+    ...search,
+    maxMs: Math.max(80, search.maxMs - step * 40),
+    maxDepth: Math.max(2, search.maxDepth - (step === 2 ? 1 : 0)),
+    maxNodes: Math.max(600, Math.round(search.maxNodes * (1 - step * 0.2))),
+    choiceWindow: search.choiceWindow + step * 24,
+    planStrength: Math.max(0.5, search.planStrength - step * 0.15),
+    elite: false,
+  };
+}
+
 export function createOfficialBot(
   playerRating: number,
   playerName: string,
   random: () => number = Math.random,
   previous?: PreviousOfficialBot,
+  progress: OfficialBotProgress = { completed: 0, recentWins: 0, recentLosses: 0 },
 ): OfficialBot {
-  const rating = matchedRating(playerRating, random);
+  const policy = difficultyPolicy(progress);
+  const rating = matchedRating(playerRating, policy.ratingOffsets, random);
+  const searchRating = Math.max(100, Math.min(2400, rating + policy.searchOffset));
   const availableVariants = previous
     ? VARIANTS.filter((candidate) => candidate.key !== previous.variantKey)
     : VARIANTS;
@@ -173,10 +234,12 @@ export function createOfficialBot(
   return {
     name: createGhostNickname({ previousName: previous?.name, playerName, random }),
     rating,
+    searchRating,
+    difficultyBand: policy.band,
     side: variant.side,
     personality: variant.personality.id,
     variantKey: variant.key,
-    search: searchProfile(rating, variant.personality),
+    search: onboardingSearchAdjustment(searchProfile(searchRating, variant.personality), progress),
     thinking: false,
     moveCount: 0,
     random,

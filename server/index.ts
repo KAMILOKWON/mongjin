@@ -12,6 +12,8 @@ import { isTossLoginConfigured, loginWithToss, verifyCallbackBasicAuth, TossApiE
 import {
   createProfileRepository,
   loadProfilesForMigration,
+  type MatchPlatform,
+  type RecordedMatchEvent,
   type StoredProfile,
 } from './profileRepository';
 import { buildLeaderboard } from './leaderboard';
@@ -22,6 +24,7 @@ import {
   type OfficialBot,
   type PreviousOfficialBot,
 } from './officialBot';
+import { inferMatchPlatform } from './matchAnalytics';
 
 const PORT = Number(process.env.PORT ?? 3001);
 const HOST = process.env.HOST ?? '0.0.0.0';
@@ -51,6 +54,8 @@ interface Room {
   white: WebSocket | null;
   blackPlayerId: string | null;
   whitePlayerId: string | null;
+  blackPlatform: MatchPlatform;
+  whitePlatform: MatchPlatform;
   bot?: OfficialBot;
   finished: boolean;
 }
@@ -58,11 +63,13 @@ interface Room {
 interface ClientSession {
   playerId: string | null;
   roomId: string | null;
+  platform: MatchPlatform;
 }
 
 const rooms = new Map<string, Room>();
 const sessions = new Map<WebSocket, ClientSession>();
 const matchmakingQueue: WebSocket[] = [];
+const pendingBotMatches = new Set<WebSocket>();
 const previousOfficialBots = new Map<string, PreviousOfficialBot>();
 const profileRepository = await createProfileRepository(PROFILE_DATA_FILE);
 let loadedProfiles = await profileRepository.loadProfiles();
@@ -163,7 +170,9 @@ async function authenticate(ws: WebSocket, playerId?: string, token?: string) {
     await profileRepository.saveProfile(profile);
     profiles.set(profile.playerId, profile);
   }
-  sessions.get(ws)!.playerId = profile.playerId;
+  const session = sessions.get(ws)!;
+  session.playerId = profile.playerId;
+  if (profile.tossUserKey !== undefined) session.platform = 'toss';
   send(ws, {
     type: 'IDENTITY',
     playerId: profile.playerId,
@@ -187,11 +196,13 @@ function attachPlayer(room: Room, ws: WebSocket): Player | null {
   if (!room.black) {
     room.black = ws;
     room.blackPlayerId = playerId;
+    room.blackPlatform = sessions.get(ws)?.platform ?? 'unknown';
     return 'BLACK';
   }
   if (!room.white) {
     room.white = ws;
     room.whitePlayerId = playerId;
+    room.whitePlatform = sessions.get(ws)?.platform ?? 'unknown';
     return 'WHITE';
   }
   return null;
@@ -205,12 +216,108 @@ function removeFromQueue(ws: WebSocket) {
   }
 }
 
-async function finishRandomMatch(room: Room, winner: Player, reason: MatchReason) {
+function recordMatchEvent(event: RecordedMatchEvent) {
+  void profileRepository.recordMatchEvent(event).catch((error) => {
+    console.error('[analytics] 대국 이벤트 저장에 실패했습니다:', error);
+  });
+}
+
+function recordMatchStarted(room: Room) {
+  if (room.kind === 'friend') return;
+  const occurredAt = new Date().toISOString();
+  const opponentKind = room.kind === 'bot' ? 'bot' : 'human';
+  const players = room.kind === 'bot'
+    ? room.bot?.side === 'BLACK'
+      ? [{ playerId: room.whitePlayerId, platform: room.whitePlatform }]
+      : [{ playerId: room.blackPlayerId, platform: room.blackPlatform }]
+    : [
+        { playerId: room.blackPlayerId, platform: room.blackPlatform },
+        { playerId: room.whitePlayerId, platform: room.whitePlatform },
+      ];
+  for (const player of players) {
+    if (!player?.playerId) continue;
+    recordMatchEvent({
+      matchId: room.matchId,
+      roomId: room.id,
+      playerId: player.playerId,
+      matchKind: room.kind,
+      opponentKind,
+      event: 'started',
+      platform: player.platform,
+      plyCount: 0,
+      occurredAt,
+    });
+  }
+}
+
+function recordMatchCompleted(room: Room, winner: Player, reason: string, occurredAt: string) {
+  if (room.kind === 'friend') return;
+  const opponentKind = room.kind === 'bot' ? 'bot' : 'human';
+  const players = room.kind === 'bot'
+    ? room.bot?.side === 'BLACK'
+      ? [{ side: 'WHITE' as const, playerId: room.whitePlayerId, platform: room.whitePlatform }]
+      : [{ side: 'BLACK' as const, playerId: room.blackPlayerId, platform: room.blackPlatform }]
+    : [
+        { side: 'BLACK' as const, playerId: room.blackPlayerId, platform: room.blackPlatform },
+        { side: 'WHITE' as const, playerId: room.whitePlayerId, platform: room.whitePlatform },
+      ];
+  for (const player of players) {
+    if (!player?.playerId) continue;
+    recordMatchEvent({
+      matchId: room.matchId,
+      roomId: room.id,
+      playerId: player.playerId,
+      matchKind: room.kind,
+      opponentKind,
+      event: 'completed',
+      platform: player.platform,
+      plyCount: room.state.history.length,
+      outcome: player.side === winner ? 'win' : 'loss',
+      reason,
+      occurredAt,
+    });
+  }
+}
+
+function recordMatchAbandoned(room: Room, side: Player, reason: string) {
+  if (room.kind === 'friend') return;
+  const playerId = side === 'BLACK' ? room.blackPlayerId : room.whitePlayerId;
+  if (!playerId) return;
+  recordMatchEvent({
+    matchId: room.matchId,
+    roomId: room.id,
+    playerId,
+    matchKind: room.kind,
+    opponentKind: room.kind === 'bot' ? 'bot' : 'human',
+    event: 'abandoned',
+    platform: side === 'BLACK' ? room.blackPlatform : room.whitePlatform,
+    plyCount: room.state.history.length,
+    reason,
+    occurredAt: new Date().toISOString(),
+  });
+}
+
+function releaseFinishedRoom(room: Room) {
+  for (const socket of [room.black, room.white]) {
+    if (!socket) continue;
+    const session = sessions.get(socket);
+    if (session?.roomId === room.id) session.roomId = null;
+  }
+  if (rooms.get(room.id) === room) rooms.delete(room.id);
+}
+
+async function finishRandomMatch(
+  room: Room,
+  winner: Player,
+  reason: MatchReason,
+  analyticsReason: string = reason,
+) {
   if (room.kind !== 'random' || room.finished) return;
   const winnerId = winner === 'BLACK' ? room.blackPlayerId : room.whitePlayerId;
   const loserId = winner === 'BLACK' ? room.whitePlayerId : room.blackPlayerId;
   if (!winnerId || !loserId) return;
   room.finished = true;
+  const completedAt = new Date().toISOString();
   try {
     const result = await profileRepository.recordMatch({
       matchId: room.matchId,
@@ -218,7 +325,7 @@ async function finishRandomMatch(room: Room, winner: Player, reason: MatchReason
       winnerId,
       loserId,
       reason,
-      completedAt: new Date().toISOString(),
+      completedAt,
     });
     if (result.recorded && result.winner && result.loser) {
       profiles.set(result.winner.playerId, result.winner);
@@ -231,16 +338,25 @@ async function finishRandomMatch(room: Room, winner: Player, reason: MatchReason
   } catch (error) {
     console.error('[profiles] 경기 결과 저장에 실패했습니다:', error);
     broadcastRoom(room, { type: 'ERROR', message: '경기 결과를 저장하지 못했습니다. 잠시 후 다시 시도해 주세요' });
+  } finally {
+    recordMatchCompleted(room, winner, analyticsReason, completedAt);
+    releaseFinishedRoom(room);
   }
 }
 
-async function finishBotMatch(room: Room, winner: Player, reason: MatchReason) {
+async function finishBotMatch(
+  room: Room,
+  winner: Player,
+  reason: MatchReason,
+  analyticsReason: string = reason,
+) {
   if (room.kind !== 'bot' || room.finished || !room.bot) return;
   const playerSide = opponent(room.bot.side);
   const playerId = playerSide === 'BLACK' ? room.blackPlayerId : room.whitePlayerId;
   const playerSocket = playerSide === 'BLACK' ? room.black : room.white;
   if (!playerId) return;
   room.finished = true;
+  const completedAt = new Date().toISOString();
   try {
     const result = await profileRepository.recordBotMatch({
       matchId: room.matchId,
@@ -249,8 +365,10 @@ async function finishBotMatch(room: Room, winner: Player, reason: MatchReason) {
       playerWon: winner === playerSide,
       botName: room.bot.name,
       botRating: room.bot.rating,
+      botSearchRating: room.bot.searchRating,
+      difficultyBand: room.bot.difficultyBand,
       reason,
-      completedAt: new Date().toISOString(),
+      completedAt,
     });
     if (result.recorded && result.player) profiles.set(result.player.playerId, result.player);
     if (playerSocket) {
@@ -262,6 +380,9 @@ async function finishBotMatch(room: Room, winner: Player, reason: MatchReason) {
     if (playerSocket) {
       send(playerSocket, { type: 'ERROR', message: '경기 결과를 저장하지 못했습니다. 잠시 후 다시 시도해 주세요' });
     }
+  } finally {
+    recordMatchCompleted(room, winner, analyticsReason, completedAt);
+    releaseFinishedRoom(room);
   }
 }
 
@@ -301,41 +422,54 @@ function scheduleBotMove(room: Room) {
   }, 180);
 }
 
-function startBotMatch(ws: WebSocket) {
-  const playerId = sessions.get(ws)?.playerId;
-  const profile = playerId ? profiles.get(playerId) : undefined;
-  if (!playerId || !profile) return;
-  const id = makeRoomId();
-  const bot = createOfficialBot(
-    profile.rating,
-    profile.name,
-    Math.random,
-    previousOfficialBots.get(playerId),
-  );
-  previousOfficialBots.set(playerId, { name: bot.name, variantKey: bot.variantKey });
-  const playerSide = opponent(bot.side);
-  const room: Room = {
-    id,
-    matchId: makeId(16),
-    kind: 'bot',
-    state: initialState(config),
-    black: playerSide === 'BLACK' ? ws : null,
-    white: playerSide === 'WHITE' ? ws : null,
-    blackPlayerId: playerSide === 'BLACK' ? playerId : null,
-    whitePlayerId: playerSide === 'WHITE' ? playerId : null,
-    bot,
-    finished: false,
-  };
-  rooms.set(id, room);
-  sessions.get(ws)!.roomId = id;
-  send(ws, {
-    type: 'MATCH_FOUND',
-    roomId: id,
-    side: playerSide,
-    state: room.state,
-    opponent: { name: bot.name, rating: bot.rating, isBot: true },
-  });
-  scheduleBotMove(room);
+async function startBotMatch(ws: WebSocket) {
+  if (pendingBotMatches.has(ws)) return;
+  pendingBotMatches.add(ws);
+  try {
+    const initialPlayerId = sessions.get(ws)?.playerId;
+    if (!initialPlayerId) return;
+    const progress = await profileRepository.getBotMatchProgress(initialPlayerId);
+    const session = sessions.get(ws);
+    const profile = profiles.get(initialPlayerId);
+    if (!session || session.playerId !== initialPlayerId || session.roomId || !profile || ws.readyState !== ws.OPEN) return;
+    const id = makeRoomId();
+    const bot = createOfficialBot(
+      profile.rating,
+      profile.name,
+      Math.random,
+      previousOfficialBots.get(initialPlayerId),
+      progress,
+    );
+    previousOfficialBots.set(initialPlayerId, { name: bot.name, variantKey: bot.variantKey });
+    const playerSide = opponent(bot.side);
+    const room: Room = {
+      id,
+      matchId: makeId(16),
+      kind: 'bot',
+      state: initialState(config),
+      black: playerSide === 'BLACK' ? ws : null,
+      white: playerSide === 'WHITE' ? ws : null,
+      blackPlayerId: playerSide === 'BLACK' ? initialPlayerId : null,
+      whitePlayerId: playerSide === 'WHITE' ? initialPlayerId : null,
+      blackPlatform: playerSide === 'BLACK' ? session.platform : 'unknown',
+      whitePlatform: playerSide === 'WHITE' ? session.platform : 'unknown',
+      bot,
+      finished: false,
+    };
+    rooms.set(id, room);
+    session.roomId = id;
+    recordMatchStarted(room);
+    send(ws, {
+      type: 'MATCH_FOUND',
+      roomId: id,
+      side: playerSide,
+      state: room.state,
+      opponent: { name: bot.name, rating: bot.rating, isBot: true },
+    });
+    scheduleBotMove(room);
+  } finally {
+    pendingBotMatches.delete(ws);
+  }
 }
 
 function startRandomMatch(first: WebSocket, second: WebSocket) {
@@ -353,11 +487,14 @@ function startRandomMatch(first: WebSocket, second: WebSocket) {
     white: firstIsBlack ? second : first,
     blackPlayerId: firstIsBlack ? firstId : secondId,
     whitePlayerId: firstIsBlack ? secondId : firstId,
+    blackPlatform: sessions.get(firstIsBlack ? first : second)?.platform ?? 'unknown',
+    whitePlatform: sessions.get(firstIsBlack ? second : first)?.platform ?? 'unknown',
     finished: false,
   };
   rooms.set(id, room);
   sessions.get(first)!.roomId = id;
   sessions.get(second)!.roomId = id;
+  recordMatchStarted(room);
   send(first, {
     type: 'MATCH_FOUND',
     roomId: id,
@@ -396,8 +533,9 @@ function detachPlayer(ws: WebSocket) {
   const room = session?.roomId ? rooms.get(session.roomId) : undefined;
   if (room) {
     const side: Player | null = room.black === ws ? 'BLACK' : room.white === ws ? 'WHITE' : null;
+    if (side && room.kind !== 'friend' && !room.finished) recordMatchAbandoned(room, side, 'disconnect');
     if (room.kind === 'bot' && !room.finished && room.state.history.length > 0 && side && room.bot) {
-      void finishBotMatch(room, room.bot.side, 'forfeit');
+      void finishBotMatch(room, room.bot.side, 'forfeit', 'disconnect');
     }
     if (side === 'BLACK') room.black = null;
     if (side === 'WHITE') room.white = null;
@@ -405,7 +543,7 @@ function detachPlayer(ws: WebSocket) {
     if (other) {
       let completedByForfeit = false;
       if (room.kind === 'random' && !room.finished && room.state.history.length > 0 && side) {
-        void finishRandomMatch(room, side === 'BLACK' ? 'WHITE' : 'BLACK', 'forfeit');
+        void finishRandomMatch(room, side === 'BLACK' ? 'WHITE' : 'BLACK', 'forfeit', 'disconnect');
         completedByForfeit = true;
       }
       if (!completedByForfeit && !room.finished) send(other, { type: 'OPPONENT_LEFT' });
@@ -626,8 +764,12 @@ const httpServer = createServer((req, res) => {
 
 const wss = new WebSocketServer({ server: httpServer });
 
-wss.on('connection', (ws) => {
-  sessions.set(ws, { playerId: null, roomId: null });
+wss.on('connection', (ws, request) => {
+  sessions.set(ws, {
+    playerId: null,
+    roomId: null,
+    platform: inferMatchPlatform(request.headers.origin, request.headers['user-agent']),
+  });
 
   ws.on('message', (raw) => {
     void (async () => {
@@ -733,7 +875,7 @@ wss.on('connection', (ws) => {
         return;
       }
       removeFromQueue(ws);
-      startBotMatch(ws);
+      await startBotMatch(ws);
       return;
     }
 
@@ -748,6 +890,8 @@ wss.on('connection', (ws) => {
         white: null,
         blackPlayerId: null,
         whitePlayerId: null,
+        blackPlatform: 'unknown',
+        whitePlatform: 'unknown',
         finished: false,
       };
       const side = attachPlayer(room, ws);
@@ -798,8 +942,8 @@ wss.on('connection', (ws) => {
       const room = roomId ? rooms.get(roomId) : undefined;
       const side: Player | null = room && room.black === ws ? 'BLACK' : room && room.white === ws ? 'WHITE' : null;
       if (!room || !side) send(ws, { type: 'ERROR', message: '방에 참가한 뒤 항복할 수 있습니다' });
-      else if (room.kind === 'random' && !room.finished) await finishRandomMatch(room, opponent(side), 'forfeit');
-      else if (room.kind === 'bot' && !room.finished && room.bot) await finishBotMatch(room, room.bot.side, 'forfeit');
+      else if (room.kind === 'random' && !room.finished) await finishRandomMatch(room, opponent(side), 'forfeit', 'resign');
+      else if (room.kind === 'bot' && !room.finished && room.bot) await finishBotMatch(room, room.bot.side, 'forfeit', 'resign');
       return;
     }
 

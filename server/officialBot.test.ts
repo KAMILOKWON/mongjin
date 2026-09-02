@@ -9,9 +9,61 @@ function sequenceRandom(values: number[]): () => number {
 }
 
 describe('서버 공식 봇', () => {
-  it('이용자 Elo 근처에서 여러 상대 점수를 만든다', () => {
-    expect(createOfficialBot(1400, '플레이어', () => 0).rating).toBe(1360);
-    expect(createOfficialBot(1400, '플레이어', () => 0.999).rating).toBe(1440);
+  const balanced = { completed: 3, recentWins: 1, recentLosses: 1 };
+
+  it('첫 3판은 이용자보다 40~80 Elo 낮게 배정한다', () => {
+    const easiest = createOfficialBot(1400, '플레이어', () => 0);
+    const closest = createOfficialBot(1400, '플레이어', () => 0.999);
+    expect(easiest.rating).toBe(1320);
+    expect(closest.rating).toBe(1360);
+    expect(easiest.searchRating).toBe(1200);
+    expect(easiest.difficultyBand).toBe('onboarding');
+  });
+
+  it('낮은 Elo 이용자도 기존 800 하한 때문에 더 강한 봇을 만나지 않는다', () => {
+    expect(createOfficialBot(300, '플레이어', () => 0).rating).toBe(220);
+  });
+
+  it('아직 못 이긴 이용자의 2·3번째 봇은 수읽기와 후보 선택을 단계적으로 완화한다', () => {
+    const first = createOfficialBot(1400, '플레이어', () => 0);
+    const third = createOfficialBot(
+      1400,
+      '플레이어',
+      () => 0,
+      undefined,
+      { completed: 2, recentWins: 0, recentLosses: 2 },
+    );
+    expect(third.searchRating).toBeLessThan(first.searchRating);
+    expect(third.search.maxNodes).toBeLessThan(first.search.maxNodes);
+    expect(third.search.choiceWindow).toBeGreaterThan(first.search.choiceWindow);
+  });
+
+  it('초보 구간 최근 승률을 40~55% 범위로 되돌리도록 난이도를 조절한다', () => {
+    const assisted = createOfficialBot(
+      1200,
+      '플레이어',
+      () => 0,
+      undefined,
+      { completed: 8, recentWins: 1, recentLosses: 7 },
+    );
+    const challenged = createOfficialBot(
+      1200,
+      '플레이어',
+      () => 0.999,
+      undefined,
+      { completed: 8, recentWins: 5, recentLosses: 3 },
+    );
+    expect(assisted.rating).toBe(1120);
+    expect(assisted.searchRating).toBe(1040);
+    expect(assisted.difficultyBand).toBe('assist');
+    expect(challenged.rating).toBe(1280);
+    expect(challenged.searchRating).toBe(1360);
+    expect(challenged.difficultyBand).toBe('challenge');
+  });
+
+  it('목표 승률 범위 안에서는 이용자 Elo 근처의 상대를 만든다', () => {
+    expect(createOfficialBot(1400, '플레이어', () => 0, undefined, balanced).rating).toBe(1360);
+    expect(createOfficialBot(1400, '플레이어', () => 0.999, undefined, balanced).rating).toBe(1440);
   });
 
   it('직전 상대와 같은 성향·진영 조합 및 닉네임을 연속 선택하지 않는다', () => {
@@ -22,8 +74,8 @@ describe('서버 공식 봇', () => {
   });
 
   it('상대 Elo가 높을수록 더 깊고 정밀하게 탐색한다', () => {
-    const low = createOfficialBot(1000, '플레이어', () => 0);
-    const high = createOfficialBot(1900, '플레이어', () => 0);
+    const low = createOfficialBot(1000, '플레이어', () => 0, undefined, balanced);
+    const high = createOfficialBot(1900, '플레이어', () => 0, undefined, balanced);
     expect(high.search.maxDepth).toBeGreaterThan(low.search.maxDepth);
     expect(high.search.maxNodes).toBeGreaterThan(low.search.maxNodes);
     expect(high.search.choiceWindow).toBeLessThan(low.search.choiceWindow);
