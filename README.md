@@ -8,7 +8,7 @@
 
 An abstract strategy board game for 2 players: escort your king to the opponent's goal. Play against the computer (AI) or online opponents.
 
-**▶ Play now: https://kamilokwon.github.io/mongjin/**
+**▶ Play now: https://studiozzg.com/mongjin**
 
 ### How to Play
 
@@ -57,7 +57,7 @@ src/
 
 왕을 호위하며 상대 진영의 목적지까지 피난시키는 추상 전략 보드게임. 컴퓨터(AI)와 1:1 대결.
 
-**▶ 바로 플레이: https://kamilokwon.github.io/mongjin/**
+**▶ 바로 플레이: https://studiozzg.com/mongjin**
 
 - 매 턴 **호위 두기** 또는 **말 옮기기** 중 하나를 선택
 - 자기 **왕(王)** 을 상대 진영 끝줄 중앙 목적지에 먼저 도달시키면 승리

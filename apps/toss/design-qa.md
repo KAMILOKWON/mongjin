@@ -4,7 +4,7 @@
 
 - Layout reference: `/Users/kwon-oin/.codex/generated_images/01a002b0-6b85-7cd3-98db-e816792c3572/exec-ffd50f90-7a52-44ec-bb31-7e93833cf498.png`
 - Game HUD reference: `/var/folders/hp/mw9d948n2_q3gc4yjdtttfjm0000gn/T/codex-clipboard-54b1f28e-199e-4eae-ab54-265fb700c5ad.png`
-- Palette reference: `https://kamilokwon.github.io/mongjin/`
+- Palette reference: `https://studiozzg.com/mongjin`
 - Implementation: Apps-in-Toss React app at `http://127.0.0.1:5174/`
 - Implementation viewport: 390 × 844
 - Screens checked: home, computer setup, local game, guest profile, tutorial

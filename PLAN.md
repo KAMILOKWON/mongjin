@@ -4,7 +4,7 @@
 > 상태: **v0.3 규칙 확정·배포 완료** — 플레이테스트에서 발견된 "왕 단독 돌진 필승" 결함을
 > 왕 잡기 규칙으로 수정 후 규칙 고정(토글 UI 제거), GitHub Pages 공개.
 >
-> - **플레이**: https://kamilokwon.github.io/mongjin/
+> - **플레이**: https://studiozzg.com/mongjin
 > - **저장소**: https://github.com/KAMILOKWON/mongjin (main 푸시 시 자동 배포)
 
 ---

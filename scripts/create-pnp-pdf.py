@@ -206,7 +206,7 @@ def draw_page1_cover(c):
     y -= 4*mm
     c.setFillColorRGB(0, 0, 0.7)
     c.setFont(LATIN_FONT, 7)
-    c.drawString(left_col + 3*mm, y, "https://kamilokwon.github.io/mongjin/")
+    c.drawString(left_col + 3*mm, y, "https://studiozzg.com/mongjin")
     c.setFillColorRGB(0, 0, 0)
     
     # Footer - BELOW online box with 8mm empty space (calculated, not hardcoded)
@@ -216,7 +216,7 @@ def draw_page1_cover(c):
     c.drawString(30*mm, footer_y, "Mongjin print-and-play · Oin Kwon, 2026")
     c.drawRightString(WIDTH - 30*mm, footer_y, "Rules v0.3")
     c.setFont(LATIN_FONT, 6)
-    c.drawCentredString(WIDTH/2, footer_y - 4*mm, "https://kamilokwon.github.io/mongjin/")
+    c.drawCentredString(WIDTH/2, footer_y - 4*mm, "https://studiozzg.com/mongjin")
 
 
 def draw_page2_rules(c):
@@ -381,7 +381,7 @@ def draw_page2_rules(c):
     c.setFont(LATIN_FONT, 7)
     c.drawString(82*mm, footer_y, " · Designed by Oin Kwon, 2026")
     c.setFont(LATIN_FONT, 6)
-    c.drawRightString(WIDTH - 30*mm, footer_y, "https://kamilokwon.github.io/mongjin/")
+    c.drawRightString(WIDTH - 30*mm, footer_y, "https://studiozzg.com/mongjin")
 
 
 def draw_page3_board(c):
