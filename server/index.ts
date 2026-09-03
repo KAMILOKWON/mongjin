@@ -21,10 +21,12 @@ import { validateLegacyProfileClaim } from './legacyProfileMigration';
 import {
   chooseOfficialBotMove,
   createOfficialBot,
+  officialBotMoveDelayMs,
   type OfficialBot,
   type PreviousOfficialBot,
 } from './officialBot';
 import { inferMatchPlatform } from './matchAnalytics';
+import { hasPlayerTakenTurn } from './matchLifecycle';
 
 const PORT = Number(process.env.PORT ?? 3001);
 const HOST = process.env.HOST ?? '0.0.0.0';
@@ -395,6 +397,7 @@ function scheduleBotMove(room: Room) {
     room.state.turn !== room.bot.side
   ) return;
   room.bot.thinking = true;
+  const delayMs = officialBotMoveDelayMs(room.bot);
   setTimeout(() => {
     void (async () => {
       if (rooms.get(room.id) !== room || room.finished || !room.bot) return;
@@ -419,7 +422,7 @@ function scheduleBotMove(room: Room) {
     }).finally(() => {
       if (room.bot) room.bot.thinking = false;
     });
-  }, 180);
+  }, delayMs);
 }
 
 async function startBotMatch(ws: WebSocket) {
@@ -534,7 +537,13 @@ function detachPlayer(ws: WebSocket) {
   if (room) {
     const side: Player | null = room.black === ws ? 'BLACK' : room.white === ws ? 'WHITE' : null;
     if (side && room.kind !== 'friend' && !room.finished) recordMatchAbandoned(room, side, 'disconnect');
-    if (room.kind === 'bot' && !room.finished && room.state.history.length > 0 && side && room.bot) {
+    if (
+      room.kind === 'bot' &&
+      !room.finished &&
+      side &&
+      room.bot &&
+      hasPlayerTakenTurn(room.state.history.length, side)
+    ) {
       void finishBotMatch(room, room.bot.side, 'forfeit', 'disconnect');
     }
     if (side === 'BLACK') room.black = null;

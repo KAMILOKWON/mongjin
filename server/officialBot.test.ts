@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { DEFAULT_CONFIG } from '../src/core/config';
 import { initialState, legalMoves } from '../src/core/rules';
-import { createOfficialBot, chooseOfficialBotMove } from './officialBot';
+import { createOfficialBot, chooseOfficialBotMove, officialBotMoveDelayMs } from './officialBot';
 
 function sequenceRandom(values: number[]): () => number {
   let index = 0;
@@ -24,8 +24,15 @@ describe('서버 공식 봇', () => {
     expect(createOfficialBot(300, '플레이어', () => 0).rating).toBe(220);
   });
 
-  it('아직 못 이긴 이용자의 2·3번째 봇은 수읽기와 후보 선택을 단계적으로 완화한다', () => {
+  it('첫 판부터 수읽기와 후보 선택을 초보자에게 유리하게 완화한다', () => {
     const first = createOfficialBot(1400, '플레이어', () => 0);
+    const afterWin = createOfficialBot(
+      1400,
+      '플레이어',
+      () => 0,
+      undefined,
+      { completed: 1, recentWins: 1, recentLosses: 0 },
+    );
     const third = createOfficialBot(
       1400,
       '플레이어',
@@ -33,9 +40,19 @@ describe('서버 공식 봇', () => {
       undefined,
       { completed: 2, recentWins: 0, recentLosses: 2 },
     );
+    expect(first.searchRating).toBe(afterWin.searchRating);
+    expect(first.search.maxNodes).toBeLessThan(afterWin.search.maxNodes);
+    expect(first.search.choiceWindow).toBeGreaterThan(afterWin.search.choiceWindow);
     expect(third.searchRating).toBeLessThan(first.searchRating);
     expect(third.search.maxNodes).toBeLessThan(first.search.maxNodes);
     expect(third.search.choiceWindow).toBeGreaterThan(first.search.choiceWindow);
+  });
+
+  it('봇의 첫 수만 느리게 두어 상대와 판을 인지할 시간을 준다', () => {
+    const bot = createOfficialBot(1200, '플레이어', () => 0);
+    expect(officialBotMoveDelayMs(bot)).toBe(650);
+    bot.moveCount = 1;
+    expect(officialBotMoveDelayMs(bot)).toBe(180);
   });
 
   it('초보 구간 최근 승률을 40~55% 범위로 되돌리도록 난이도를 조절한다', () => {

@@ -58,6 +58,8 @@ interface PersonalityTuning {
 const ONBOARDING_RATING_OFFSETS = [-80, -60, -40] as const;
 const BALANCED_RATING_OFFSETS = [-40, -20, 0, 20, 40] as const;
 const CHALLENGE_RATING_OFFSETS = [0, 20, 40, 60, 80] as const;
+const OPENING_MOVE_DELAY_MS = 650;
+const REGULAR_MOVE_DELAY_MS = 180;
 
 /**
  * 낮은 Elo는 다양한 근접 수를, 높은 Elo는 더 깊고 정밀한 탐색을 사용한다.
@@ -204,8 +206,10 @@ function onboardingSearchAdjustment(
   search: OfficialBotSearchProfile,
   progress: OfficialBotProgress,
 ): OfficialBotSearchProfile {
-  if (progress.completed >= 3 || progress.recentWins > 0 || progress.completed === 0) return search;
-  const step = Math.min(2, progress.completed);
+  if (progress.completed >= 3 || progress.recentWins > 0) return search;
+  // 첫 판 승률이 지나치게 낮으면 다음 판의 적응 난이도까지 경험하지 못한다.
+  // 아직 한 번도 이기지 못한 온보딩 구간은 첫 판부터 최소 1단계 도움을 준다.
+  const step = Math.min(2, Math.max(1, progress.completed));
   return {
     ...search,
     maxMs: Math.max(80, search.maxMs - step * 40),
@@ -215,6 +219,11 @@ function onboardingSearchAdjustment(
     planStrength: Math.max(0.5, search.planStrength - step * 0.15),
     elite: false,
   };
+}
+
+/** 첫 수에는 판과 상대를 인지할 시간을 주고, 이후에는 기존 응답 속도를 유지한다. */
+export function officialBotMoveDelayMs(bot: Pick<OfficialBot, 'moveCount'>): number {
+  return bot.moveCount === 0 ? OPENING_MOVE_DELAY_MS : REGULAR_MOVE_DELAY_MS;
 }
 
 export function createOfficialBot(
