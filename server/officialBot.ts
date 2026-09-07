@@ -3,6 +3,9 @@ import type { RuleConfig } from '../src/core/config';
 import { legalMoves } from '../src/core/rules';
 import type { GameState, Move, Player } from '../src/core/types';
 import { createGhostNickname } from '../src/ghost';
+import type { StoredProfile } from './profileRepository';
+import { RANKED_BOTS } from './rankedBots';
+import { learnedOpeningHints, type BotLearning } from './rankedBotLearning';
 
 export type OfficialBotPersonality = 'runner' | 'guardian' | 'tactician' | 'wanderer';
 
@@ -30,6 +33,8 @@ export interface OfficialBotProgress {
 export type OfficialBotDifficultyBand = 'onboarding' | 'assist' | 'balanced' | 'challenge';
 
 export interface OfficialBot {
+  playerId?: string;
+  learning?: BotLearning;
   name: string;
   rating: number;
   searchRating: number;
@@ -255,6 +260,20 @@ export function createOfficialBot(
   };
 }
 
+export function createRankedBot(profile: StoredProfile, random: () => number = Math.random): OfficialBot {
+  const definition = RANKED_BOTS.find((bot) => bot.id === profile.playerId);
+  if (!definition) throw new Error('알 수 없는 고정 봇');
+  const tuning = PERSONALITIES.find((p) => p.id === definition.personality)!;
+  const side: Player = random() < 0.5 ? 'BLACK' : 'WHITE';
+  return {
+    playerId: profile.playerId, name: profile.name, rating: profile.rating,
+    searchRating: definition.rating, difficultyBand: 'balanced', side,
+    personality: definition.personality, variantKey: `${profile.playerId}:${side}`,
+    search: searchProfile(definition.rating, tuning), thinking: false, moveCount: 0, random,
+    learning: structuredClone(profile.botLearning),
+  };
+}
+
 export function chooseOfficialBotMove(
   bot: OfficialBot,
   state: GameState,
@@ -274,6 +293,7 @@ export function chooseOfficialBotMove(
       choiceWindow,
       rng: bot.random,
       botSide: bot.side,
+      hints: bot.playerId ? learnedOpeningHints(bot.learning, state, bot.side, config) : undefined,
     }) ?? legal[0]!;
     bot.moveCount += 1;
     return move;

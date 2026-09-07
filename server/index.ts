@@ -20,11 +20,12 @@ import { buildLeaderboard } from './leaderboard';
 import { validateLegacyProfileClaim } from './legacyProfileMigration';
 import {
   chooseOfficialBotMove,
-  createOfficialBot,
+  createRankedBot,
   officialBotMoveDelayMs,
   type OfficialBot,
   type PreviousOfficialBot,
 } from './officialBot';
+import { ensureRankedBots, selectRankedBot, isRankedBotId } from './rankedBots';
 import { inferMatchPlatform } from './matchAnalytics';
 import { hasPlayerTakenTurn } from './matchLifecycle';
 
@@ -90,6 +91,7 @@ if (profileRepository.kind === 'postgres' && loadedProfiles.length === 0) {
     console.error('[profiles] 기존 JSON 프로필을 가져오지 못했습니다:', error);
   }
 }
+loadedProfiles = await ensureRankedBots(profileRepository);
 const profiles = new Map(loadedProfiles.map((profile) => [profile.playerId, profile]));
 
 function makeId(bytes = 12): string {
@@ -156,7 +158,7 @@ function sendProfileToPlayer(playerId: string) {
 }
 
 async function authenticate(ws: WebSocket, playerId?: string, token?: string) {
-  let profile = playerId ? profiles.get(playerId) : undefined;
+  let profile = playerId && !isRankedBotId(playerId) ? profiles.get(playerId) : undefined;
   if (profile && token && profile.token === token && profile.unlinkedAt) {
     // 토스 연결이 해제된 프로필. 재로그인 전까지 세션을 만들지 않는다.
     send(ws, { type: 'UNLINKED', message: '토스 연결이 해제되어 다시 로그인해야 해요' });
@@ -174,8 +176,8 @@ async function authenticate(ws: WebSocket, playerId?: string, token?: string) {
       createdAt: now,
       updatedAt: now,
     };
-    await profileRepository.saveProfile(profile);
-    profiles.set(profile.playerId, profile);
+    const saved = await profileRepository.saveProfileMetadata(profile);
+    profiles.set(saved.playerId, saved);
   }
   const session = sessions.get(ws)!;
   session.playerId = profile.playerId;
@@ -404,6 +406,8 @@ async function finishBotMatch(
       roomId: room.id,
       playerId,
       playerWon: winner === playerSide,
+      botPlayerId: room.bot.playerId,
+      learningGame: { moves: room.state.history, config, side: room.bot.side, winner, reason: analyticsReason },
       botName: room.bot.name,
       botRating: room.bot.rating,
       botSearchRating: room.bot.searchRating,
@@ -412,6 +416,7 @@ async function finishBotMatch(
       completedAt,
     });
     if (result.recorded && result.player) profiles.set(result.player.playerId, result.player);
+    if (result.recorded && result.bot) profiles.set(result.bot.playerId, result.bot);
     if (playerSocket) {
       send(playerSocket, { type: 'MATCH_RESULT', winner, reason, profile: publicProfile(playerId) });
     }
@@ -472,18 +477,12 @@ async function startBotMatch(ws: WebSocket) {
   try {
     const initialPlayerId = sessions.get(ws)?.playerId;
     if (!initialPlayerId) return;
-    const progress = await profileRepository.getBotMatchProgress(initialPlayerId);
     const session = sessions.get(ws);
     const profile = profiles.get(initialPlayerId);
     if (!session || session.playerId !== initialPlayerId || session.roomId || !profile || ws.readyState !== ws.OPEN) return;
     const id = makeRoomId();
-    const bot = createOfficialBot(
-      profile.rating,
-      profile.name,
-      Math.random,
-      previousOfficialBots.get(initialPlayerId),
-      progress,
-    );
+    const botProfile = selectRankedBot(profiles.values(), profile.rating, previousOfficialBots.get(initialPlayerId)?.name);
+    const bot = createRankedBot(botProfile);
     previousOfficialBots.set(initialPlayerId, { name: bot.name, variantKey: bot.variantKey });
     const playerSide = opponent(bot.side);
     const room: Room = {
@@ -717,8 +716,8 @@ async function handleTossLogin(req: import('node:http').IncomingMessage, res: im
     profile.tossRefreshToken = login.refreshToken;
     profile.tossTokenExpiresAt = new Date(now.getTime() + login.expiresIn * 1000).toISOString();
     profile.updatedAt = now.toISOString();
-    await profileRepository.saveProfile(profile);
-    profiles.set(profile.playerId, profile);
+    const saved = await profileRepository.saveProfileMetadata(profile);
+    profiles.set(saved.playerId, saved);
     sendJson(res, 200, { playerId: profile.playerId, token: profile.token, profile: publicProfile(profile.playerId) });
   } catch (error) {
     const apiError = error as TossApiError;
@@ -762,8 +761,8 @@ async function handleTossUnlinkCallback(req: import('node:http').IncomingMessage
       delete profile.tossRefreshToken;
       delete profile.tossTokenExpiresAt;
       profile.updatedAt = profile.unlinkedAt;
-      await profileRepository.saveProfile(profile);
-      profiles.set(profile.playerId, profile);
+      const saved = await profileRepository.saveProfileMetadata(profile);
+      profiles.set(saved.playerId, saved);
       sendLoggedOutToPlayer(profile.playerId, '토스 연결이 해제되어 다시 로그인해야 해요');
     }
     // 알 수 없는 userKey도 멱등하게 200으로 응답한다.
@@ -870,8 +869,8 @@ wss.on('connection', (ws, request) => {
         name,
         updatedAt: new Date().toISOString(),
       };
-      await profileRepository.saveProfile(profile);
-      profiles.set(playerId, profile);
+      const saved = await profileRepository.saveProfileMetadata(profile);
+      profiles.set(playerId, saved);
       send(ws, { type: 'PROFILE', profile: publicProfile(playerId) });
       return;
     }

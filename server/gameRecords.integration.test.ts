@@ -158,3 +158,30 @@ it('서버 봇 대국은 사람과 봇 진영을 구분하고 착수 후 종료�
   expect(trainingRecord(game, { minElo: 0, both: false, includeBots: false, includeForfeits: true })).toBeNull();
   expect(trainingRecord(game, { minElo: 0, both: false, includeBots: true, includeForfeits: true })?.eligibleSides).toEqual([humanSide]);
 }, 15000);
+
+
+it('고정 봇은 랭킹에 나타나고 사람과의 승패가 양쪽에 반영되며 다음 상대가 바뀐다', async () => {
+  const a = client();
+  await a.send({ type: 'HELLO' }); await a.next('IDENTITY');
+  await a.send({ type: 'MATCHMAKE_BOT' });
+  const found = await a.next('MATCH_FOUND');
+  const { RANKED_BOTS } = await import('./rankedBots');
+  expect(RANKED_BOTS.map((bot) => bot.name)).toContain(found.opponent.name);
+  const boardUrl = url.replace('ws:', 'http:') + '/leaderboard';
+  const before = await (await fetch(boardUrl)).json() as any;
+  const row = before.entries.find((entry: any) => entry.name === found.opponent.name);
+  expect(row.rating).toBe(found.opponent.rating);
+  expect(row).not.toHaveProperty('botLearning');
+  expect(row).not.toHaveProperty('token');
+  await a.send({ type: 'RESIGN' });
+  const result = await a.next('MATCH_RESULT');
+  expect(result.profile.losses).toBe(1);
+  const after = await (await fetch(boardUrl)).json() as any;
+  const updated = after.entries.find((entry: any) => entry.name === found.opponent.name);
+  expect(updated.wins).toBe(row.wins + 1);
+  expect(updated.rating).toBeGreaterThan(row.rating);
+  await a.send({ type: 'MATCHMAKE_BOT' });
+  const rematch = await a.next('MATCH_FOUND');
+  expect(rematch.opponent.name).not.toBe(found.opponent.name);
+  await a.send({ type: 'RESIGN' }); await a.next('MATCH_RESULT');
+}, 15000);

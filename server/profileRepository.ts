@@ -1,6 +1,8 @@
-import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync, statSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { Pool, type PoolClient } from 'pg';
+import { learnBotOpening, type BotLearning, type BotLearningGame } from './rankedBotLearning';
+import { isRankedBotId } from './rankedBots';
 
 export interface StoredProfile {
   playerId: string;
@@ -17,6 +19,7 @@ export interface StoredProfile {
   tossTokenExpiresAt?: string;
   unlinkedAt?: string;
   legacyMigratedAt?: string;
+  botLearning?: BotLearning;
 }
 
 export interface LegacyProfileClaim {
@@ -48,6 +51,8 @@ export interface MatchResult {
 }
 
 export interface RecordedBotMatch {
+  botPlayerId?: string;
+  learningGame?: BotLearningGame;
   matchId: string;
   roomId: string;
   playerId: string;
@@ -62,6 +67,7 @@ export interface RecordedBotMatch {
 
 export interface BotMatchResult {
   recorded: boolean;
+  bot?: StoredProfile;
   player?: StoredProfile;
 }
 
@@ -93,6 +99,7 @@ export interface ProfileRepository {
   loadProfiles(): Promise<StoredProfile[]>;
   importProfiles(profiles: StoredProfile[]): Promise<number>;
   saveProfile(profile: StoredProfile): Promise<void>;
+  saveProfileMetadata(profile: StoredProfile): Promise<StoredProfile>;
   migrateLegacyProfile(playerId: string, claim: LegacyProfileClaim): Promise<LegacyProfileMigrationResult>;
   recordMatch(match: RecordedMatch): Promise<MatchResult>;
   recordBotMatch(match: RecordedBotMatch): Promise<BotMatchResult>;
@@ -104,7 +111,7 @@ export interface ProfileRepository {
 const ELO_K = 24;
 
 function cloneProfile(profile: StoredProfile): StoredProfile {
-  return { ...profile };
+  return structuredClone(profile);
 }
 
 export function applyEloResult(
@@ -146,6 +153,21 @@ export function applyBotEloResult(
   };
 }
 
+function rankedBotResult(current: StoredProfile, bot: StoredProfile | undefined, match: RecordedBotMatch) {
+  if (match.botPlayerId && (!bot || !isRankedBotId(bot.playerId) || bot.playerId === current.playerId)) {
+    throw new Error('고정 봇 프로필이 없습니다');
+  }
+  const player = applyBotEloResult(current, match.botRating, match.playerWon, match.completedAt);
+  if (!bot) return { player };
+  // Use the match-start opponent rating even if this bot finishes another game concurrently.
+  const delta = player.rating - current.rating;
+  return { player, bot: {
+    ...bot, wins: bot.wins + Number(!match.playerWon), losses: bot.losses + Number(match.playerWon),
+    rating: Math.max(100, bot.rating - delta), updatedAt: match.completedAt,
+    botLearning: learnBotOpening(bot.botLearning, match.learningGame),
+  } };
+}
+
 function readProfileFile(filePath: string): StoredProfile[] {
   if (!existsSync(filePath)) return [];
   const parsed = JSON.parse(readFileSync(filePath, 'utf8')) as StoredProfile[];
@@ -160,8 +182,32 @@ function atomicWriteJson(filePath: string, value: unknown): void {
   renameSync(tempFile, filePath);
 }
 
+interface FileSnapshot {
+  profiles: StoredProfile[];
+  matchIds: string[];
+  botMatches: RecordedBotMatch[];
+  matchEvents: RecordedMatchEvent[];
+}
+
+function readSnapshot(filePath: string): FileSnapshot {
+  const snapshotPath = `${filePath}.snapshot.json`;
+  const snapshot = JSON.parse(readFileSync(snapshotPath, 'utf8')) as FileSnapshot;
+  const modified = statSync(snapshotPath).mtimeMs;
+  const mirrors: Array<[string, unknown]> = [[filePath, snapshot.profiles],
+    [`${filePath}.matches.json`, snapshot.matchIds], [`${filePath}.bot-matches.json`, snapshot.botMatches],
+    [`${filePath}.match-events.json`, snapshot.matchEvents]];
+  for (const [path, expected] of mirrors) {
+    if (existsSync(path) && statSync(path).mtimeMs > modified &&
+        JSON.stringify(JSON.parse(readFileSync(path, 'utf8'))) !== JSON.stringify(expected)) {
+      throw new Error('snapshot 이후 변경된 레거시 파일이 있습니다. 롤백 데이터를 명시적으로 병합해야 합니다');
+    }
+  }
+  return snapshot;
+}
+
 export class FileProfileRepository implements ProfileRepository {
   readonly kind = 'file' as const;
+  private committed!: FileSnapshot;
   private readonly profiles = new Map<string, StoredProfile>();
   private readonly recordedMatchIds = new Set<string>();
   private readonly botMatches: RecordedBotMatch[] = [];
@@ -175,6 +221,16 @@ export class FileProfileRepository implements ProfileRepository {
     this.matchIdsFile = `${filePath}.matches.json`;
     this.botMatchesFile = `${filePath}.bot-matches.json`;
     this.matchEventsFile = `${filePath}.match-events.json`;
+    if (existsSync(`${filePath}.snapshot.json`)) {
+      const snapshot = readSnapshot(filePath);
+      for (const profile of snapshot.profiles) this.profiles.set(profile.playerId, profile);
+      for (const id of snapshot.matchIds) this.recordedMatchIds.add(id);
+      this.botMatches.push(...snapshot.botMatches);
+      this.matchEvents.push(...snapshot.matchEvents);
+      for (const event of this.matchEvents) this.recordedEventKeys.add(this.eventKey(event));
+      this.committed = this.snapshot();
+      return;
+    }
     for (const profile of readProfileFile(filePath)) this.profiles.set(profile.playerId, cloneProfile(profile));
     if (existsSync(this.matchIdsFile)) {
       const ids = JSON.parse(readFileSync(this.matchIdsFile, 'utf8')) as string[];
@@ -191,6 +247,7 @@ export class FileProfileRepository implements ProfileRepository {
         for (const event of events) this.recordedEventKeys.add(this.eventKey(event));
       }
     }
+    this.committed = this.snapshot();
   }
 
   async loadProfiles(): Promise<StoredProfile[]> {
@@ -211,6 +268,14 @@ export class FileProfileRepository implements ProfileRepository {
   async saveProfile(profile: StoredProfile): Promise<void> {
     this.profiles.set(profile.playerId, cloneProfile(profile));
     this.persistProfiles();
+  }
+
+  async saveProfileMetadata(profile: StoredProfile): Promise<StoredProfile> {
+    const current = this.profiles.get(profile.playerId);
+    const saved = current ? { ...profile, wins: current.wins, losses: current.losses, rating: current.rating,
+      botLearning: current.botLearning, legacyMigratedAt: current.legacyMigratedAt } : profile;
+    await this.saveProfile(saved);
+    return cloneProfile(saved);
   }
 
   async migrateLegacyProfile(
@@ -244,7 +309,6 @@ export class FileProfileRepository implements ProfileRepository {
     this.profiles.set(result.loser.playerId, result.loser);
     this.recordedMatchIds.add(match.matchId);
     this.persistProfiles();
-    atomicWriteJson(this.matchIdsFile, [...this.recordedMatchIds]);
     return { recorded: true, ...result };
   }
 
@@ -252,14 +316,14 @@ export class FileProfileRepository implements ProfileRepository {
     if (this.recordedMatchIds.has(match.matchId)) return { recorded: false };
     const current = this.profiles.get(match.playerId);
     if (!current) throw new Error('봇 경기 결과를 저장할 프로필이 없습니다');
-    const player = applyBotEloResult(current, match.botRating, match.playerWon, match.completedAt);
+    const { player, bot } = rankedBotResult(current, match.botPlayerId ? this.profiles.get(match.botPlayerId) : undefined, match);
     this.profiles.set(player.playerId, player);
+    if (bot) this.profiles.set(bot.playerId, bot);
     this.recordedMatchIds.add(match.matchId);
-    this.botMatches.push({ ...match });
+    const { learningGame: _learningGame, ...summary } = match;
+    this.botMatches.push(summary);
     this.persistProfiles();
-    atomicWriteJson(this.matchIdsFile, [...this.recordedMatchIds]);
-    atomicWriteJson(this.botMatchesFile, this.botMatches);
-    return { recorded: true, player: cloneProfile(player) };
+    return { recorded: true, player: cloneProfile(player), ...(bot ? { bot: cloneProfile(bot) } : {}) };
   }
 
   async getBotMatchProgress(playerId: string, recentLimit = 8): Promise<BotMatchProgress> {
@@ -279,13 +343,43 @@ export class FileProfileRepository implements ProfileRepository {
     if (this.recordedEventKeys.has(key)) return;
     this.recordedEventKeys.add(key);
     this.matchEvents.push({ ...event });
-    atomicWriteJson(this.matchEventsFile, this.matchEvents);
+    this.persistProfiles();
   }
 
   async close(): Promise<void> {}
 
+  private snapshot(): FileSnapshot {
+    return structuredClone({ profiles: [...this.profiles.values()], matchIds: [...this.recordedMatchIds],
+      botMatches: this.botMatches, matchEvents: this.matchEvents });
+  }
+
   private persistProfiles(): void {
-    atomicWriteJson(this.filePath, [...this.profiles.values()]);
+    const next = this.snapshot();
+    try {
+      atomicWriteJson(`${this.filePath}.snapshot.json`, next);
+    } catch (error) {
+      // A failed commit must remain retryable in this running process as well as after restart.
+      const old = structuredClone(this.committed);
+      this.profiles.clear();
+      for (const profile of old.profiles) this.profiles.set(profile.playerId, profile);
+      this.recordedMatchIds.clear();
+      for (const id of old.matchIds) this.recordedMatchIds.add(id);
+      this.botMatches.splice(0, this.botMatches.length, ...old.botMatches);
+      this.matchEvents.splice(0, this.matchEvents.length, ...old.matchEvents);
+      this.recordedEventKeys.clear();
+      for (const event of old.matchEvents) this.recordedEventKeys.add(this.eventKey(event));
+      throw error;
+    }
+    this.committed = next;
+    // Compatibility exports are not the commit record. Their failure cannot undo a saved result.
+    try {
+      atomicWriteJson(this.filePath, next.profiles);
+      atomicWriteJson(this.matchIdsFile, next.matchIds);
+      atomicWriteJson(this.botMatchesFile, next.botMatches);
+      atomicWriteJson(this.matchEventsFile, next.matchEvents);
+    } catch (error) {
+      console.error('[profiles] 호환 JSON 사본 저장 실패; snapshot은 저장됨:', error);
+    }
   }
 
   private eventKey(event: RecordedMatchEvent): string {
@@ -308,6 +402,7 @@ interface ProfileRow {
   toss_token_expires_at: Date | string | null;
   unlinked_at: Date | string | null;
   legacy_migrated_at: Date | string | null;
+  bot_learning: BotLearning | null;
 }
 
 function iso(value: Date | string): string {
@@ -320,6 +415,7 @@ function optionalIso(value: Date | string | null): string | undefined {
 
 function rowToProfile(row: ProfileRow): StoredProfile {
   return {
+    ...(row.bot_learning ? { botLearning: row.bot_learning } : {}),
     playerId: row.player_id,
     token: row.token,
     name: row.name,
@@ -340,7 +436,7 @@ function rowToProfile(row: ProfileRow): StoredProfile {
 const PROFILE_COLUMNS = `
   player_id, token, name, wins, losses, rating, created_at, updated_at,
   toss_user_key, toss_access_token, toss_refresh_token, toss_token_expires_at, unlinked_at,
-  legacy_migrated_at
+  legacy_migrated_at, bot_learning
 `;
 
 export class PostgresProfileRepository implements ProfileRepository {
@@ -375,6 +471,8 @@ export class PostgresProfileRepository implements ProfileRepository {
 
       ALTER TABLE mongjin_profiles
         ADD COLUMN IF NOT EXISTS legacy_migrated_at TIMESTAMPTZ;
+
+      ALTER TABLE mongjin_profiles ADD COLUMN IF NOT EXISTS bot_learning JSONB;
 
       CREATE INDEX IF NOT EXISTS mongjin_profiles_rating_idx
         ON mongjin_profiles (rating DESC, created_at ASC);
@@ -418,6 +516,8 @@ export class PostgresProfileRepository implements ProfileRepository {
 
       ALTER TABLE mongjin_bot_matches
         ADD COLUMN IF NOT EXISTS difficulty_band TEXT;
+
+      ALTER TABLE mongjin_bot_matches ADD COLUMN IF NOT EXISTS bot_player_id TEXT REFERENCES mongjin_profiles(player_id);
 
       CREATE INDEX IF NOT EXISTS mongjin_bot_matches_player_completed_idx
         ON mongjin_bot_matches (player_id, completed_at DESC);
@@ -488,6 +588,11 @@ export class PostgresProfileRepository implements ProfileRepository {
 
   async saveProfile(profile: StoredProfile): Promise<void> {
     await this.upsertProfile(this.pool, profile, false);
+  }
+
+  async saveProfileMetadata(profile: StoredProfile): Promise<StoredProfile> {
+    const result = await this.upsertProfile(this.pool, profile, false, true);
+    return rowToProfile(result.rows[0]!);
   }
 
   async migrateLegacyProfile(
@@ -619,11 +724,12 @@ export class PostgresProfileRepository implements ProfileRepository {
       const locked = await client.query<ProfileRow>(
         `SELECT ${PROFILE_COLUMNS}
            FROM mongjin_profiles
-          WHERE player_id = $1
+          WHERE player_id = ANY($1::text[])
+          ORDER BY player_id
           FOR UPDATE`,
-        [match.playerId],
+        [[match.playerId, ...(match.botPlayerId ? [match.botPlayerId] : [])]],
       );
-      const row = locked.rows[0];
+      const row = locked.rows.find((item) => item.player_id === match.playerId);
       if (!row) throw new Error('봇 경기 결과를 저장할 프로필이 없습니다');
       const current = rowToProfile(row);
 
@@ -654,16 +760,18 @@ export class PostgresProfileRepository implements ProfileRepository {
         return { recorded: false };
       }
 
-      const player = applyBotEloResult(current, match.botRating, match.playerWon, match.completedAt);
+      const botRow = locked.rows.find((item) => item.player_id === match.botPlayerId);
+      const { player, bot } = rankedBotResult(current, botRow ? rowToProfile(botRow) : undefined, match);
+      if (bot) await this.upsertProfile(client, bot, false);
       await this.upsertProfile(client, player, false);
       await client.query(
         `UPDATE mongjin_bot_matches
-            SET player_rating_after = $2
+            SET player_rating_after = $2, bot_player_id = $3
           WHERE match_id = $1`,
-        [match.matchId, player.rating],
+        [match.matchId, player.rating, match.botPlayerId ?? null],
       );
       await client.query('COMMIT');
-      return { recorded: true, player };
+      return { recorded: true, player, bot };
     } catch (error) {
       await client.query('ROLLBACK');
       throw error;
@@ -727,26 +835,26 @@ export class PostgresProfileRepository implements ProfileRepository {
     executor: Pick<Pool | PoolClient, 'query'>,
     profile: StoredProfile,
     insertOnly: boolean,
-  ): Promise<{ rowCount: number | null }> {
+    metadataOnly = false,
+  ): Promise<{ rowCount: number | null; rows: ProfileRow[] }> {
     const conflict = insertOnly
       ? 'ON CONFLICT (player_id) DO NOTHING'
       : `ON CONFLICT (player_id) DO UPDATE SET
            token = EXCLUDED.token,
            name = EXCLUDED.name,
-           wins = EXCLUDED.wins,
-           losses = EXCLUDED.losses,
-           rating = EXCLUDED.rating,
+           ${metadataOnly ? '' : 'wins = EXCLUDED.wins, losses = EXCLUDED.losses, rating = EXCLUDED.rating,'}
            updated_at = EXCLUDED.updated_at,
            toss_user_key = EXCLUDED.toss_user_key,
            toss_access_token = EXCLUDED.toss_access_token,
            toss_refresh_token = EXCLUDED.toss_refresh_token,
            toss_token_expires_at = EXCLUDED.toss_token_expires_at,
            unlinked_at = EXCLUDED.unlinked_at,
+           ${metadataOnly ? '' : 'bot_learning = EXCLUDED.bot_learning,'}
            legacy_migrated_at = COALESCE(mongjin_profiles.legacy_migrated_at, EXCLUDED.legacy_migrated_at)`;
-    return executor.query(
+    return executor.query<ProfileRow>(
       `INSERT INTO mongjin_profiles (${PROFILE_COLUMNS})
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
-       ${conflict}`,
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
+       ${conflict} RETURNING ${PROFILE_COLUMNS}`,
       [
         profile.playerId,
         profile.token,
@@ -762,6 +870,7 @@ export class PostgresProfileRepository implements ProfileRepository {
         profile.tossTokenExpiresAt ?? null,
         profile.unlinkedAt ?? null,
         profile.legacyMigratedAt ?? null,
+        profile.botLearning ? JSON.stringify(profile.botLearning) : null,
       ],
     );
   }
@@ -778,5 +887,8 @@ export async function createProfileRepository(
 }
 
 export function loadProfilesForMigration(filePath: string): StoredProfile[] {
+  if (existsSync(`${filePath}.snapshot.json`)) {
+    return readSnapshot(filePath).profiles;
+  }
   return readProfileFile(filePath);
 }
