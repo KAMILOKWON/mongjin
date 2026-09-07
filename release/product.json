@@ -259,6 +259,31 @@
           ]
         }
       }
+    },
+    "server": {
+      "state": "ready",
+      "identifier": "srv-d8mjgtrtqb8s73c60090",
+      "projectPath": "server",
+      "requiredTools": [
+        "node",
+        "npm",
+        "git",
+        "gh"
+      ],
+      "credentials": [],
+      "actions": {
+        "production": {
+          "cwd": ".",
+          "requiredFiles": [
+            "scripts/deploy-mongjin-server.sh",
+            ".github/workflows/deploy-server.yml"
+          ],
+          "run": [
+            "bash",
+            "scripts/deploy-mongjin-server.sh"
+          ]
+        }
+      }
     }
   }
 }

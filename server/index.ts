@@ -1,6 +1,6 @@
 import { createServer } from 'node:http';
 import { randomBytes } from 'node:crypto';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { WebSocketServer, type WebSocket } from 'ws';
 import type { GameState, Move, Player } from '../src/core/types';
 import { DEFAULT_CONFIG } from '../src/core/config';
@@ -27,6 +27,8 @@ import {
 } from './officialBot';
 import { inferMatchPlatform } from './matchAnalytics';
 import { hasPlayerTakenTurn } from './matchLifecycle';
+
+import { createGameRecordStore, GameRecorder, RECORD_RULES_VERSION, type GameRecord } from './gameRecords';
 
 const PORT = Number(process.env.PORT ?? 3001);
 const HOST = process.env.HOST ?? '0.0.0.0';
@@ -60,6 +62,7 @@ interface Room {
   whitePlatform: MatchPlatform;
   bot?: OfficialBot;
   finished: boolean;
+  gameRecord?: GameRecord;
 }
 
 interface ClientSession {
@@ -74,6 +77,8 @@ const matchmakingQueue: WebSocket[] = [];
 const pendingBotMatches = new Set<WebSocket>();
 const previousOfficialBots = new Map<string, PreviousOfficialBot>();
 const profileRepository = await createProfileRepository(PROFILE_DATA_FILE);
+const gameRecordStore = await createGameRecordStore(join(dirname(PROFILE_DATA_FILE), 'game-records'));
+const gameRecorder = new GameRecorder(gameRecordStore, (error) => console.error('[records] 기보 저장 실패:', error));
 let loadedProfiles = await profileRepository.loadProfiles();
 if (profileRepository.kind === 'postgres' && loadedProfiles.length === 0) {
   try {
@@ -224,7 +229,38 @@ function recordMatchEvent(event: RecordedMatchEvent) {
   });
 }
 
+function startGameRecord(room: Room) {
+  if (room.gameRecord) return;
+  const participant = (side: Player) => {
+    if (room.bot?.side === side) return { kind: 'bot' as const, rating: room.bot.rating };
+    const id = side === 'BLACK' ? room.blackPlayerId : room.whitePlayerId;
+    return { kind: 'human' as const, rating: id ? profiles.get(id)?.rating ?? null : null };
+  };
+  room.gameRecord = {
+    schemaVersion: 1, rulesVersion: RECORD_RULES_VERSION, matchId: room.matchId,
+    kind: room.kind, startedAt: new Date().toISOString(), status: 'playing',
+    players: { BLACK: participant('BLACK'), WHITE: participant('WHITE') },
+    config: { ...config }, moves: [], revision: 0,
+  };
+  void gameRecorder.save(room.gameRecord);
+}
+
+function saveGameRecord(room: Room, ending?: { winner?: Player; reason: string }) {
+  const record = room.gameRecord;
+  if (!record || record.status !== 'playing') return Promise.resolve();
+  record.moves = room.state.history;
+  record.revision++;
+  if (ending) {
+    record.status = ending.winner ? 'completed' : 'abandoned';
+    record.winner = ending.winner;
+    record.reason = ending.reason;
+    record.endedAt = new Date().toISOString();
+  }
+  return gameRecorder.save(record);
+}
+
 function recordMatchStarted(room: Room) {
+  startGameRecord(room);
   if (room.kind === 'friend') return;
   const occurredAt = new Date().toISOString();
   const opponentKind = room.kind === 'bot' ? 'bot' : 'human';
@@ -320,6 +356,7 @@ async function finishRandomMatch(
   if (!winnerId || !loserId) return;
   room.finished = true;
   const completedAt = new Date().toISOString();
+  const recordSaved = saveGameRecord(room, { winner, reason: analyticsReason });
   try {
     const result = await profileRepository.recordMatch({
       matchId: room.matchId,
@@ -343,6 +380,7 @@ async function finishRandomMatch(
   } finally {
     recordMatchCompleted(room, winner, analyticsReason, completedAt);
     releaseFinishedRoom(room);
+    await recordSaved;
   }
 }
 
@@ -359,6 +397,7 @@ async function finishBotMatch(
   if (!playerId) return;
   room.finished = true;
   const completedAt = new Date().toISOString();
+  const recordSaved = saveGameRecord(room, { winner, reason: analyticsReason });
   try {
     const result = await profileRepository.recordBotMatch({
       matchId: room.matchId,
@@ -385,6 +424,7 @@ async function finishBotMatch(
   } finally {
     recordMatchCompleted(room, winner, analyticsReason, completedAt);
     releaseFinishedRoom(room);
+    await recordSaved;
   }
 }
 
@@ -413,6 +453,7 @@ function scheduleBotMove(room: Room) {
         return;
       }
       room.state = applyMove(room.state, move);
+      void saveGameRecord(room);
       broadcastRoom(room, { type: 'STATE', state: room.state });
       const result = getResult(room.state, config);
       if (result) await finishBotMatch(room, result.winner, result.reason);
@@ -559,6 +600,7 @@ function detachPlayer(ws: WebSocket) {
       const otherSession = sessions.get(other);
       if (otherSession) otherSession.roomId = null;
     }
+    if (!room.finished) void saveGameRecord(room, { reason: 'disconnect' });
     rooms.delete(room.id);
   }
   sessions.delete(ws);
@@ -747,6 +789,7 @@ const httpServer = createServer((req, res) => {
       activeSessions: sessions.size,
       profileStore: profileRepository.kind,
       officialBotMatches: true,
+      gameRecords: { schemaVersion: 1, rulesVersion: RECORD_RULES_VERSION },
     });
     return;
   }
@@ -926,6 +969,7 @@ wss.on('connection', (ws, request) => {
           const other = side === 'BLACK' ? room.white : room.black;
           if (other) send(other, { type: 'STATE', state: room.state });
           if (room.black && room.white && room.blackPlayerId && room.whitePlayerId) {
+            startGameRecord(room);
             send(room.black, {
               type: 'MATCH_FOUND',
               roomId: id,
@@ -965,15 +1009,21 @@ wss.on('connection', (ws, request) => {
         const side: Player | null = room.black === ws ? 'BLACK' : room.white === ws ? 'WHITE' : null;
         if (!side) send(ws, { type: 'ERROR', message: '이 방의 플레이어가 아닙니다' });
         else if (room.state.turn !== side) send(ws, { type: 'ERROR', message: '내 차례가 아닙니다' });
-        else if (getResult(room.state, config)) send(ws, { type: 'ERROR', message: '게임이 이미 끝났습니다' });
+        else if (room.finished || getResult(room.state, config)) send(ws, { type: 'ERROR', message: '게임이 이미 끝났습니다' });
+        else if (room.kind === 'friend' && (!room.black || !room.white)) send(ws, { type: 'ERROR', message: '상대가 입장한 뒤 수를 둘 수 있습니다' });
         else if (!isValidMove(room.state, msg.move)) send(ws, { type: 'ERROR', message: '불법 수입니다' });
         else {
           room.state = applyMove(room.state, msg.move);
+          void saveGameRecord(room);
           broadcastRoom(room, { type: 'STATE', state: room.state });
           const result = getResult(room.state, config);
           if (result) {
             if (room.kind === 'bot') await finishBotMatch(room, result.winner, result.reason);
-            else await finishRandomMatch(room, result.winner, result.reason);
+            else if (room.kind === 'random') await finishRandomMatch(room, result.winner, result.reason);
+            else {
+              room.finished = true;
+              await saveGameRecord(room, { winner: result.winner, reason: result.reason });
+            }
           } else if (room.kind === 'bot') {
             scheduleBotMove(room);
           }
@@ -993,6 +1043,7 @@ wss.on('connection', (ws, request) => {
 });
 
 httpServer.listen(PORT, HOST, () => {
-  console.log(`몽진 온라인 서버 — ws://${HOST}:${PORT}`);
+  const address = httpServer.address();
+  console.log(`몽진 온라인 서버 — ws://${HOST}:${typeof address === 'object' && address ? address.port : PORT}`);
   console.log(`프로필 저장소 — ${profileRepository.kind === 'postgres' ? 'Postgres' : PROFILE_DATA_FILE}`);
 });

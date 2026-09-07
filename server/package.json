@@ -7,7 +7,8 @@
     "start": "tsx index.ts",
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
-    "migrate:profiles": "tsx migrateProfiles.ts"
+    "migrate:profiles": "tsx migrateProfiles.ts",
+    "export:games": "tsx exportGames.ts"
   },
   "dependencies": {
     "pg": "^8.16.3",
