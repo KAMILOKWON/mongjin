@@ -9,6 +9,7 @@ import {
   applyEloResult,
   type StoredProfile,
 } from './profileRepository';
+import { RANKED_BOTS } from './rankedBots';
 
 function profile(playerId: string, rating = 1200): StoredProfile {
   return {
@@ -114,6 +115,55 @@ test('공식 봇 완료 횟수와 최근 승패를 난이도 조절용으로 집
     recentWins: 0,
     recentLosses: 3,
   });
+});
+
+test('최근 완료 봇 ID를 재시작 후에도 완료시각·matchId 역순으로 안정적으로 조회한다', async () => {
+  const directory = mkdtempSync(join(tmpdir(), 'mongjin-recent-bots-'));
+  const profileFile = join(directory, 'profiles.json');
+  const repository = new FileProfileRepository(profileFile);
+  const bots = RANKED_BOTS.slice(0, 3).map((bot) => ({
+    ...profile(bot.id, bot.rating),
+    name: bot.name,
+  }));
+  await repository.importProfiles([profile('player'), ...bots]);
+  const common = {
+    roomId: 'BOTRECENT',
+    playerId: 'player',
+    playerWon: true,
+    botRating: 1200,
+    botSearchRating: 1200,
+    difficultyBand: 'balanced',
+    reason: 'goal',
+  };
+  await repository.recordBotMatch({
+    ...common,
+    matchId: 'match-a',
+    botPlayerId: bots[0]!.playerId,
+    botName: bots[0]!.name,
+    completedAt: '2026-09-01T01:00:00.000Z',
+  });
+  await repository.recordBotMatch({
+    ...common,
+    matchId: 'match-b',
+    botPlayerId: bots[1]!.playerId,
+    botName: bots[1]!.name,
+    completedAt: '2026-09-01T01:00:00.000Z',
+  });
+  // bot_player_id 이전 레거시 행도 고정 이름을 ID로 복구한다.
+  await repository.recordBotMatch({
+    ...common,
+    matchId: 'match-c',
+    botName: bots[2]!.name,
+    completedAt: '2026-09-01T02:00:00.000Z',
+  });
+
+  const reopened = new FileProfileRepository(profileFile);
+  assert.deepEqual(await reopened.getRecentBotOpponents('player', 3), [
+    bots[2]!.playerId,
+    bots[1]!.playerId,
+    bots[0]!.playerId,
+  ]);
+  assert.deepEqual(await reopened.getRecentBotOpponents('player', 0), []);
 });
 
 test('대국 생명주기 이벤트는 같은 이용자·단계마다 한 번만 저장한다', async () => {

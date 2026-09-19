@@ -47,6 +47,8 @@ export interface AiOptions {
   choiceWindow?: number;
   /** 승리 계획(안전한 왕 전진·호위·마무리)의 루트 선택 반영 강도. */
   planStrength?: number;
+  /** 검증된 근접 최선수 사이의 선호도(0~1). 후보·탐색 점수에는 영향을 주지 않는다. */
+  movePreference?: (state: GameState, move: Move) => number;
   /** 정적 평가 수준: 1 기본, 2 왕 안전, 3 포위 압력. */
   strategyLevel?: 1 | 2 | 3;
   /** 선택적 보수적 LMR·반복 억제·포위 압력을 적용한다. */
@@ -110,14 +112,17 @@ function pickRootCandidate(
   candidates: RootCandidate[],
   planBonuses: Map<string, number>,
   rng?: () => number,
+  preferences?: Map<string, number>,
 ): Move {
   if (candidates.length === 1) return candidates[0]!.move;
 
   const bonuses = candidates.map((candidate) => planBonuses.get(moveSig(candidate.move)) ?? 0);
+  const affinities = candidates.map((candidate) => preferences?.get(moveSig(candidate.move)) ?? 0);
   if (!rng) {
     let bestIndex = 0;
     for (let i = 1; i < candidates.length; i++) {
-      if (bonuses[i]! > bonuses[bestIndex]!) bestIndex = i;
+      if (affinities[i]! > affinities[bestIndex]! ||
+        (affinities[i] === affinities[bestIndex] && bonuses[i]! > bonuses[bestIndex]!)) bestIndex = i;
     }
     return candidates[bestIndex]!.move;
   }
@@ -125,7 +130,9 @@ function pickRootCandidate(
   const min = Math.min(...bonuses);
   const max = Math.max(...bonuses);
   const span = max - min;
-  const weights = bonuses.map((bonus) => 1 + (span > 0 ? (3 * (bonus - min)) / span : 0));
+  const weights = bonuses.map((bonus, index) =>
+    (1 + (span > 0 ? (3 * (bonus - min)) / span : 0)) * (1 + 8 * affinities[index]!),
+  );
   const total = weights.reduce((sum, weight) => sum + weight, 0);
   let roll = rng() * total;
   for (let i = 0; i < candidates.length; i++) {
@@ -1149,7 +1156,11 @@ export function chooseMove(
   const finalWin = findWinningMove(state, allLegal, config);
   if (finalWin) return finish(finalWin, completedDepth);
 
-  const chosen = pickRootCandidate(lastCompleted, planBonuses, rng);
+  const preferences = opts.movePreference ? new Map(lastCompleted.map(({ move }) => {
+    const value = opts.movePreference!(state, move);
+    return [moveSig(move), Number.isFinite(value) ? Math.max(0, Math.min(1, value)) : 0];
+  })) : undefined;
+  const chosen = pickRootCandidate(lastCompleted, planBonuses, rng, preferences);
 
   if (completedDepth <= 1) {
     const fallback = pickObviousMove(state, allLegal, config);

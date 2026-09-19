@@ -2,7 +2,7 @@ import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync, statSyn
 import { dirname } from 'node:path';
 import { Pool, type PoolClient } from 'pg';
 import { learnBotOpening, type BotLearning, type BotLearningGame } from './rankedBotLearning';
-import { isRankedBotId } from './rankedBots';
+import { RANKED_BOTS, isRankedBotId } from './rankedBots';
 
 export interface StoredProfile {
   playerId: string;
@@ -104,6 +104,7 @@ export interface ProfileRepository {
   recordMatch(match: RecordedMatch): Promise<MatchResult>;
   recordBotMatch(match: RecordedBotMatch): Promise<BotMatchResult>;
   getBotMatchProgress(playerId: string, recentLimit?: number): Promise<BotMatchProgress>;
+  getRecentBotOpponents(playerId: string, limit?: number): Promise<string[]>;
   recordMatchEvent(event: RecordedMatchEvent): Promise<void>;
   close(): Promise<void>;
 }
@@ -166,6 +167,20 @@ function rankedBotResult(current: StoredProfile, bot: StoredProfile | undefined,
     rating: Math.max(100, bot.rating - delta), updatedAt: match.completedAt,
     botLearning: learnBotOpening(bot.botLearning, match.learningGame),
   } };
+}
+
+function rankedBotIdForMatch(match: Pick<RecordedBotMatch, 'botPlayerId' | 'botName'>): string | undefined {
+  if (match.botPlayerId && isRankedBotId(match.botPlayerId)) return match.botPlayerId;
+  return RANKED_BOTS.find((bot) => bot.name === match.botName)?.id;
+}
+
+function recentLimit(value: number, fallback = 5): number {
+  if (!Number.isFinite(value)) return fallback;
+  return Math.max(0, Math.floor(value));
+}
+
+function compareRecentBotMatches(left: RecordedBotMatch, right: RecordedBotMatch): number {
+  return right.completedAt.localeCompare(left.completedAt) || right.matchId.localeCompare(left.matchId);
 }
 
 function readProfileFile(filePath: string): StoredProfile[] {
@@ -329,13 +344,24 @@ export class FileProfileRepository implements ProfileRepository {
   async getBotMatchProgress(playerId: string, recentLimit = 8): Promise<BotMatchProgress> {
     const matches = this.botMatches
       .filter((match) => match.playerId === playerId)
-      .sort((left, right) => right.completedAt.localeCompare(left.completedAt));
+      .sort(compareRecentBotMatches);
     const recent = matches.slice(0, Math.max(1, recentLimit));
     return {
       completed: matches.length,
       recentWins: recent.filter((match) => match.playerWon).length,
       recentLosses: recent.filter((match) => !match.playerWon).length,
     };
+  }
+
+  async getRecentBotOpponents(playerId: string, limit = 5): Promise<string[]> {
+    const boundedLimit = recentLimit(limit);
+    if (boundedLimit === 0) return [];
+    return this.botMatches
+      .filter((match) => match.playerId === playerId)
+      .sort(compareRecentBotMatches)
+      .slice(0, boundedLimit)
+      .map(rankedBotIdForMatch)
+      .filter((botId): botId is string => botId !== undefined);
   }
 
   async recordMatchEvent(event: RecordedMatchEvent): Promise<void> {
@@ -802,6 +828,22 @@ export class PostgresProfileRepository implements ProfileRepository {
       recentWins: recent.rows.filter((row) => row.player_won).length,
       recentLosses: recent.rows.filter((row) => !row.player_won).length,
     };
+  }
+
+  async getRecentBotOpponents(playerId: string, limit = 5): Promise<string[]> {
+    const boundedLimit = recentLimit(limit);
+    if (boundedLimit === 0) return [];
+    const result = await this.pool.query<{ bot_player_id: string | null; bot_name: string }>(
+      `SELECT bot_player_id, bot_name
+         FROM mongjin_bot_matches
+        WHERE player_id = $1
+        ORDER BY completed_at DESC, match_id DESC
+        LIMIT $2`,
+      [playerId, boundedLimit],
+    );
+    return result.rows
+      .map((row) => rankedBotIdForMatch({ botPlayerId: row.bot_player_id ?? undefined, botName: row.bot_name }))
+      .filter((botId): botId is string => botId !== undefined);
   }
 
   async recordMatchEvent(event: RecordedMatchEvent): Promise<void> {

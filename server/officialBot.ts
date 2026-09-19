@@ -6,6 +6,7 @@ import { createGhostNickname } from '../src/ghost';
 import type { StoredProfile } from './profileRepository';
 import { RANKED_BOTS } from './rankedBots';
 import { learnedOpeningHints, type BotLearning } from './rankedBotLearning';
+import { openingMovePreference } from './openingStyle';
 
 export type OfficialBotPersonality = 'runner' | 'guardian' | 'tactician' | 'wanderer';
 
@@ -35,6 +36,7 @@ export type OfficialBotDifficultyBand = 'onboarding' | 'assist' | 'balanced' | '
 export interface OfficialBot {
   playerId?: string;
   learning?: BotLearning;
+  openingLane?: -1 | 1;
   name: string;
   rating: number;
   searchRating: number;
@@ -270,6 +272,7 @@ export function createRankedBot(profile: StoredProfile, random: () => number = M
     searchRating: definition.rating, difficultyBand: 'balanced', side,
     personality: definition.personality, variantKey: `${profile.playerId}:${side}`,
     search: searchProfile(definition.rating, tuning), thinking: false, moveCount: 0, random,
+    openingLane: random() < 0.5 ? -1 : 1,
     learning: structuredClone(profile.botLearning),
   };
 }
@@ -294,6 +297,9 @@ export function chooseOfficialBotMove(
       rng: bot.random,
       botSide: bot.side,
       hints: bot.playerId ? learnedOpeningHints(bot.learning, state, bot.side, config) : undefined,
+      movePreference: bot.playerId && bot.moveCount < 6
+        ? (root, candidate) => openingMovePreference(root, candidate, config, bot.side, bot.personality, bot.openingLane ?? 1)
+        : undefined,
     }) ?? legal[0]!;
     bot.moveCount += 1;
     return move;

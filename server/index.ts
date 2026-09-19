@@ -23,7 +23,6 @@ import {
   createRankedBot,
   officialBotMoveDelayMs,
   type OfficialBot,
-  type PreviousOfficialBot,
 } from './officialBot';
 import { ensureRankedBots, selectRankedBot, isRankedBotId } from './rankedBots';
 import { inferMatchPlatform } from './matchAnalytics';
@@ -75,8 +74,11 @@ interface ClientSession {
 const rooms = new Map<string, Room>();
 const sessions = new Map<WebSocket, ClientSession>();
 const matchmakingQueue: WebSocket[] = [];
-const pendingBotMatches = new Set<WebSocket>();
-const previousOfficialBots = new Map<string, PreviousOfficialBot>();
+const pendingBotMatches = new Map<WebSocket, symbol>();
+// 중도 이탈을 포함한 시작 기록은 프로세스 안에서만 유지한다. 재시작 후에는 완료 기록으로 다시 채운다.
+const recentBotIdsByPlayer = new Map<string, string[]>();
+const RECENT_BOT_LIMIT = 5;
+const RECENT_BOT_QUERY_TIMEOUT_MS = 500;
 const profileRepository = await createProfileRepository(PROFILE_DATA_FILE);
 const gameRecordStore = await createGameRecordStore(join(dirname(PROFILE_DATA_FILE), 'game-records'));
 const gameRecorder = new GameRecorder(gameRecordStore, (error) => console.error('[records] 기보 저장 실패:', error));
@@ -473,17 +475,48 @@ function scheduleBotMove(room: Room) {
 
 async function startBotMatch(ws: WebSocket) {
   if (pendingBotMatches.has(ws)) return;
-  pendingBotMatches.add(ws);
+  const request = Symbol('bot-match');
+  pendingBotMatches.set(ws, request);
   try {
     const initialPlayerId = sessions.get(ws)?.playerId;
     if (!initialPlayerId) return;
+    if (!recentBotIdsByPlayer.has(initialPlayerId)) {
+      let persistedRecent: string[] = [];
+      let timeout: ReturnType<typeof setTimeout> | undefined;
+      try {
+        persistedRecent = await Promise.race([
+          profileRepository.getRecentBotOpponents(initialPlayerId, RECENT_BOT_LIMIT),
+          new Promise<never>((_, reject) => {
+            timeout = setTimeout(() => reject(new Error('recent-opponents-timeout')), RECENT_BOT_QUERY_TIMEOUT_MS);
+          }),
+        ]);
+      } catch {
+        console.warn('[matchmaking] 최근 봇 상대 조회 실패; 메모리 기록으로 계속합니다');
+      } finally {
+        if (timeout) clearTimeout(timeout);
+      }
+      // 같은 프로필의 다른 요청이 먼저 시작 기록을 추가했다면 그 캐시를 덮어쓰지 않는다.
+      if (!recentBotIdsByPlayer.has(initialPlayerId)) {
+        recentBotIdsByPlayer.set(initialPlayerId, persistedRecent.slice(0, RECENT_BOT_LIMIT));
+      }
+    }
+
+    if (pendingBotMatches.get(ws) !== request) return;
     const session = sessions.get(ws);
     const profile = profiles.get(initialPlayerId);
-    if (!session || session.playerId !== initialPlayerId || session.roomId || !profile || ws.readyState !== ws.OPEN) return;
+    if (
+      !session ||
+      session.playerId !== initialPlayerId ||
+      session.roomId ||
+      matchmakingQueue.includes(ws) ||
+      !profile ||
+      ws.readyState !== ws.OPEN
+    ) return;
     const id = makeRoomId();
-    const botProfile = selectRankedBot(profiles.values(), profile.rating, previousOfficialBots.get(initialPlayerId)?.name);
+    const recentBotIds = recentBotIdsByPlayer.get(initialPlayerId) ?? [];
+    const botProfile = selectRankedBot(profiles.values(), profile.rating, { recentBotIds });
     const bot = createRankedBot(botProfile);
-    previousOfficialBots.set(initialPlayerId, { name: bot.name, variantKey: bot.variantKey });
+    recentBotIdsByPlayer.set(initialPlayerId, [botProfile.playerId, ...recentBotIds].slice(0, RECENT_BOT_LIMIT));
     const playerSide = opponent(bot.side);
     const room: Room = {
       id,
@@ -511,7 +544,7 @@ async function startBotMatch(ws: WebSocket) {
     });
     scheduleBotMove(room);
   } finally {
-    pendingBotMatches.delete(ws);
+    if (pendingBotMatches.get(ws) === request) pendingBotMatches.delete(ws);
   }
 }
 
@@ -571,6 +604,7 @@ function findOpponent(ws: WebSocket): WebSocket | null {
 }
 
 function detachPlayer(ws: WebSocket) {
+  pendingBotMatches.delete(ws);
   removeFromQueue(ws);
   const session = sessions.get(ws);
   const room = session?.roomId ? rooms.get(session.roomId) : undefined;
@@ -903,6 +937,7 @@ wss.on('connection', (ws, request) => {
         send(ws, { type: 'ERROR', message: '이미 대국에 참가 중입니다' });
         return;
       }
+      pendingBotMatches.delete(ws);
       removeFromQueue(ws);
       const opponent = findOpponent(ws);
       if (opponent) startRandomMatch(opponent, ws);
@@ -914,6 +949,7 @@ wss.on('connection', (ws, request) => {
     }
 
     if (msg.type === 'CANCEL_MATCHMAKING') {
+      pendingBotMatches.delete(ws);
       removeFromQueue(ws);
       send(ws, { type: 'QUEUE_LEFT' });
       return;
@@ -931,6 +967,7 @@ wss.on('connection', (ws, request) => {
     }
 
     if (msg.type === 'CREATE') {
+      pendingBotMatches.delete(ws);
       const id = makeRoomId();
       const room: Room = {
         id,
@@ -953,6 +990,7 @@ wss.on('connection', (ws, request) => {
     }
 
     if (msg.type === 'JOIN') {
+      pendingBotMatches.delete(ws);
       const id = msg.roomId?.trim().toUpperCase();
       const room = id ? rooms.get(id) : undefined;
       if (!id) send(ws, { type: 'ERROR', message: '방 코드가 필요합니다' });

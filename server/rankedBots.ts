@@ -9,8 +9,26 @@ export const RANKED_BOTS = [
   { id: 'ranked-bot-uzumaki', name: 'うずまき', rating: 1400, personality: 'runner' },
   { id: 'ranked-bot-faker', name: 'faker', rating: 1500, personality: 'tactician' },
   { id: 'ranked-bot-astra', name: 'Astra', rating: 1600, personality: 'tactician' },
+  { id: 'ranked-bot-moonwalk', name: '나그네2847', rating: 1050, personality: 'wanderer' },
+  { id: 'ranked-bot-captain', name: '나그네5931', rating: 1150, personality: 'guardian' },
+  { id: 'ranked-bot-stonewall', name: '나그네7068', rating: 1250, personality: 'tactician' },
+  { id: 'ranked-bot-windway', name: '나그네9325', rating: 1350, personality: 'runner' },
+  { id: 'ranked-bot-slowmove', name: '히어로메이커', rating: 1450, personality: 'wanderer' },
+  { id: 'ranked-bot-dawnstar', name: '영일만사나이', rating: 1550, personality: 'tactician' },
+  { id: 'ranked-bot-guide', name: '이겜뭐임', rating: 1600, personality: 'guardian' },
 ] as const;
 export const isRankedBotId = (id: string) => RANKED_BOTS.some((bot) => bot.id === id);
+
+const RATING_BAND = 250;
+const MIN_CANDIDATES = 5;
+const RATING_WEIGHT_SCALE = 200;
+const RECENT_PENALTIES = [5, 3, 2, 1.5, 1] as const;
+
+export interface RankedBotSelectionOptions {
+  /** 최신순. 같은 ID가 반복되면 차단하지 않고 감점만 누적한다. */
+  recentBotIds?: readonly string[];
+  random?: () => number;
+}
 
 export async function ensureRankedBots(repository: ProfileRepository): Promise<StoredProfile[]> {
   const profiles = await repository.loadProfiles();
@@ -27,11 +45,59 @@ export async function ensureRankedBots(repository: ProfileRepository): Promise<S
   return repository.loadProfiles();
 }
 
-export function selectRankedBot(profiles: Iterable<StoredProfile>, rating: number, previousName?: string, random: () => number = Math.random): StoredProfile {
-  const candidates = [...profiles].filter((p) => isRankedBotId(p.playerId) && p.name !== previousName)
-    .sort((a, b) => Math.abs(a.rating - rating) - Math.abs(b.rating - rating) || a.playerId.localeCompare(b.playerId))
-    .slice(0, 3);
-  if (!candidates.length) throw new Error('고정 봇 프로필이 없습니다');
+function normalizedRandom(random: () => number): number {
   const value = random();
-  return candidates[Math.floor((Number.isFinite(value) ? Math.max(0, Math.min(0.999999, value)) : 0) * candidates.length)]!;
+  return Number.isFinite(value) ? Math.max(0, Math.min(0.999_999, value)) : 0;
+}
+
+function recentPenalty(botId: string, recentBotIds: readonly string[]): number {
+  return recentBotIds.slice(0, RECENT_PENALTIES.length).reduce(
+    (sum, recentId, index) => sum + (recentId === botId ? RECENT_PENALTIES[index]! : 0),
+    0,
+  );
+}
+
+export function selectRankedBot(
+  profiles: Iterable<StoredProfile>,
+  rating: number,
+  options: RankedBotSelectionOptions = {},
+): StoredProfile {
+  const normalizedRating = Number.isFinite(rating) ? rating : 1200;
+  const ranked = [...profiles]
+    .filter((profile) => isRankedBotId(profile.playerId))
+    .sort((left, right) =>
+      Math.abs(left.rating - normalizedRating) - Math.abs(right.rating - normalizedRating) ||
+      left.playerId.localeCompare(right.playerId));
+  if (!ranked.length) throw new Error('고정 봇 프로필이 없습니다');
+
+  const closestGap = Math.abs(ranked[0]!.rating - normalizedRating);
+  const withinBand = ranked.filter(
+    (profile) => Math.abs(profile.rating - normalizedRating) <= closestGap + RATING_BAND,
+  );
+  const recentBotIds = (options.recentBotIds ?? []).slice(0, RECENT_PENALTIES.length);
+  const immediatePrevious = recentBotIds[0];
+  const excludePrevious = immediatePrevious && ranked.some((candidate) => candidate.playerId !== immediatePrevious);
+  const eligibleRanked = excludePrevious
+    ? ranked.filter((candidate) => candidate.playerId !== immediatePrevious)
+    : ranked;
+  const eligibleBand = excludePrevious
+    ? withinBand.filter((candidate) => candidate.playerId !== immediatePrevious)
+    : withinBand;
+  const minimumSize = Math.min(MIN_CANDIDATES, eligibleRanked.length);
+  const candidates = eligibleBand.length >= minimumSize
+    ? eligibleBand
+    : eligibleRanked.slice(0, minimumSize);
+
+  const weighted = candidates.map((profile) => {
+    const gap = Math.abs(profile.rating - normalizedRating);
+    const ratingWeight = Math.exp(-gap / RATING_WEIGHT_SCALE);
+    return { profile, weight: ratingWeight / (1 + recentPenalty(profile.playerId, recentBotIds)) };
+  });
+  const total = weighted.reduce((sum, candidate) => sum + candidate.weight, 0);
+  let roll = normalizedRandom(options.random ?? Math.random) * total;
+  for (const candidate of weighted) {
+    roll -= candidate.weight;
+    if (roll < 0) return candidate.profile;
+  }
+  return weighted.at(-1)!.profile;
 }

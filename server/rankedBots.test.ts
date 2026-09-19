@@ -33,22 +33,38 @@ function finishedGame(): BotLearningGame {
   return { moves: state.history, config: DEFAULT_CONFIG, side: 'BLACK', ...result };
 }
 
-it('7명만 생성하고 재시작·초기화 시 전적/학습을 유지하며 닉네임 충돌은 거부한다', async () => {
+it('기존 7명을 14명으로 확장해도 기존 전적·학습을 보존하고 재시작 시 중복 생성하지 않는다', async () => {
   const { path, repo } = fileRepo();
+  const now = '2026-09-07T00:00:00.000Z';
+  await repo.importProfiles(RANKED_BOTS.slice(0, 7).map((bot) => ({
+    playerId: bot.id, name: bot.name, token: `legacy-${bot.id}`,
+    rating: bot.rating, wins: 0, losses: 0, createdAt: now, updatedAt: now,
+  })));
+  const original = (await repo.loadProfiles())[0]!;
+  const preserved = {
+    ...original,
+    rating: 1700,
+    wins: 2,
+    botLearning: learnBotOpening(undefined, finishedGame()),
+  };
+  await repo.saveProfile(preserved);
+
   const profiles = await ensureRankedBots(repo);
   expect(profiles.map((p) => p.name)).toEqual(RANKED_BOTS.map((b) => b.name));
-  await repo.saveProfile({ ...profiles[0]!, rating: 1700, wins: 2 });
+  expect(profiles).toHaveLength(14);
+  expect(profiles.find((profile) => profile.playerId === preserved.playerId)).toEqual(preserved);
   const reopened = await ensureRankedBots(new FileProfileRepository(path));
-  expect(reopened).toHaveLength(7);
-  expect(reopened[0]!.rating).toBe(1700);
-  await repo.saveProfile({ ...profiles[0]!, playerId: 'human', token: 'human' });
+  expect(reopened).toHaveLength(14);
+  expect(reopened.find((profile) => profile.playerId === preserved.playerId)).toEqual(preserved);
+  await repo.saveProfile({ ...preserved, playerId: 'human', token: 'human' });
   await expect(ensureRankedBots(repo)).rejects.toThrow('겹칩니다');
 });
 
-it('가까운 세 선수 중 선택하고 연속 상대를 피하며 대국 중 학습은 고정한다', async () => {
+it('최근 상대를 반영해 선택하고 대국 중 학습은 고정한다', async () => {
   const { repo } = fileRepo(); const profiles = await ensureRankedBots(repo);
-  const selected = selectRankedBot(profiles, 1200, '용광로불주먹', () => 0);
-  expect(selected.name).not.toBe('용광로불주먹');
+  const previous = profiles.find((profile) => profile.playerId === 'ranked-bot-furnace')!;
+  const selected = selectRankedBot(profiles, 1200, { recentBotIds: [previous.playerId], random: () => 0 });
+  expect(selected.playerId).not.toBe(previous.playerId);
   selected.botLearning = learnBotOpening(undefined, finishedGame());
   const bot = createRankedBot(selected, () => 0);
   expect(bot.name).toBe(selected.name); expect(bot.rating).toBe(selected.rating);
@@ -56,6 +72,79 @@ it('가까운 세 선수 중 선택하고 연속 상대를 피하며 대국 중 
   expect(bot.learning!.games).toBe(1);
   const state = initialState(DEFAULT_CONFIG);
   expect(legalMoves(state, DEFAULT_CONFIG)).toContainEqual(chooseOfficialBotMove(bot, state, DEFAULT_CONFIG));
+});
+
+function sampledSelections(
+  profiles: StoredProfile[],
+  rating: number,
+  recentBotIds: readonly string[],
+  draws = 7_000,
+): Map<string, number> {
+  const counts = new Map<string, number>();
+  for (let index = 0; index < draws; index += 1) {
+    const selected = selectRankedBot(profiles, rating, {
+      recentBotIds,
+      random: () => (index + 0.5) / draws,
+    });
+    counts.set(selected.playerId, (counts.get(selected.playerId) ?? 0) + 1);
+  }
+  return counts;
+}
+
+it('가까운 후보를 유지하면서 최근 5경기의 반복 상대를 연속 가중치로 낮춘다', async () => {
+  const { repo } = fileRepo();
+  const flat = (await ensureRankedBots(repo)).map((profile) => ({ ...profile, rating: 1200 }));
+  const candidateIds = flat.map((profile) => profile.playerId).sort().slice(0, 7);
+  const recent = [candidateIds[0]!, candidateIds[1]!, candidateIds[1]!, candidateIds[2]!, candidateIds[3]!];
+  const counts = sampledSelections(flat, 1200, recent);
+
+  expect(counts.get(candidateIds[0]!) ?? 0).toBe(0);
+  expect(counts.get(candidateIds[1]!) ?? 0).toBeLessThan(counts.get(candidateIds[4]!) ?? 0);
+  expect(counts.get(candidateIds[2]!) ?? 0).toBeLessThan(counts.get(candidateIds[4]!) ?? 0);
+});
+
+it('가까운 후보가 충분하면 먼 Elo 봇을 뽑지 않고, 모든 후보가 최근 상대여도 매칭한다', async () => {
+  const { repo } = fileRepo();
+  const profiles = await ensureRankedBots(repo);
+  const nearIds = new Set<string>(RANKED_BOTS.slice(0, 5).map((bot) => bot.id));
+  const separated = profiles.map((profile, index) => ({
+    ...profile,
+    rating: index < 5 ? 1180 + index * 10 : 1800,
+  }));
+  const selected = sampledSelections(separated, 1200, []);
+  expect([...selected.keys()].every((id) => nearIds.has(id))).toBe(true);
+
+  const small = separated.slice(0, 3);
+  const allRecent = small.map((profile) => profile.playerId);
+  for (const random of [0, 0.25, 0.5, 0.999]) {
+    const match = selectRankedBot(small, 1200, { recentBotIds: allRecent, random: () => random });
+    expect(small.some((profile) => profile.playerId === match.playerId)).toBe(true);
+    expect(match.playerId).not.toBe(allRecent[0]);
+  }
+  expect(selectRankedBot([small[0]!], 1200, { recentBotIds: [small[0]!.playerId] })).toEqual(small[0]);
+});
+
+it('운영 Elo에 모인 기존 7명과 새 초기 Elo를 함께 쓰면 안전 밴드 전체에서 상대 다양성이 늘어난다', async () => {
+  const { repo } = fileRepo();
+  const profiles = await ensureRankedBots(repo);
+  const oldBots = RANKED_BOTS.slice(0, 7);
+  const oldIds = new Set<string>(oldBots.map((bot) => bot.id));
+  const liveOldRatings = [1296, 1294, 1259, 1290, 1302, 1285, 1283];
+  const liveRatings = new Map<string, number>(
+    oldBots.map((bot, index) => [bot.id, liveOldRatings[index]!] as const),
+  );
+  const roster = profiles.map((profile) => ({
+    ...profile,
+    rating: liveRatings.get(profile.playerId) ?? profile.rating,
+  }));
+
+  const oldSelections = sampledSelections(roster.filter((profile) => oldIds.has(profile.playerId)), 1200, []);
+  const expandedSelections = sampledSelections(roster, 1200, []);
+  const newSelections = [...expandedSelections.keys()].filter((id) => !oldIds.has(id));
+
+  expect(oldSelections.size).toBe(7);
+  expect(expandedSelections.size).toBeGreaterThan(oldSelections.size);
+  expect(newSelections).toHaveLength(5);
 });
 
 it('정상 기보만 학습하고 3회부터 해당 진영/규칙/수순에만 제한된 보너스를 준다', () => {
@@ -96,6 +185,7 @@ async function resultChecks(repo: ProfileRepository, suffix = '') {
   expect(learned.rating).toBeGreaterThan(bot.rating);
   expect(learned.botLearning!.games).toBe((bot.botLearning?.games ?? 0) + 1);
   expect(after.find((p) => p.playerId === human.playerId)!.losses).toBe(1);
+  expect(await repo.getRecentBotOpponents(human.playerId, 1)).toEqual([bot.playerId]);
   expect(buildLeaderboard(after, 100, 0).find((p) => p.name === bot.name)!.rating).toBe(learned.rating);
   const staleHuman = { ...human, name: `renamed-${suffix}` };
   const saved = await repo.saveProfileMetadata(staleHuman);
