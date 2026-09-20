@@ -1,0 +1,278 @@
+{
+  "format": "mongjin-jev-strength-evidence-1",
+  "evaluatedAt": "2026-09-20T11:28:34.192Z",
+  "baselineCommit": "1f4eb3cd5d499a596dcc54575d0c7710840edb17",
+  "policies": {
+    "baseline": "parallel-v9",
+    "candidate": "parallel-v13"
+  },
+  "evaluationSeeds": [
+    285272317,
+    309980740,
+    564847400
+  ],
+  "timing": {
+    "turnPauseMs": 5000,
+    "transientRetries": 2,
+    "maxPlies": 100,
+    "turnLimitMs": 30000,
+    "transientRetriesPerGame": 4,
+    "retryCooldownMs": 30000
+  },
+  "gate": {
+    "completedPairs": 12,
+    "candidateMinimumWins": 8,
+    "minimumWinGainVsBaseline": 3,
+    "minimumWinsPerOpponentSide": 1,
+    "errorAttemptRateMustNotIncrease": true
+  },
+  "runs": {
+    "baseline": {
+      "name": "parallel-v9",
+      "policyVersion": "parallel-v9",
+      "rulesVersion": "mongjin-core-1",
+      "reportCount": 3,
+      "reportSeeds": [
+        285272317,
+        309980740,
+        564847400
+      ],
+      "intendedGames": 12,
+      "observedGames": 12,
+      "completedGames": 12,
+      "unfinishedGames": 0,
+      "abortedGames": 0,
+      "wins": 4,
+      "losses": 8,
+      "apiAttempts": 130,
+      "apiRetries": 6,
+      "errorAttempts": 6,
+      "errorAttemptsByCode": {
+        "timeout": 3,
+        "http_503": 3
+      },
+      "abortedWithoutErrorAttempt": 0,
+      "abortedOrErrorAttempts": 6,
+      "abortedOrErrorAttemptRate": 0.046153846153846156,
+      "missingMatrixEntries": [],
+      "winsByOpponentSide": {
+        "ranked-bot-may/BLACK": 1,
+        "ranked-bot-may/WHITE": 0,
+        "ranked-bot-uzumaki/BLACK": 3,
+        "ranked-bot-uzumaki/WHITE": 0
+      }
+    },
+    "candidate": {
+      "name": "parallel-v13",
+      "policyVersion": "parallel-v13",
+      "rulesVersion": "mongjin-core-1",
+      "reportCount": 3,
+      "reportSeeds": [
+        285272317,
+        309980740,
+        564847400
+      ],
+      "intendedGames": 12,
+      "observedGames": 12,
+      "completedGames": 12,
+      "unfinishedGames": 0,
+      "abortedGames": 0,
+      "wins": 10,
+      "losses": 2,
+      "apiAttempts": 211,
+      "apiRetries": 5,
+      "errorAttempts": 5,
+      "errorAttemptsByCode": {
+        "http_429": 1,
+        "timeout": 4
+      },
+      "abortedWithoutErrorAttempt": 0,
+      "abortedOrErrorAttempts": 5,
+      "abortedOrErrorAttemptRate": 0.023696682464454975,
+      "missingMatrixEntries": [],
+      "winsByOpponentSide": {
+        "ranked-bot-may/BLACK": 1,
+        "ranked-bot-may/WHITE": 3,
+        "ranked-bot-uzumaki/BLACK": 3,
+        "ranked-bot-uzumaki/WHITE": 3
+      }
+    }
+  },
+  "pairing": {
+    "intendedPairs": 12,
+    "observedPairs": 12,
+    "completedPairs": 12,
+    "missingBaseline": [],
+    "missingCandidate": [],
+    "incompletePairs": [],
+    "improvedPairs": 6,
+    "regressedPairs": 0,
+    "unchangedPairs": 6,
+    "pairs": [
+      {
+        "condition": "285272317/ranked-bot-may/BLACK",
+        "gameSeed": 285280236,
+        "baseline": "loss",
+        "candidate": "loss"
+      },
+      {
+        "condition": "285272317/ranked-bot-may/WHITE",
+        "gameSeed": 285288155,
+        "baseline": "loss",
+        "candidate": "win"
+      },
+      {
+        "condition": "285272317/ranked-bot-uzumaki/BLACK",
+        "gameSeed": 285296074,
+        "baseline": "win",
+        "candidate": "win"
+      },
+      {
+        "condition": "285272317/ranked-bot-uzumaki/WHITE",
+        "gameSeed": 285303993,
+        "baseline": "loss",
+        "candidate": "win"
+      },
+      {
+        "condition": "309980740/ranked-bot-may/BLACK",
+        "gameSeed": 309988659,
+        "baseline": "loss",
+        "candidate": "loss"
+      },
+      {
+        "condition": "309980740/ranked-bot-may/WHITE",
+        "gameSeed": 309996578,
+        "baseline": "loss",
+        "candidate": "win"
+      },
+      {
+        "condition": "309980740/ranked-bot-uzumaki/BLACK",
+        "gameSeed": 310004497,
+        "baseline": "win",
+        "candidate": "win"
+      },
+      {
+        "condition": "309980740/ranked-bot-uzumaki/WHITE",
+        "gameSeed": 310012416,
+        "baseline": "loss",
+        "candidate": "win"
+      },
+      {
+        "condition": "564847400/ranked-bot-may/BLACK",
+        "gameSeed": 564855319,
+        "baseline": "win",
+        "candidate": "win"
+      },
+      {
+        "condition": "564847400/ranked-bot-may/WHITE",
+        "gameSeed": 564863238,
+        "baseline": "loss",
+        "candidate": "win"
+      },
+      {
+        "condition": "564847400/ranked-bot-uzumaki/BLACK",
+        "gameSeed": 564871157,
+        "baseline": "win",
+        "candidate": "win"
+      },
+      {
+        "condition": "564847400/ranked-bot-uzumaki/WHITE",
+        "gameSeed": 564879076,
+        "baseline": "loss",
+        "candidate": "win"
+      }
+    ]
+  },
+  "checks": [
+    {
+      "id": "full-intended-pairs",
+      "passed": true,
+      "requirement": "12 paired games are present",
+      "actual": {
+        "observedPairs": 12,
+        "missingBaseline": [],
+        "missingCandidate": []
+      }
+    },
+    {
+      "id": "all-pairs-completed",
+      "passed": true,
+      "requirement": "12 pairs have canonical terminal records",
+      "actual": {
+        "completedPairs": 12,
+        "incompletePairs": []
+      }
+    },
+    {
+      "id": "candidate-minimum-wins",
+      "passed": true,
+      "requirement": "candidate wins >= 8",
+      "actual": 10
+    },
+    {
+      "id": "win-gain-vs-baseline",
+      "passed": true,
+      "requirement": "candidate win gain vs baseline >= 3",
+      "actual": 6
+    },
+    {
+      "id": "win-in-every-opponent-side-stratum",
+      "passed": true,
+      "requirement": "candidate wins >= 1 in each opponent/JEV-side stratum",
+      "actual": {
+        "winsByOpponentSide": {
+          "ranked-bot-may/BLACK": 1,
+          "ranked-bot-may/WHITE": 3,
+          "ranked-bot-uzumaki/BLACK": 3,
+          "ranked-bot-uzumaki/WHITE": 3
+        },
+        "failures": []
+      }
+    },
+    {
+      "id": "aborted-or-error-attempt-rate",
+      "passed": true,
+      "requirement": "candidate aborted/error-attempt rate <= baseline rate",
+      "actual": {
+        "baseline": 0.046153846153846156,
+        "candidate": 0.023696682464454975
+      }
+    }
+  ],
+  "recommendation": "accept_candidate",
+  "runtime": {
+    "node": "v20.20.2",
+    "environment": "local macOS; sequential live JEV; no production profiles"
+  },
+  "usageAndLatency": {
+    "baseline": {
+      "selectedTurns": 124,
+      "selectedTurnP95Ms": 3134,
+      "reportedCost": 0,
+      "reportedTokens": 2315753
+    },
+    "candidate": {
+      "selectedTurns": 206,
+      "selectedTurnP95Ms": 7907,
+      "reportedCost": 0,
+      "reportedTokens": 6692078
+    }
+  },
+  "candidateSourceSha256": {
+    "server/jevRolloutBriefing.ts": "aa31155a0bb30e5b72352aaf5d1f1779c6535d2d9bfb0eb291ea14f1b060b2c0",
+    "server/jevPolicy.ts": "d6744c8bec5b802c56becf7aea1c3e67bd7a6b75cb52974e1a99c72f6165ef54",
+    "server/jevRollouts.ts": "7f4251b688aab0f7d901df53bac559913f4f8222c1bdd9996dd9d5e295c7d84e",
+    "server/jevPressurePolicy.ts": "ea90b65f19c993beca0791e4a5f95a3d4d182b3878aeaa0b6a694c9ae130c7de",
+    "server/jevParallel.ts": "7bc36f26c7bed7c65f2e04d9d50cca714ed8b0ae4ac7aef8054b107219397f37",
+    "src/core/apply.ts": "4376354cdbab4c8cb6676273be5984c565d9cb293633a6556ce0e83ad36f40d1",
+    "src/core/result.ts": "1693fa80d7cc91d0d367735bf650ae00ef324018e54ca2cd197673415bca4735",
+    "src/core/rules.ts": "bea2403f4a560e33144fe8b3df856ffae4e8595c2f16ec22719abd3d9e6348e1",
+    "src/ai/ai.ts": "46ac211e7271353936626f9f7ded1cc457add01b2ea0e1b8b7c74fecd00be410"
+  },
+  "limitations": [
+    "Engineering deployment gate, not proof of statistically significant superiority or rank 1.",
+    "MAY/BLACK remains 1 win in 3 games.",
+    "Conditional policy continuations do not prove adversarial wins; final choice remains JEV.",
+    "Benchmark retries are recorded; production error policy is unchanged."
+  ]
+}

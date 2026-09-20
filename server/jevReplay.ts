@@ -5,6 +5,7 @@ import { findKing, initialState, legalMoves, opponent } from '../src/core/rules'
 import type { GameState, Move } from '../src/core/types';
 import type { ParallelTurnTrace } from './jevParallel';
 import { analyzeJevInitiative } from './jevInitiative';
+import { verifyJevRolloutEvidence } from './jevRolloutReplay';
 import { JEV_PARALLEL_POLICY, jevMoveId, jevStateHash } from './jevPolicy';
 
 // v8 was a local experiment; retain its evidence audit after restoring the v7 briefing.
@@ -22,6 +23,7 @@ export type JevTraceVerificationErrorCode =
   | 'invalid-retained-proof'
   | 'invalid-pressure'
   | 'invalid-initiative'
+  | 'invalid-rollouts'
   | 'final-answer-mismatch';
 
 export class JevTraceVerificationError extends Error {
@@ -354,7 +356,7 @@ export function verifyJevTrace(trace: ParallelTurnTrace): JevTraceVerificationRe
   if (!['running', 'selected', 'applied', 'error', 'cancelled'].includes(trace.status)) fail('invalid-trace');
   if (!Array.isArray(trace.searches) || !Array.isArray(trace.stages)) fail('invalid-trace');
   if (!isRecord(trace.policy)
-      || !['parallel-v4', 'parallel-v5', 'parallel-v6', 'parallel-v7', 'parallel-v8', JEV_PARALLEL_POLICY.version].includes(trace.policy.version)
+      || !['parallel-v4', 'parallel-v5', 'parallel-v6', 'parallel-v7', 'parallel-v8', 'parallel-v9', 'parallel-v10', 'parallel-v11', 'parallel-v12', JEV_PARALLEL_POLICY.version].includes(trace.policy.version)
       || trace.policy.rulesVersion !== JEV_PARALLEL_POLICY.rulesVersion
       || trace.policy.protocolVersion !== JEV_PARALLEL_POLICY.protocolVersion) fail('invalid-trace');
 
@@ -457,6 +459,23 @@ export function verifyJevTrace(trace: ParallelTurnTrace): JevTraceVerificationRe
 
   verifyPressure(trace, root);
   verifyInitiative(trace, root);
+  const requiresRollouts = ['parallel-v10', 'parallel-v11', 'parallel-v12', 'parallel-v13'].includes((trace.policy as { version: string }).version)
+    && ['selected', 'applied'].includes(trace.status) && trace.selection?.source === 'jev-final';
+  if (requiresRollouts && !trace.rollouts) fail('invalid-rollouts');
+  const finalIds = trace.gates?.at(-1)?.candidates;
+  if (requiresRollouts) {
+    const finalStage = trace.stages.filter(stage => stage.phase === 'final').at(-1);
+    const question = finalStage?.request.questions.move;
+    if (!Array.isArray(finalIds) || !finalIds.length || new Set(finalIds).size !== finalIds.length
+      || !finalIds.includes(selectionId!) || question?.type !== 'choice'
+      || JSON.stringify(Object.keys(question.criteria)) !== JSON.stringify(finalIds)
+      || trace.rollouts!.limits.maxPlies !== 40 || trace.rollouts!.limits.maxNodesPerDecision !== 128) fail('invalid-rollouts');
+  }
+  if (trace.rollouts) {
+    try { verifyJevRolloutEvidence(root, trace.config, trace.rollouts,
+      requiresRollouts ? finalIds : undefined); }
+    catch { fail('invalid-rollouts'); }
+  }
 
   return {
     turnId: trace.turnId,

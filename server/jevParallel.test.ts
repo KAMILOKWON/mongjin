@@ -5,6 +5,7 @@ import { chooseParallelJevMove, ParallelTurnError } from './jevParallel';
 import { analyzeJevFacts, analyzeJevCandidates, type JevCandidateAnalysis, type JevAnalyzedCandidate, type JevStateFacts } from './jevAnalysis';
 import { JEV_ROLES, jevMoveId, jevStateHash } from './jevPolicy';
 import { JevError } from './jev';
+import { analyzeJevRollouts } from './jevRollouts';
 import { type evaluateJev, type EvaluateJevOptions, type EvaluateJevResult } from './jevGateway';
 import { readFileSync } from 'node:fs';
 import { applyMove } from '../src/core/apply';
@@ -78,7 +79,7 @@ it('always asks six roles and five priorities; final JEV ID wins even with a low
   expect(result.trace.stages).toHaveLength(2);
 });
 
-it('deduplicates unanimous proposals and records a single candidate when guard alternatives are unsafe', async () => {
+it('deduplicates unanimous proposals when every other candidate is immediately unsafe', async () => {
   const api = vi.fn(async (input: EvaluateJevOptions) => {
     const result = response(input);
     const first = Object.keys((input.questions.proposal_general as { criteria: Record<string, string> }).criteria)[0]!;
@@ -86,7 +87,7 @@ it('deduplicates unanimous proposals and records a single candidate when guard a
     return result;
   });
   const facts = structuredClone(allFacts);
-  for (const candidate of facts.candidates) if (candidate.move.kind === 'PLACE') candidate.immediateLoss = true;
+  for (const candidate of facts.candidates) if (jevMoveId(candidate.move) !== 'm_8_4_7_3') candidate.immediateLoss = true;
   const result = await chooseParallelJevMove({ ...options(api), facts: () => facts });
   expect(api).toHaveBeenCalledTimes(1);
   expect(result.trace.selection?.source).toBe('engine-single-candidate');
@@ -105,11 +106,40 @@ it('recovers a missing guard candidate from one role distribution without forcin
     return result;
   });
   const result = await chooseParallelJevMove(options(api));
-  expect(result.trace.coverage).toEqual([{ id: guardId, role: 'breakthrough', category: 'deployment', probability: 0.2 }]);
+  expect(result.trace.coverage?.filter(c => c.category !== 'king-lane')).toEqual([{ id: guardId, role: 'breakthrough', category: 'deployment', probability: 0.2 }]);
   expect(result.trace.proposals.find((p) => p.id === guardId)?.roles).toEqual(['coverage-breakthrough']);
   const final = api.mock.calls.at(-1)![0];
   expect(Object.keys((final.questions.move as { criteria: Record<string, string> }).criteria)).toContain(guardId);
   expect(result.trace.selection).toMatchObject({ id: kingId, source: 'jev-final' });
+});
+
+it('keeps all forward king lanes even when every role repeats the straight advance', async () => {
+  const kingId = 'm_8_4_7_4';
+  const api = vi.fn(async (input: EvaluateJevOptions) => {
+    const result = response(input);
+    for (const answer of Object.values(result.answers)) if (answer.type === 'choice') answer.choice = kingId;
+    return result;
+  });
+  const result = await chooseParallelJevMove(options(api));
+  expect(result.trace.coverage?.filter(c => c.category === 'king-lane').map(c => c.id))
+    .toEqual(['m_8_4_7_3', 'm_8_4_7_5']);
+  const ids = Object.keys(api.mock.calls.at(-1)![0].questions.move!.criteria!);
+  expect(ids).toEqual(expect.arrayContaining(['m_8_4_7_3', kingId, 'm_8_4_7_5']));
+  expect(result.trace.selection?.id).toBe(kingId);
+});
+
+it('uses increasing rows for WHITE forward-lane coverage and excludes a known losing lane', async () => {
+  const position = applyMove(state, { kind: 'MOVE', from: { r: 8, c: 4 }, to: { r: 7, c: 4 } });
+  const facts = analyzeJevFacts(position, DEFAULT_CONFIG, { deadlineMs: Date.now() + 2_000 });
+  facts.candidates.find(c => jevMoveId(c.move) === 'm_0_4_1_3')!.immediateLoss = true;
+  const api = vi.fn(async (input: EvaluateJevOptions) => {
+    const result = response(input);
+    for (const answer of Object.values(result.answers)) if (answer.type === 'choice') answer.choice = 'm_0_4_1_4';
+    return result;
+  });
+  const result = await chooseParallelJevMove({ ...options(api), state: position, facts: () => facts });
+  expect(result.trace.coverage?.filter(c => c.category === 'king-lane').map(c => c.id)).toEqual(['m_0_4_1_5']);
+  expect(result.trace.gates.at(-1)?.candidates).not.toContain('m_0_4_1_3');
 });
 
 it('keeps defensive deployment available before the recorded first-loss king chase', async () => {
@@ -144,7 +174,7 @@ it('keeps distinct guard alternatives even when a role already proposed a deploy
   });
   const result = await chooseParallelJevMove({ ...options(api), state: position, facts: () => facts });
   expect(result.trace.proposals.find((p) => p.id === 'p_4_4')?.roles).toContain('breakthrough');
-  expect(result.trace.coverage?.map((c) => c.id)).toEqual(['p_5_3', 'p_5_5']);
+  expect(result.trace.coverage?.filter(c => c.category !== 'king-lane').map((c) => c.id)).toEqual(['p_5_3', 'p_5_5']);
   expect(result.trace.selection?.id).toBe('p_5_3');
   expect(result.trace.pressure?.complete).toBe(true);
 });
@@ -172,7 +202,8 @@ it('retains proven losses when reproposal restarts at a shallower common depth',
   expect(result.trace.searches[1]!.candidates.every((c) => c.proven === 'unknown')).toBe(true);
   expect(result.trace.retainedProofs?.map((p) => p.id).sort()).toEqual([...losing].sort());
   expect(result.trace.retainedProofs?.every((p) => p.searchedDepth === 4 && p.sourceSearch === 0)).toBe(true);
-  expect(result.trace.coverage!.length).toBeLessThanOrEqual(2);
+  expect(result.trace.coverage!.filter(c => c.category !== 'king-lane').length).toBeLessThanOrEqual(2);
+  expect(result.trace.coverage!.filter(c => c.category === 'king-lane').length).toBeLessThanOrEqual(3);
   expect(losing.has(result.trace.selection!.id)).toBe(false);
   expect(result.trace.gates.at(-1)!.excluded.sort()).toEqual([...losing].sort());
 });
@@ -209,7 +240,7 @@ it('preserves the actual first-loss move 27 proof after a shallower restart', as
 
 it('reproposes once when every proposal loses immediately but a checked alternative exists', async () => {
   const ordered = legalMoves(state, DEFAULT_CONFIG).sort((a, b) => jevMoveId(a).localeCompare(jevMoveId(b)));
-  const unsafe = new Set(ordered.slice(0, 2).map(jevMoveId));
+  const unsafe = new Set(ordered.filter(move => move.kind === 'MOVE' && move.to.r < move.from.r).map(jevMoveId));
   for (const move of ordered) if (move.kind === 'PLACE') unsafe.add(jevMoveId(move));
   const facts = structuredClone(allFacts);
   for (const candidate of facts.candidates) if (unsafe.has(jevMoveId(candidate.move))) candidate.opponentWinningReplies = [ordered[0]!];
@@ -228,7 +259,9 @@ it('does not claim global forced loss from losing proposals while unexplored alt
     result.candidates.forEach((c) => { c.proven = 'loss'; });
     return result;
   };
-  const result = await chooseParallelJevMove({ ...options(api), search: loseSearch });
+  const position = lossPosition(4);
+  const facts = analyzeJevFacts(position, DEFAULT_CONFIG, { deadlineMs: Date.now() + 2_000 });
+  const result = await chooseParallelJevMove({ ...options(api), state: position, facts: () => facts, search: loseSearch });
   expect(result.trace.stages.filter((s) => s.phase === 'reproposal')).toHaveLength(1);
   expect(result.trace.globalResult).toBe('unknown');
 });
@@ -266,4 +299,37 @@ it('does not start an expired request or accept an invalid final ID', async () =
   await expect(chooseParallelJevMove({ ...options(api), deadlineMs: Date.now() - 1 })).rejects.toThrow('timeout');
   expect(api).not.toHaveBeenCalled();
   await expect(chooseParallelJevMove(options(api))).rejects.toThrow('invalid_response');
+});
+
+
+it('retains a forcing guard follow-up while leaving the final choice to JEV', async () => {
+  const record = JSON.parse(readFileSync(new URL('./fixtures/jev-forcing-sequence.json', import.meta.url), 'utf8')) as { moves: Move[] };
+  let position = initialState(DEFAULT_CONFIG);
+  for (const move of record.moves) position = applyMove(position, move);
+  const kingChoice = 'm_5_2_4_2';
+  const api = vi.fn(async (input: EvaluateJevOptions) => {
+    const output = response(input);
+    for (const [id, answer] of Object.entries(output.answers)) {
+      if (answer.type !== 'choice') continue;
+      const question = input.questions[id]!;
+      if (question.type !== 'choice') continue;
+      answer.choice = kingChoice;
+      answer.probabilities = Object.fromEntries(Object.keys(question.criteria).map(key => [key, Number(key === kingChoice)]));
+    }
+    return output;
+  });
+  const result = await chooseParallelJevMove({
+    ...options(api), state: position, facts: analyzeJevFacts,
+    rollouts: (state, config, moves, opts) => analyzeJevRollouts(state, config, moves, {
+      ...opts, choose: (next, rules) => legalMoves(next, rules)[0] ?? null,
+    }),
+  });
+  expect(result.trace.pressureSuggestion).toMatchObject({
+    source: 'guard-pressure', stats: { complete: true, selected: { id: 'p_5_4', forwardSafeKingEscapes: 1 } },
+  });
+  expect(result.trace.coverage).toContainEqual(expect.objectContaining({ id: 'p_5_4', category: 'forcing-guard' }));
+  const finalQuestion = api.mock.calls.at(-1)![0].questions.move!;
+  expect(finalQuestion.type === 'choice' && Object.keys(finalQuestion.criteria)).toContain('p_5_4');
+  expect(jevMoveId(result.move)).toBe(kingChoice);
+  expect(result.trace.selection?.source).toBe('jev-final');
 });

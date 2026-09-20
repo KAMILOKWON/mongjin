@@ -13,9 +13,11 @@ import {
   type JevMoveChooser,
 } from './benchJev';
 import { chooseParallelJevMove, type ParallelTurnTrace } from './jevParallel';
+import { analyzeJevRollouts } from './jevRollouts';
 import { JEV_MODEL } from './jevGateway';
-import { JEV_PARALLEL_POLICY, jevStateHash } from './jevPolicy';
+import { JEV_PARALLEL_POLICY, jevMoveId, jevStateHash } from './jevPolicy';
 import { DEFAULT_CONFIG } from '../src/core/config';
+import { legalMoves } from '../src/core/rules';
 import { JevError } from './jev';
 import { mockEvaluateJev } from './verifyJev';
 
@@ -137,6 +139,38 @@ describe('benchJev CLI harness unit tests', () => {
       await expect(preflightOutdir(testDir)).rejects.toThrow(
         'Output directory must be empty',
       );
+    } finally {
+      await rm(testDir, { recursive: true, force: true }).catch(() => {});
+    }
+  });
+
+  it('rejects a returned move that differs from the trace-selected move', async () => {
+    const testDir = await mkdtemp(join(tmpdir(), 'bench-trace-move-mismatch-'));
+    try {
+      const mismatchedEngine: JevMoveChooser = async (opts) => {
+        const result = await chooseParallelJevMove({ ...opts, evaluate: mockEvaluateJev });
+        const selectedId = jevMoveId(result.move);
+        const differentLegalMove = legalMoves(opts.state, opts.config)
+          .find((move) => jevMoveId(move) !== selectedId);
+        if (!differentLegalMove) throw new Error('test requires a second legal move');
+        return { ...result, move: differentLegalMove };
+      };
+      const options = parseBenchArgs(['--mock', '--outdir', testDir, '--max-plies', '1']);
+      const result = await playSingleGame({
+        gameIndex: 1,
+        match: MAY_MATCH,
+        options,
+        apiKey: 'test-key',
+        chooseJevMove: mismatchedEngine,
+        config: DEFAULT_CONFIG,
+        outdir: testDir,
+      });
+
+      expect(result.summary.outcome).toBe('aborted_error');
+      expect(result.summary.failureCodes).toEqual(['invalid_response']);
+      expect(result.summary.error).toContain('but returned');
+      expect(result.gameRecord.status).toBe('abandoned');
+      expect(result.gameRecord.moves).toHaveLength(0);
     } finally {
       await rm(testDir, { recursive: true, force: true }).catch(() => {});
     }
@@ -318,6 +352,18 @@ describe('benchJev CLI harness unit tests', () => {
         return chooseParallelJevMove({
           ...opts,
           evaluate: firstAttemptForState ? timeoutEvaluate : mockEvaluateJev,
+          // This test covers benchmark retry accounting, not rollout quality.
+          // Keep canonical rollout structure while avoiding unrelated search work.
+          rollouts: (state, config, moves, rolloutOptions) => analyzeJevRollouts(
+            state,
+            config,
+            moves,
+            {
+              ...rolloutOptions,
+              choose: (rolloutState, rolloutConfig) =>
+                legalMoves(rolloutState, rolloutConfig)[0] ?? null,
+            },
+          ),
         });
       };
       const options = parseBenchArgs([
@@ -345,7 +391,7 @@ describe('benchJev CLI harness unit tests', () => {
     } finally {
       await rm(testDir, { recursive: true, force: true }).catch(() => {});
     }
-  });
+  }, 15_000);
 
   it('never retries non-free or unrecognized HTTP errors', async () => {
     const scenarios = [

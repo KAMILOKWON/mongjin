@@ -8,6 +8,9 @@ import { JevError } from './jev';
 import { evaluateJev, JEV_MODEL, type JevQuestion, type EvaluateJevResult } from './jevGateway';
 import { analyzeJevFacts, analyzeJevCandidates } from './jevAnalysis';
 import { analyzeJevPressure } from './jevPressure';
+import { chooseJevGuardPressureMove } from './jevPressurePolicy';
+import { analyzeJevRollouts } from './jevRollouts';
+import { briefJevRollouts, describeJevRollouts } from './jevRolloutBriefing';
 import type { analyzeJevInitiative } from './jevInitiative';
 import { buildJevBriefing, describeJevAction, describeJevPressure, describeJevRace, briefJevFacts, briefJevRoutes } from './jevBriefing';
 import { JEV_PARALLEL_POLICY as POLICY, JEV_ROLES, jevMoveId, jevStateHash } from './jevPolicy';
@@ -44,12 +47,16 @@ export interface ParallelTurnTrace extends JevRecord {
   facts?: Facts;
   searches: Search[];
   proposals: { id: string; roles: string[] }[];
-  /** v5: suggestions recovered from one role's guard probabilities, not extra expert votes. */
-  coverage?: { id: string; role: string; probability: number; category: 'deployment' | 'guard-action' }[];
+  /** Guard suggestions and legal forward king lanes retained without an extra expert vote. */
+  coverage?: { id: string; role: string; probability: number; category: 'deployment' | 'guard-action' | 'king-lane' | 'forcing-guard' }[];
+  /** One bounded forcing-guard suggestion; inclusion never determines the final move. */
+  pressureSuggestion?: ReturnType<typeof chooseJevGuardPressureMove>;
   /** v5: exact outcomes survive shallower/restarted searches; common scores stay separate. */
   retainedProofs?: JevRetainedProof[];
   pressure?: ReturnType<typeof analyzeJevPressure>;
   initiative?: ReturnType<typeof analyzeJevInitiative>;
+  /** Conditional policy continuations, never terminal proofs or a root move override. */
+  rollouts?: ReturnType<typeof analyzeJevRollouts>;
   gates: { reason: string; candidates: string[]; excluded: string[] }[];
   globalResult: 'unknown' | 'proven-win' | 'proven-loss';
   selection?: { id: string; source: 'engine-immediate-win' | 'engine-single-candidate' | 'jev-final'; proposedBy: string[] };
@@ -57,7 +64,7 @@ export interface ParallelTurnTrace extends JevRecord {
   expectedAfterHash?: string;
   appliedStateHash?: string;
   elapsedMs?: number;
-  timings: { factsMs?: number; searchMs: number[]; pressureMs?: number; initiativeMs?: number };
+  timings: { factsMs?: number; searchMs: number[]; pressureMs?: number; initiativeMs?: number; rolloutMs?: number };
 }
 
 export class ParallelTurnError extends JevError {
@@ -76,6 +83,7 @@ export interface ParallelTurnOptions {
   evaluate?: typeof evaluateJev;
   facts?: typeof analyzeJevFacts;
   search?: typeof analyzeJevCandidates;
+  rollouts?: typeof analyzeJevRollouts;
   onTrace?: (trace: ParallelTurnTrace) => void;
 }
 
@@ -157,6 +165,13 @@ export async function chooseParallelJevMove(options: ParallelTurnOptions) {
     };
     const hasConfirmedAlternative = facts.candidates.some((f) => !f.immediateLoss && f.repliesComplete && f.opponentWinningReplies.length === 0);
     const allowed = [...movesById.keys()].filter((id) => !hasConfirmedAlternative || !losesImmediately(id));
+    trace.pressureSuggestion = chooseJevGuardPressureMove(state, config, {
+      deadlineMs: stageDeadline(30), maxNodes: 2_048, signal: options.signal,
+      // Coverage ignores fallback results. A canonical placeholder avoids doing
+      // another search when no fully checked pressure suggestion exists.
+      fallback: () => allMoves[0]!,
+    });
+    check(); checkpoint();
     const isGuardAction = (id: string) => {
       const move = movesById.get(id)!;
       return move.kind === 'PLACE' || state.board[move.from.r]?.[move.from.c]?.type === 'GUARD';
@@ -214,7 +229,7 @@ export async function chooseParallelJevMove(options: ParallelTurnOptions) {
         { role: 'blocking', category: 'guard-action' as const, accepts: isGuardAction },
       ];
       for (const scope of guardScopes.slice(0, POLICY.maxGuardAlternatives)) {
-        if (trace.coverage!.length >= POLICY.maxGuardAlternatives) break;
+        if (trace.coverage!.filter(entry => ['deployment', 'guard-action'].includes(entry.category)).length >= POLICY.maxGuardAlternatives) break;
         // One primary guard move can be a bad sacrifice. Retain distinct guard
         // alternatives too, so the final choice can compare actual defenses.
         const answer = answers[`proposal_${scope.role}`];
@@ -226,6 +241,33 @@ export async function chooseParallelJevMove(options: ParallelTurnOptions) {
         const roles = proposedRoles.get(alternative) ?? new Set<string>();
         roles.add(`coverage-${scope.role}`); proposedRoles.set(alternative, roles);
         trace.coverage!.push({ id: alternative, role: scope.role, category: scope.category, probability: answer.probabilities[alternative] ?? 0 });
+      }
+      // Preserve every legal forward king lane, not just the roles' frequently
+      // duplicated straight advance. These are alternatives, never endorsements.
+      const advanceAnswer = answers.proposal_advance;
+      for (const id of ids) {
+        if (trace.coverage!.filter(entry => entry.category === 'king-lane').length >= POLICY.maxKingLaneAlternatives) break;
+        if (proposed.has(id) || !allowed.includes(id)) continue;
+        const move = movesById.get(id)!;
+        if (move.kind !== 'MOVE' || state.board[move.from.r]?.[move.from.c]?.type !== 'KING'
+          || !(state.turn === 'BLACK' ? move.to.r < move.from.r : move.to.r > move.from.r)) continue;
+        proposed.add(id);
+        const roles = proposedRoles.get(id) ?? new Set<string>();
+        roles.add('coverage-king-lane'); proposedRoles.set(id, roles);
+        trace.coverage!.push({ id, role: 'advance', category: 'king-lane',
+          probability: advanceAnswer?.type === 'choice' ? advanceAnswer.probabilities[id] ?? 0 : 0 });
+      }
+      const forcing = trace.pressureSuggestion;
+      if (forcing?.source === 'guard-pressure' && forcing.move && forcing.stats.complete) {
+        const id = jevMoveId(forcing.move);
+        if (ids.includes(id) && allowed.includes(id) && !proposed.has(id)) {
+          proposed.add(id);
+          const roles = proposedRoles.get(id) ?? new Set<string>();
+          roles.add('coverage-forcing-guard'); proposedRoles.set(id, roles);
+          const blocking = answers.proposal_blocking;
+          trace.coverage!.push({ id, role: 'blocking', category: 'forcing-guard',
+            probability: blocking?.type === 'choice' ? blocking.probabilities[id] ?? 0 : 0 });
+        }
       }
       priorities.push(assessment);
       trace.proposals = [...proposedRoles].map(([id, roles]) => ({ id, roles: [...roles] }));
@@ -289,6 +331,13 @@ export async function chooseParallelJevMove(options: ParallelTurnOptions) {
     });
     trace.timings.pressureMs = Date.now() - pressureStart;
     check(); checkpoint();
+    const rolloutStart = Date.now();
+    trace.rollouts = (options.rollouts ?? analyzeJevRollouts)(state, config, finalIds.map((id) => movesById.get(id)!), {
+      deadlineMs: stageDeadline(POLICY.rolloutBudgetMs), maxPlies: POLICY.rolloutMaxPlies,
+      maxNodesPerDecision: POLICY.rolloutDecisionNodes, signal: options.signal,
+    });
+    trace.timings.rolloutMs = Date.now() - rolloutStart;
+    check(); checkpoint();
     const candidates = finalIds.map((id) => {
       const candidate = verified.get(id)!;
       // Numerical evaluation remains in the trace/control condition, never in the JEV final input.
@@ -305,14 +354,15 @@ export async function chooseParallelJevMove(options: ParallelTurnOptions) {
       const after = describeJevRace(candidate.afterFacts.routes, false);
       const horizon = candidate.horizonFacts && !candidate.horizonFacts.terminal
         ? `At end of the example search line: ${describeJevRace(candidate.horizonFacts.routes, candidate.principalVariation.length % 2 === 0)}` : '';
-      return [id, `${describeJevAction(state, movesById.get(id)!)} ${after} ${horizon} ${describeJevPressure(trace.pressure!.candidates.find((entry) => entry.id === id))}`];
+      return [id, `${describeJevAction(state, movesById.get(id)!)} ${describeJevRollouts(trace.rollouts!, id, state.turn)} ${after} ${horizon} ${describeJevPressure(trace.pressure!.candidates.find((entry) => entry.id === id))}`];
     }));
     const answers = await api('final', { board, strategicContext, candidates, priorities, globalResult: trace.globalResult,
+      conditionalContinuations: briefJevRollouts(trace.rollouts!, state.turn),
       opponentPressure: trace.pressure,
       pressureMeaning: 'Legal opponent replies can force a response to a king capture threat. Capture threats are conditional on SELF failing to answer, not an extra opponent turn. Listed safe responses avoid only the following terminal loss. advancesRow is geometric progress, not a secured route. A reply that leaves only sideways or backward king escapes can begin a chase; compare guard defenses and development. Incomplete or omitted cases remain unknown. These examples supplement, not replace, the search principal variation.',
       calculation: trace.searches.map(({ candidates: _candidates, ...scope }) => scope),
-      meaning: 'Role agreement is not independent expert consensus. Coverage alternatives recover guard options from one role distribution, not an extra vote or an endorsement. Role distributions and boolean priorities are separate estimates, not game win probability. Example reply lines are legal possibilities, not guaranteed opponent choices. Unknown does not mean safe. Retained terminal proofs remain valid even if a later common search is shallower.',
-    }, { move: { type: 'choice', instructions: 'Choose the candidate that best helps SELF win. Use exact terminal proofs first. Otherwise compare BOTH the goal race and concrete opponent counterplay: king progress may be disrupted, but unnecessary guard deployment also spends a turn and can lose the race. An opponent guard threat also costs them a turn; a safely answered threat is not automatically a loss. Treat frozen routes and example lines as estimates. Your returned ID will be played unchanged; no code score or bonus will override it.', criteria: finalCriteria } });
+      meaning: 'Role agreement is not independent expert consensus. Coverage retains guard options from one role distribution, legal forward king lanes, and one fully checked immediate guard-pressure alternative so a forcing sequence is not silently dropped. Inclusion is not an extra vote or an endorsement. Role distributions and boolean priorities are separate estimates, not game win probability. Example reply lines are legal possibilities, not guaranteed opponent choices. Unknown does not mean safe. Retained terminal proofs remain valid even if a later common search is shallower.',
+    }, { move: { type: 'choice', instructions: 'Choose the candidate that best helps SELF win the whole game. Exact terminal proofs take priority. Compare the conditional continuation results against both opponent behaviors, along with the goal race and counterplay. Prefer a credible winning continuation to merely moving the king closer while the opponent wins first. Continuations use fixed local policies for BOTH sides, not future JEV choices: they are examples, never forced outcomes, and incomplete lines have unknown results. Guard development can change a losing race but can also waste a turn. Your returned ID will be played unchanged; no code score or bonus will override it.', criteria: finalCriteria } });
     const answer = answers.move;
     if (!answer || answer.type !== 'choice' || !finalIds.includes(answer.choice)) throw new JevError('invalid_response', 'Invalid final ID');
     return finish(answer.choice, 'jev-final');

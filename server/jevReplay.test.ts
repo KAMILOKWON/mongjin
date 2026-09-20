@@ -44,6 +44,7 @@ function recordedPressureTrace(base: ParallelTurnTrace): ParallelTurnTrace {
   delete trace.expectedAfterHash;
   delete trace.appliedStateHash;
   delete trace.initiative;
+  delete trace.rollouts;
   trace.pressure = analyzeJevPressure(state, DEFAULT_CONFIG, moves, {
     deadlineMs: Date.now() + 5_000,
     maxNodes: JEV_PARALLEL_POLICY.pressureMaxNodes,
@@ -79,7 +80,7 @@ describe('verifyJevTrace', () => {
     expect(result.candidateVariations).toBeGreaterThan(0);
   });
 
-  it.each(['parallel-v4', 'parallel-v5', 'parallel-v6', 'parallel-v7'] as const)('still replays legacy %s traces after a policy upgrade', (version) => {
+  it.each(['parallel-v4', 'parallel-v5', 'parallel-v6', 'parallel-v7', 'parallel-v9'] as const)('still replays legacy %s traces after a policy upgrade', (version) => {
     const legacy = clone(valid);
     (legacy.policy as { version: string }).version = version;
     delete legacy.coverage;
@@ -258,6 +259,30 @@ describe('verifyJevTrace', () => {
     cancelled.status = 'cancelled';
     delete cancelled.appliedStateHash;
     expect(verifyJevTrace(cancelled).applied).toBe(false);
+  });
+
+  it('audits conditional rollout outcomes and requires every final candidate and policy budget', () => {
+    expect(valid.rollouts?.candidates.length).toBe(valid.gates.at(-1)?.candidates.length);
+    const missing = clone(valid); delete missing.rollouts;
+    expect(() => verifyJevTrace(missing)).toThrowError('invalid-rollouts');
+    const subset = clone(valid); subset.rollouts!.candidates.pop();
+    expect(() => verifyJevTrace(subset)).toThrowError('invalid-rollouts');
+    const noGate = clone(valid); noGate.gates = [];
+    expect(() => verifyJevTrace(noGate)).toThrowError('invalid-rollouts');
+    const alteredBudget = clone(valid); alteredBudget.rollouts!.limits.maxNodesPerDecision = 1;
+    expect(() => verifyJevTrace(alteredBudget)).toThrowError('invalid-rollouts');
+    const alteredCriteria = clone(valid);
+    const question = alteredCriteria.stages.find(stage => stage.phase === 'final')!.request.questions.move!;
+    if (question.type === 'choice') delete question.criteria[Object.keys(question.criteria)[0]!];
+    expect(() => verifyJevTrace(alteredCriteria)).toThrowError('invalid-rollouts');
+    const altered = clone(valid);
+    const terminal = altered.rollouts!.candidates.flatMap(c => c.scenarios).find(s => s.terminal);
+    expect(terminal).toBeDefined();
+    terminal!.terminal!.winner = terminal!.terminal!.winner === 'BLACK' ? 'WHITE' : 'BLACK';
+    expect(() => verifyJevTrace(altered)).toThrowError('invalid-rollouts');
+    const illegal = clone(valid);
+    illegal.rollouts!.candidates[0]!.scenarios[0]!.line[0] = illegalMove;
+    expect(() => verifyJevTrace(illegal)).toThrowError('invalid-rollouts');
   });
 
   it('rejects unsupported policy metadata, invalid selection sources, and selected traces without a selection', () => {

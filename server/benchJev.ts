@@ -644,6 +644,12 @@ export async function playSingleGame(params: {
         }
 
         const chosenId = jevMoveId(move);
+        if (trace.selection?.id !== chosenId) {
+          failureCodes.push('invalid_response');
+          abortError = `JEV trace selected ${trace.selection?.id ?? 'no move'} but returned ${chosenId}`;
+          outcome = 'aborted_error';
+          break;
+        }
         const legal = legalMoves(turnState, config);
         const isLegal = legal.some((m) => jevMoveId(m) === chosenId);
         if (!isLegal) {
