@@ -1,5 +1,6 @@
 import { randomBytes } from 'node:crypto';
 import type { ProfileRepository, StoredProfile } from './profileRepository';
+import { JEV_BOT } from './jevExperiment';
 
 export const RANKED_BOTS = [
   { id: 'ranked-bot-may', name: '연세대MAY', rating: 1000, personality: 'guardian' },
@@ -17,7 +18,7 @@ export const RANKED_BOTS = [
   { id: 'ranked-bot-dawnstar', name: '영일만사나이', rating: 1550, personality: 'tactician' },
   { id: 'ranked-bot-guide', name: '이겜뭐임', rating: 1600, personality: 'guardian' },
 ] as const;
-export const isRankedBotId = (id: string) => RANKED_BOTS.some((bot) => bot.id === id);
+export const isRankedBotId = (id: string) => id === JEV_BOT.id || RANKED_BOTS.some((bot) => bot.id === id);
 
 const RATING_BAND = 250;
 const MIN_CANDIDATES = 5;
@@ -25,20 +26,22 @@ const RATING_WEIGHT_SCALE = 200;
 const RECENT_PENALTIES = [5, 3, 2, 1.5, 1] as const;
 
 export interface RankedBotSelectionOptions {
+  includeJev?: boolean;
   /** 최신순. 같은 ID가 반복되면 차단하지 않고 감점만 누적한다. */
   recentBotIds?: readonly string[];
   random?: () => number;
 }
 
-export async function ensureRankedBots(repository: ProfileRepository): Promise<StoredProfile[]> {
+export async function ensureRankedBots(repository: ProfileRepository, includeJev = false): Promise<StoredProfile[]> {
+  const definitions = includeJev ? [...RANKED_BOTS, JEV_BOT] : RANKED_BOTS;
   const profiles = await repository.loadProfiles();
   const now = new Date().toISOString();
-  for (const bot of RANKED_BOTS) {
+  for (const bot of definitions) {
     if (profiles.some((p) => p.playerId !== bot.id && p.name === bot.name)) {
       throw new Error(`고정 봇 이름이 기존 프로필과 겹칩니다: ${bot.name}`);
     }
   }
-  await repository.importProfiles(RANKED_BOTS.map((bot) => ({
+  await repository.importProfiles(definitions.map((bot) => ({
     playerId: bot.id, name: bot.name, token: randomBytes(32).toString('hex'),
     rating: bot.rating, wins: 0, losses: 0, createdAt: now, updatedAt: now,
   })));
@@ -64,7 +67,7 @@ export function selectRankedBot(
 ): StoredProfile {
   const normalizedRating = Number.isFinite(rating) ? rating : 1200;
   const ranked = [...profiles]
-    .filter((profile) => isRankedBotId(profile.playerId))
+    .filter((profile) => isRankedBotId(profile.playerId) && (profile.playerId !== JEV_BOT.id || options.includeJev))
     .sort((left, right) =>
       Math.abs(left.rating - normalizedRating) - Math.abs(right.rating - normalizedRating) ||
       left.playerId.localeCompare(right.playerId));

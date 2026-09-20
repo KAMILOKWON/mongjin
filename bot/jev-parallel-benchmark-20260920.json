@@ -1,0 +1,188 @@
+{
+  "environment": "v25.9.0",
+  "positions": [
+    {
+      "ply": 0,
+      "factsMs": 8,
+      "factsComplete": true,
+      "legalMoves": 6,
+      "routes": {
+        "own": {
+          "status": "reachable",
+          "distance": 8,
+          "firstSteps": [
+            {
+              "r": 7,
+              "c": 4
+            }
+          ],
+          "firstStepsAreExamples": true,
+          "exploredNodes": 78,
+          "reason": "goal",
+          "frozenBoard": true,
+          "excludesAttackedSquares": true
+        },
+        "opponent": {
+          "status": "reachable",
+          "distance": 8,
+          "firstSteps": [
+            {
+              "r": 1,
+              "c": 4
+            }
+          ],
+          "firstStepsAreExamples": true,
+          "exploredNodes": 78,
+          "reason": "goal",
+          "frozenBoard": true,
+          "excludesAttackedSquares": true
+        }
+      },
+      "searchMs": 222,
+      "depth": 4,
+      "nodes": 1566,
+      "stop": "complete",
+      "proofs": [
+        "unknown",
+        "unknown",
+        "unknown",
+        "unknown",
+        "unknown",
+        "unknown"
+      ]
+    },
+    {
+      "ply": 20,
+      "factsMs": 13,
+      "factsComplete": true,
+      "legalMoves": 30,
+      "routes": {
+        "own": {
+          "status": "reachable",
+          "distance": 5,
+          "firstSteps": [
+            {
+              "r": 4,
+              "c": 5
+            }
+          ],
+          "firstStepsAreExamples": true,
+          "exploredNodes": 61,
+          "reason": "goal",
+          "frozenBoard": true,
+          "excludesAttackedSquares": true
+        },
+        "opponent": {
+          "status": "reachable",
+          "distance": 11,
+          "firstSteps": [
+            {
+              "r": 5,
+              "c": 0
+            }
+          ],
+          "firstStepsAreExamples": true,
+          "exploredNodes": 62,
+          "reason": "goal",
+          "frozenBoard": true,
+          "excludesAttackedSquares": true
+        }
+      },
+      "searchMs": 2596,
+      "depth": 4,
+      "nodes": 23006,
+      "stop": "complete",
+      "proofs": [
+        "unknown",
+        "unknown",
+        "unknown",
+        "unknown",
+        "unknown",
+        "unknown"
+      ]
+    },
+    {
+      "ply": 25,
+      "factsMs": 13,
+      "factsComplete": true,
+      "legalMoves": 23,
+      "routes": {
+        "own": {
+          "status": "reachable",
+          "distance": 12,
+          "firstSteps": [
+            {
+              "r": 5,
+              "c": 1
+            }
+          ],
+          "firstStepsAreExamples": true,
+          "exploredNodes": 60,
+          "reason": "goal",
+          "frozenBoard": true,
+          "excludesAttackedSquares": true
+        },
+        "opponent": {
+          "status": "reachable",
+          "distance": 2,
+          "firstSteps": [
+            {
+              "r": 1,
+              "c": 4
+            },
+            {
+              "r": 1,
+              "c": 5
+            },
+            {
+              "r": 1,
+              "c": 6
+            }
+          ],
+          "firstStepsAreExamples": true,
+          "exploredNodes": 20,
+          "reason": "goal",
+          "frozenBoard": true,
+          "excludesAttackedSquares": true
+        }
+      },
+      "searchMs": 1495,
+      "depth": 4,
+      "nodes": 20456,
+      "stop": "complete",
+      "proofs": [
+        "loss",
+        "loss",
+        "loss",
+        "loss",
+        "loss",
+        "loss"
+      ]
+    },
+    {
+      "ply": 25,
+      "scope": "all-legal",
+      "depth": 3,
+      "nodes": 71799,
+      "stop": "deadline",
+      "candidates": 23,
+      "losses": 2
+    }
+  ],
+  "originalReplay": {
+    "plies": 29,
+    "result": {
+      "winner": "BLACK",
+      "reason": "goal"
+    }
+  },
+  "additionalOfflineAudit": {
+    "ply": 25,
+    "scope": "all-legal-offline-30s-1M-nodes",
+    "depth": 4,
+    "nodes": 84507,
+    "stop": "complete",
+    "candidates": 23,
+    "losses": 23
+  }
+}

@@ -5,6 +5,7 @@ import type { GameState, Move, Player } from '../src/core/types';
 import { createGhostNickname } from '../src/ghost';
 import type { StoredProfile } from './profileRepository';
 import { RANKED_BOTS } from './rankedBots';
+import { JEV_BOT } from './jevExperiment';
 import { learnedOpeningHints, type BotLearning } from './rankedBotLearning';
 import { openingMovePreference } from './openingStyle';
 
@@ -263,7 +264,7 @@ export function createOfficialBot(
 }
 
 export function createRankedBot(profile: StoredProfile, random: () => number = Math.random): OfficialBot {
-  const definition = RANKED_BOTS.find((bot) => bot.id === profile.playerId);
+  const definition = profile.playerId === JEV_BOT.id ? JEV_BOT : RANKED_BOTS.find((bot) => bot.id === profile.playerId);
   if (!definition) throw new Error('알 수 없는 고정 봇');
   const tuning = PERSONALITIES.find((p) => p.id === definition.personality)!;
   const side: Player = random() < 0.5 ? 'BLACK' : 'WHITE';
@@ -282,6 +283,7 @@ export function chooseOfficialBotMove(
   state: GameState,
   config: RuleConfig,
 ): Move | null {
+  if (bot.playerId === JEV_BOT.id) throw new Error('JEV requires the asynchronous model path');
   const legal = legalMoves(state, config);
   if (legal.length === 0) return null;
 
