@@ -16,6 +16,7 @@ export const RANKED_BOTS = [
   { id: 'ranked-bot-slowmove', name: '히어로메이커', rating: 1450, personality: 'wanderer' },
   { id: 'ranked-bot-dawnstar', name: '영일만사나이', rating: 1550, personality: 'tactician' },
   { id: 'ranked-bot-guide', name: '이겜뭐임', rating: 1600, personality: 'guardian' },
+  { id: 'ranked-bot-first-place', name: '1등찍고접기', rating: 1600, personality: 'runner' },
 ] as const;
 export const isRankedBotId = (id: string) => RANKED_BOTS.some((bot) => bot.id === id);
 

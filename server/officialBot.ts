@@ -7,6 +7,8 @@ import type { StoredProfile } from './profileRepository';
 import { RANKED_BOTS } from './rankedBots';
 import { learnedOpeningHints, type BotLearning } from './rankedBotLearning';
 import { openingMovePreference } from './openingStyle';
+import { humanStylePreference } from './humanStyle';
+import { FIRST_PLACE_STYLE } from './firstPlaceStyle';
 
 export type OfficialBotPersonality = 'runner' | 'guardian' | 'tactician' | 'wanderer';
 
@@ -291,15 +293,18 @@ export function chooseOfficialBotMove(
     const choiceWindow = bot.moveCount < 3
       ? Math.max(12, bot.search.choiceWindow)
       : bot.search.choiceWindow;
+    const humanPreference = bot.playerId === 'ranked-bot-first-place'
+      ? humanStylePreference(FIRST_PLACE_STYLE, state, config, bot.side)
+      : undefined;
     const move = chooseMove(state, config, {
       ...bot.search,
       choiceWindow,
       rng: bot.random,
       botSide: bot.side,
       hints: bot.playerId ? learnedOpeningHints(bot.learning, state, bot.side, config) : undefined,
-      movePreference: bot.playerId && bot.moveCount < 6
+      movePreference: humanPreference ?? (bot.playerId && bot.moveCount < 6
         ? (root, candidate) => openingMovePreference(root, candidate, config, bot.side, bot.personality, bot.openingLane ?? 1)
-        : undefined,
+        : undefined),
     }) ?? legal[0]!;
     bot.moveCount += 1;
     return move;
