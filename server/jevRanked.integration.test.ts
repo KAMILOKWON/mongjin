@@ -218,7 +218,7 @@ describe('JEV Ranked WebSocket Integration', () => {
         // Existing roster plus the opt-in JEV profile (1200).
         expect(lbData.totalPlayers).toBe(RANKED_BOTS.length + 1);
         expect(lbData.entries[0]).toMatchObject({
-          name: 'JEV',
+          name: '침착맨이할때까지',
           rating: 1200,
         });
 
@@ -250,7 +250,7 @@ describe('JEV Ranked WebSocket Integration', () => {
         // Verify match parameters: Human WHITE, JEV BLACK (bot starts first)
         expect(matchFound.side).toBe('WHITE');
         expect(matchFound.opponent).toMatchObject({
-          name: 'JEV',
+          name: '침착맨이할때까지',
           rating: 1200,
           isBot: true,
         });
@@ -336,7 +336,7 @@ describe('JEV Ranked WebSocket Integration', () => {
 
         socket.send(JSON.stringify({ type: 'MATCHMAKE_BOT' }));
         const matchFound = await next('MATCH_FOUND');
-        expect(matchFound.opponent.name).toBe('JEV');
+        expect(matchFound.opponent.name).toBe('침착맨이할때까지');
 
         // JEV opening move runs, encounters 503 gateway error, and abandons match
         const errorMsg = await next('ERROR');
@@ -425,7 +425,7 @@ describe('JEV Ranked WebSocket Integration', () => {
 
         socket.send(JSON.stringify({ type: 'MATCHMAKE_BOT' }));
         const matchFound = await next('MATCH_FOUND');
-        expect(matchFound.opponent.name).toBe('JEV');
+        expect(matchFound.opponent.name).toBe('침착맨이할때까지');
 
         // Wait for JEV's move (STATE message)
         const stateMsg = await next('STATE', 20000);

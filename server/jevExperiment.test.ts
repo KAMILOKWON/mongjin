@@ -21,7 +21,7 @@ it('JEV is opt-in, starts at 1200, preserves records, and stays excluded after d
     expect(await ensureRankedBots(repo)).toHaveLength(RANKED_BOTS.length);
     const roster = await ensureRankedBots(repo, true);
     const jev = roster.find((p) => p.playerId === JEV_BOT.id)!;
-    expect(jev).toMatchObject({ name: 'JEV', rating: 1200, wins: 0, losses: 0 });
+    expect(jev).toMatchObject({ name: '침착맨이할때까지', rating: 1200, wins: 0, losses: 0 });
     expect(isRankedBotId(jev.playerId)).toBe(true);
     await repo.saveProfile({ ...jev, rating: 1500, wins: 12, losses: 2 });
     expect((await ensureRankedBots(repo, true)).find((p) => p.playerId === jev.playerId)).toMatchObject({ rating: 1500, wins: 12, losses: 2 });

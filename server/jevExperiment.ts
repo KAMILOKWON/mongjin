@@ -13,7 +13,7 @@ function decideRanked(state: GameState, config: RuleConfig, options: {
     gameId: options.gameId, deadlineMs: Date.now() + options.timeoutMs, onTrace: options.onTrace });
 }
 
-export const JEV_BOT = { id: 'ranked-bot-jev', name: 'JEV', rating: 1200, personality: 'tactician' } as const;
+export const JEV_BOT = { id: 'ranked-bot-jev', name: '침착맨이할때까지', rating: 1200, personality: 'tactician' } as const;
 // The promotion's timezone is unspecified. Stop at the start of September 25 in Korea.
 export const JEV_EXPIRES_AT = '2026-09-25T00:00:00+09:00';
 const LAST_CALL_AT = Date.parse(JEV_EXPIRES_AT);
