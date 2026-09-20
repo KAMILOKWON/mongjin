@@ -5,7 +5,7 @@ import { expect, it, vi } from 'vitest';
 import { DEFAULT_CONFIG } from '../src/core/config';
 import { initialState, legalMoves } from '../src/core/rules';
 import { JEV_BOT, JEV_EXPIRES_AT, JevExperiment } from './jevExperiment';
-import { ensureRankedBots, isRankedBotId, selectRankedBot } from './rankedBots';
+import { ensureRankedBots, isRankedBotId, selectRankedBot, RANKED_BOTS } from './rankedBots';
 import { FileProfileRepository } from './profileRepository';
 import { createRankedBot, chooseOfficialBotMove } from './officialBot';
 
@@ -18,7 +18,7 @@ it('JEV is opt-in, starts at 1200, preserves records, and stays excluded after d
   const dir = await mkdtemp(join(tmpdir(), 'mongjin-jev-roster-'));
   try {
     const repo = new FileProfileRepository(join(dir, 'profiles.json'));
-    expect(await ensureRankedBots(repo)).toHaveLength(14);
+    expect(await ensureRankedBots(repo)).toHaveLength(RANKED_BOTS.length);
     const roster = await ensureRankedBots(repo, true);
     const jev = roster.find((p) => p.playerId === JEV_BOT.id)!;
     expect(jev).toMatchObject({ name: 'JEV', rating: 1200, wins: 0, losses: 0 });

@@ -138,7 +138,7 @@ async function startTestServer(options: {
   await writeFile(mockScriptPath, mockPreloadScript, 'utf8');
 
   const profileDataFile = join(tempDir, 'profiles.json');
-  // Seed the 14 ranked bots with rating 100
+  // Seed the existing ranked bots with rating 100.
   const seededBots = RANKED_BOTS.map((bot) => ({
     playerId: bot.id,
     token: `token-${bot.id}`,
@@ -215,8 +215,8 @@ describe('JEV Ranked WebSocket Integration', () => {
           entries: Array<{ rank: number; name: string; rating: number }>;
         };
 
-        // Total 15 profiles: 14 seeded bots + JEV (1200)
-        expect(lbData.totalPlayers).toBe(15);
+        // Existing roster plus the opt-in JEV profile (1200).
+        expect(lbData.totalPlayers).toBe(RANKED_BOTS.length + 1);
         expect(lbData.entries[0]).toMatchObject({
           name: 'JEV',
           rating: 1200,
