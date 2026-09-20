@@ -8,6 +8,7 @@ import { applyMove } from '../src/core/apply';
 import { getResult } from '../src/core/result';
 import { FileProfileRepository, PostgresProfileRepository, type ProfileRepository, type StoredProfile } from './profileRepository';
 import { RANKED_BOTS, ensureRankedBots, selectRankedBot } from './rankedBots';
+import { JEV_BOT } from './jevExperiment';
 import { createRankedBot, chooseOfficialBotMove } from './officialBot';
 import { learnBotOpening, learnedOpeningHints, type BotLearningGame } from './rankedBotLearning';
 import { buildLeaderboard } from './leaderboard';
@@ -78,11 +79,13 @@ function sampledSelections(
   profiles: StoredProfile[],
   rating: number,
   recentBotIds: readonly string[],
+  options: { includeJev?: boolean } = {},
   draws = 7_000,
 ): Map<string, number> {
   const counts = new Map<string, number>();
   for (let index = 0; index < draws; index += 1) {
     const selected = selectRankedBot(profiles, rating, {
+      includeJev: options.includeJev,
       recentBotIds,
       random: () => (index + 0.5) / draws,
     });
@@ -90,6 +93,42 @@ function sampledSelections(
   }
   return counts;
 }
+
+it.each([800, 1500, 1800, 2400])('JEV는 %i점에서도 후보에 포함하고 기존 봇의 점수대 후보를 보존한다', async (rating) => {
+  const { repo } = fileRepo();
+  const liveRatings = [1264, 1319, 1242, 1292, 1335, 1298, 1309, 1023, 1150, 1230, 1342, 1450, 1494, 1498, 1582];
+  const profiles = (await ensureRankedBots(repo, true)).map((profile, index) => ({
+    ...profile,
+    rating: profile.playerId === JEV_BOT.id ? 1200 : liveRatings[index]!,
+  }));
+  const ordinary = sampledSelections(profiles, rating, []);
+  const enabled = sampledSelections(profiles, rating, [], { includeJev: true });
+  expect(ordinary.has(JEV_BOT.id)).toBe(false);
+  expect(enabled.get(JEV_BOT.id)).toBeGreaterThan(0);
+  expect([...enabled.keys()].filter((id) => id !== JEV_BOT.id).sort()).toEqual([...ordinary.keys()].sort());
+
+  const afterJev = sampledSelections(profiles, rating, [JEV_BOT.id], { includeJev: true });
+  expect(afterJev.has(JEV_BOT.id)).toBe(false);
+  expect([...afterJev.keys()].sort()).toEqual([...ordinary.keys()].sort());
+});
+
+it('JEV는 최소 5명 보충 후에도 추가되고 점수대 안에서는 중복 후보가 되지 않는다', async () => {
+  const { repo } = fileRepo();
+  const profiles = await ensureRankedBots(repo, true);
+  const separated = profiles.map((profile, index) => ({
+    ...profile,
+    rating: profile.playerId === JEV_BOT.id ? 1200 : index === 0 ? 1800 : 2100,
+  }));
+  const ordinary = sampledSelections(separated, 1800, []);
+  const enabled = sampledSelections(separated, 1800, [], { includeJev: true });
+  expect(ordinary.size).toBe(5);
+  expect(enabled.get(JEV_BOT.id)).toBeGreaterThan(0);
+  expect([...enabled.keys()].filter((id) => id !== JEV_BOT.id).sort()).toEqual([...ordinary.keys()].sort());
+
+  const flat = profiles.map((profile) => ({ ...profile, rating: 1200 }));
+  const counts = sampledSelections(flat, 1200, [], { includeJev: true }, flat.length * 100);
+  expect([...counts.values()]).toEqual(Array(flat.length).fill(100));
+});
 
 it('가까운 후보를 유지하면서 최근 5경기의 반복 상대를 연속 가중치로 낮춘다', async () => {
   const { repo } = fileRepo();

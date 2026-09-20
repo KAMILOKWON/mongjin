@@ -91,6 +91,10 @@ export function selectRankedBot(
   const candidates = eligibleBand.length >= minimumSize
     ? eligibleBand
     : eligibleRanked.slice(0, minimumSize);
+  // The temporary JEV experiment accepts every rating without replacing the
+  // usual nearby candidates or bypassing availability/recent-opponent rules.
+  const jevCandidate = eligibleRanked.find((profile) => profile.playerId === JEV_BOT.id);
+  if (jevCandidate && !candidates.includes(jevCandidate)) candidates.push(jevCandidate);
 
   const weighted = candidates.map((profile) => {
     const gap = Math.abs(profile.rating - normalizedRating);
