@@ -8,7 +8,8 @@
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
     "migrate:profiles": "tsx migrateProfiles.ts",
-    "export:games": "tsx exportGames.ts"
+    "export:games": "tsx exportGames.ts",
+    "build:human-style": "tsx buildHumanStyle.ts"
   },
   "dependencies": {
     "pg": "^8.16.3",

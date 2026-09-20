@@ -1,0 +1,60 @@
+{
+  "schemaVersion": 1,
+  "budget": {
+    "maxNodes": 1000,
+    "maxDepth": 3,
+    "maxMs": 5000,
+    "maxPlies": 200
+  },
+  "note": "Local smoke tournament at identical reduced node budgets. No production records or Elo are changed.",
+  "games": [
+    {
+      "opponent": "faker",
+      "subjectSide": "BLACK",
+      "plies": 15,
+      "outcome": "win",
+      "reason": "goal",
+      "maxMoveMs": 140.93741699999998
+    },
+    {
+      "opponent": "faker",
+      "subjectSide": "WHITE",
+      "plies": 15,
+      "outcome": "loss",
+      "reason": "goal",
+      "maxMoveMs": 134.03445900000008
+    },
+    {
+      "opponent": "Astra",
+      "subjectSide": "BLACK",
+      "plies": 15,
+      "outcome": "win",
+      "reason": "goal",
+      "maxMoveMs": 160.87229200000002
+    },
+    {
+      "opponent": "Astra",
+      "subjectSide": "WHITE",
+      "plies": 15,
+      "outcome": "loss",
+      "reason": "goal",
+      "maxMoveMs": 165.98699999999963
+    },
+    {
+      "opponent": "이겜뭐임",
+      "subjectSide": "BLACK",
+      "plies": 17,
+      "outcome": "win",
+      "reason": "goal",
+      "maxMoveMs": 208.5575829999998
+    },
+    {
+      "opponent": "이겜뭐임",
+      "subjectSide": "WHITE",
+      "plies": 15,
+      "outcome": "loss",
+      "reason": "goal",
+      "maxMoveMs": 158.67124999999987
+    }
+  ]
+}

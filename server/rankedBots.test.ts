@@ -33,10 +33,10 @@ function finishedGame(): BotLearningGame {
   return { moves: state.history, config: DEFAULT_CONFIG, side: 'BLACK', ...result };
 }
 
-it('기존 7명을 14명으로 확장해도 기존 전적·학습을 보존하고 재시작 시 중복 생성하지 않는다', async () => {
+it('기존 14명에 기보 봇을 추가해도 기존 전적·학습을 보존하고 재시작 시 중복 생성하지 않는다', async () => {
   const { path, repo } = fileRepo();
   const now = '2026-09-07T00:00:00.000Z';
-  await repo.importProfiles(RANKED_BOTS.slice(0, 7).map((bot) => ({
+  await repo.importProfiles(RANKED_BOTS.slice(0, 14).map((bot) => ({
     playerId: bot.id, name: bot.name, token: `legacy-${bot.id}`,
     rating: bot.rating, wins: 0, losses: 0, createdAt: now, updatedAt: now,
   })));
@@ -51,10 +51,10 @@ it('기존 7명을 14명으로 확장해도 기존 전적·학습을 보존하�
 
   const profiles = await ensureRankedBots(repo);
   expect(profiles.map((p) => p.name)).toEqual(RANKED_BOTS.map((b) => b.name));
-  expect(profiles).toHaveLength(14);
+  expect(profiles).toHaveLength(15);
   expect(profiles.find((profile) => profile.playerId === preserved.playerId)).toEqual(preserved);
   const reopened = await ensureRankedBots(new FileProfileRepository(path));
-  expect(reopened).toHaveLength(14);
+  expect(reopened).toHaveLength(15);
   expect(reopened.find((profile) => profile.playerId === preserved.playerId)).toEqual(preserved);
   await repo.saveProfile({ ...preserved, playerId: 'human', token: 'human' });
   await expect(ensureRankedBots(repo)).rejects.toThrow('겹칩니다');

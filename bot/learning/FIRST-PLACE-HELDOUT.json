@@ -1,0 +1,68 @@
+{
+  "schemaVersion": 1,
+  "bookSha256": "fea0cffe6c408fbaafd7af7c26360563b40f2655bfc12676a5b7de59af3b0556",
+  "budget": {
+    "maxMs": 5000,
+    "maxDepth": 4,
+    "maxNodes": 4000,
+    "seeds": [
+      71,
+      2026
+    ]
+  },
+  "note": "Controlled node-budget comparison on up to 24 known and 24 unknown distinct held-out positions; not a production latency or strength estimate.",
+  "positions": 48,
+  "knownPositions": 24,
+  "blackPositions": 17,
+  "comparisons": 96,
+  "changed": 5,
+  "baselineAgreement": 41,
+  "learnedAgreement": 42,
+  "baselineImmediateLosses": 0,
+  "learnedImmediateLosses": 0,
+  "missedImmediateWins": 0,
+  "illegal": 0,
+  "unknownChanged": 0,
+  "nodesChanged": 0,
+  "timingMs": {
+    "median": 567.7046670000054,
+    "maximum": 2425.467333000008
+  },
+  "evidence": [
+    {
+      "side": "BLACK",
+      "ply": 5,
+      "baseline": "M:6,4>5,5",
+      "learned": "M:6,4>5,4",
+      "recorded": "M:6,4>5,3"
+    },
+    {
+      "side": "WHITE",
+      "ply": 6,
+      "baseline": "M:2,4>3,5",
+      "learned": "M:2,4>3,4",
+      "recorded": "P:2,3"
+    },
+    {
+      "side": "BLACK",
+      "ply": 5,
+      "baseline": "M:6,4>5,3",
+      "learned": "M:6,4>5,4",
+      "recorded": "M:6,4>5,4"
+    },
+    {
+      "side": "BLACK",
+      "ply": 9,
+      "baseline": "M:4,3>3,3",
+      "learned": "M:4,3>3,2",
+      "recorded": "M:4,3>3,3"
+    },
+    {
+      "side": "WHITE",
+      "ply": 4,
+      "baseline": "M:1,4>2,5",
+      "learned": "M:1,4>2,4",
+      "recorded": "M:1,4>2,4"
+    }
+  ]
+}

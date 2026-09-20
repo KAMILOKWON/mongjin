@@ -1,0 +1,18 @@
+{
+  "schemaVersion": 1,
+  "rulesVersion": "mongjin-core-1",
+  "inputSha256": "e4bf56a9a951e1804326bbec1c61a536639eb7e1b590a1452589355490864954",
+  "bookSha256": "fea0cffe6c408fbaafd7af7c26360563b40f2655bfc12676a5b7de59af3b0556",
+  "trainingGames": 120,
+  "trainingMoves": 1533,
+  "trainingSides": {
+    "BLACK": 60,
+    "WHITE": 60
+  },
+  "positions": 1032,
+  "evaluationGames": 30,
+  "evaluationMoves": 443,
+  "coveredMoves": 166,
+  "openingMoves": 180,
+  "coveredOpeningMoves": 145
+}
