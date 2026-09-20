@@ -7,6 +7,7 @@ process.once('message', async (message: Omit<ParallelTurnOptions, 'signal' | 'ev
     process.send?.({ type: 'result', result });
   } catch (error) {
     process.send?.({ type: 'error', code: error instanceof JevError ? error.code : 'invalid_response',
+      status: error instanceof JevError ? error.status : undefined,
       trace: error instanceof ParallelTurnError ? error.trace : undefined });
   }
 });

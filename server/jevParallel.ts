@@ -33,6 +33,8 @@ type ApiStage = {
   result?: Omit<EvaluateJevResult, 'request' | 'response'>;
   elapsedMs?: number;
   error?: string;
+  /** Actual HTTP response status, independent of provider response-body fields. */
+  httpStatus?: number;
 };
 
 export interface ParallelTurnTrace extends JevRecord {
@@ -61,6 +63,7 @@ export interface ParallelTurnTrace extends JevRecord {
   globalResult: 'unknown' | 'proven-win' | 'proven-loss';
   selection?: { id: string; source: 'engine-immediate-win' | 'engine-single-candidate' | 'jev-final'; proposedBy: string[] };
   error?: string;
+  errorStatus?: number;
   expectedAfterHash?: string;
   appliedStateHash?: string;
   elapsedMs?: number;
@@ -68,8 +71,8 @@ export interface ParallelTurnTrace extends JevRecord {
 }
 
 export class ParallelTurnError extends JevError {
-  constructor(code: JevError['code'], readonly trace: ParallelTurnTrace) {
-    super(code, `JEV parallel turn failed: ${code}`);
+  constructor(code: JevError['code'], readonly trace: ParallelTurnTrace, status?: number) {
+    super(code, `JEV parallel turn failed: ${code}`, status);
   }
 }
 
@@ -126,6 +129,7 @@ export async function chooseParallelJevMove(options: ParallelTurnOptions) {
       return result.answers;
     } catch (error) {
       stage.error = error instanceof JevError ? error.code : 'invalid_response';
+      stage.httpStatus = error instanceof JevError ? error.status : undefined;
       throw error;
     } finally { stage.elapsedMs = Date.now() - stageStart; checkpoint(); }
   };
@@ -369,7 +373,8 @@ export async function chooseParallelJevMove(options: ParallelTurnOptions) {
   } catch (error) {
     const code = error instanceof JevError ? error.code : 'invalid_response';
     trace.status = code === 'aborted' ? 'cancelled' : 'error';
-    trace.error = code; trace.elapsedMs = Date.now() - start; checkpoint();
-    throw new ParallelTurnError(code, trace);
+    const status = error instanceof JevError ? error.status : undefined;
+    trace.error = code; trace.errorStatus = status; trace.elapsedMs = Date.now() - start; checkpoint();
+    throw new ParallelTurnError(code, trace, status);
   }
 }

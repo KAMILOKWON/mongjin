@@ -69,6 +69,7 @@ interface Room {
   finished: boolean;
   gameRecord?: GameRecord;
   botRequest?: AbortController;
+  recentBotIdsBeforeMatch?: string[];
 }
 
 interface ClientSession {
@@ -452,6 +453,13 @@ async function abandonJevMatch(room: Room, reason: string) {
   room.botRequest?.abort();
   const recordSaved = saveGameRecord(room, { reason: `jev_${reason}` });
   recordMatchAbandoned(room, opponent(room.bot.side), `jev_${reason}`);
+  const playerId = room.bot.side === 'BLACK' ? room.whitePlayerId : room.blackPlayerId;
+  // A voided experiment must not block the same player from matching JEV after recovery.
+  // Preserve newer matches started by another session on the same profile.
+  if (playerId && room.recentBotIdsBeforeMatch
+    && recentBotIdsByPlayer.get(playerId)?.[0] === JEV_BOT.id) {
+    recentBotIdsByPlayer.set(playerId, room.recentBotIdsBeforeMatch);
+  }
   // Existing clients can leave/requeue; an infrastructure failure is never a rated win/loss.
   broadcastRoom(room, { type: 'ERROR', message: 'JEV 실험 대국을 중단했습니다. 이번 대국은 승패와 점수에 반영되지 않습니다.' });
   broadcastRoom(room, { type: 'OPPONENT_LEFT' });
@@ -485,7 +493,8 @@ function scheduleBotMove(room: Room) {
         const request = new AbortController();
         room.botRequest = request;
         try {
-          const decision = await jev.move(stateAtRequest, config, request.signal, room.matchId);
+          const decision = await jev.move(stateAtRequest, config, request.signal, room.matchId, undefined,
+            (trace) => waitForJevRecord(jevRecords!.save(trace), trace.deadlineMs, request.signal));
           move = decision.move;
           jevTrace = decision.trace;
           if (rooms.get(room.id) !== room || room.finished || request.signal.aborted) return;
@@ -505,7 +514,8 @@ function scheduleBotMove(room: Room) {
           }
           if (rooms.get(room.id) !== room || room.finished || request.signal.aborted) return;
           const code = error instanceof JevError ? error.code : 'unavailable';
-          console.warn('[jev]', JSON.stringify({ event: 'failure', matchId: room.matchId, code }));
+          console.warn('[jev]', JSON.stringify({ event: 'failure', matchId: room.matchId, code,
+            status: error instanceof JevError ? error.status : undefined, recovery: jev.status }));
           await abandonJevMatch(room, code);
           return;
         } finally {
@@ -600,6 +610,7 @@ async function startBotMatch(ws: WebSocket) {
       blackPlatform: playerSide === 'BLACK' ? session.platform : 'unknown',
       whitePlatform: playerSide === 'WHITE' ? session.platform : 'unknown',
       bot,
+      recentBotIdsBeforeMatch: bot.playerId === JEV_BOT.id ? recentBotIds : undefined,
       finished: false,
     };
     rooms.set(id, room);

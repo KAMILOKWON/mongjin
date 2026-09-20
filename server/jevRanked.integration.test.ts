@@ -35,6 +35,7 @@ interface WsMessage {
 }
 
 const mockPreloadScript = `
+import { existsSync, writeFileSync } from 'node:fs';
 const originalDateNow = Date.now;
 const realStart = originalDateNow();
 const fixedSept20 = Date.parse('2026-09-20T12:00:00+09:00');
@@ -50,9 +51,17 @@ globalThis.fetch = async (input, init) => {
     throw new Error(\`Unexpected fetch URL: \${url}\`);
   }
 
-  if (process.env.MOCK_JEV_503 === '1') {
-    return new Response(JSON.stringify({ error: 'service unavailable' }), {
-      status: 503,
+  const oncePath = process.env.MOCK_JEV_FAIL_ONCE_PATH;
+  const failOnce = oncePath && !existsSync(oncePath);
+  if (failOnce) {
+    writeFileSync(oncePath, 'failed', { flag: 'wx' });
+    if (process.env.MOCK_JEV_FAILURE_KIND === 'network') throw new TypeError('mock disconnected');
+  }
+  const forcedStatus = Number(process.env.MOCK_JEV_HTTP_STATUS || '0');
+  if (forcedStatus || failOnce) {
+    // The transport status must win over a conflicting provider body field.
+    return new Response(JSON.stringify({ status: 503, error: 'mock gateway failure' }), {
+      status: forcedStatus || 503,
       headers: { 'Content-Type': 'application/json' },
     });
   }
@@ -131,6 +140,8 @@ interface SpawnedTestServer {
 
 async function startTestServer(options: {
   mock503?: boolean;
+  mockStatus?: number;
+  failOnce?: '503' | 'network';
   mockDelayMs?: number;
 }): Promise<SpawnedTestServer> {
   const tempDir = await mkdtemp(join(tmpdir(), 'jev-ranked-test-'));
@@ -165,7 +176,9 @@ async function startTestServer(options: {
       HOST: '127.0.0.1',
       PORT: '0',
       DATABASE_URL: '',
-      MOCK_JEV_503: options.mock503 ? '1' : '0',
+      MOCK_JEV_HTTP_STATUS: String(options.mockStatus ?? (options.mock503 ? 503 : 0)),
+      MOCK_JEV_FAIL_ONCE_PATH: options.failOnce ? join(tempDir, 'gateway-failed-once') : '',
+      MOCK_JEV_FAILURE_KIND: options.failOnce ?? '',
       MOCK_JEV_DELAY_MS: String(options.mockDelayMs ?? 0),
     },
     stdio: ['ignore', 'pipe', 'pipe'],
@@ -308,7 +321,7 @@ describe('JEV Ranked WebSocket Integration', () => {
   );
 
   it(
-    'handles forced HTTP 503 API failure with ERROR + OPPONENT_LEFT, preserves game and decision traces with jev_ reason, and makes no Elo change',
+    'bounds repeated 503 retries, preserves every failed attempt without Elo changes, and reopens matching automatically',
     async () => {
       // Separate server for failure scenario
       const testEnv = await startTestServer({ mock503: true });
@@ -390,6 +403,22 @@ describe('JEV Ranked WebSocket Integration', () => {
         );
         expect(decisionRecord.status).toBe('error');
         expect(decisionRecord.error).toBe('http_error');
+        expect(jsonDecisionFiles).toHaveLength(3);
+        for (const file of jsonDecisionFiles) {
+          const attempt = JSON.parse(await readFile(join(testEnv.tempDir, 'jev-decisions', file), 'utf8'));
+          expect(attempt.errorStatus).toBe(503);
+          expect(attempt.stages[0].httpStatus).toBe(503);
+          expect(attempt.ply).toBe(0);
+        }
+        const stopped = await (await fetch(`${testEnv.httpUrl}/health`)).json();
+        expect(stopped.jev).toMatchObject({ acceptingMatches: false, reason: 'transient_cooldown',
+          attempts: 3, retries: 2, failures: 1, attemptFailures: 3,
+          lastError: { status: 503, retryable: true } });
+        expect(stopped.jev.retryAfterMs).toBeGreaterThan(0);
+        await until(async () => (await (await fetch(`${testEnv.httpUrl}/health`)).json()).jev.acceptingMatches, 20_000);
+        socket.send(JSON.stringify({ type: 'MATCHMAKE_BOT' }));
+        const recoveredMatch = await next('MATCH_FOUND');
+        expect(recoveredMatch.opponent.name).toBe('침착맨이할때까지');
       } finally {
         socket?.terminate();
         await testEnv.cleanup();
@@ -397,6 +426,69 @@ describe('JEV Ranked WebSocket Integration', () => {
     },
     35000,
   );
+
+  it.each(['503', 'network'] as const)('recovers a single %s failure inside the same turn and applies exactly one JEV move', async (failure) => {
+    const testEnv = await startTestServer({ failOnce: failure });
+    let socket: WebSocket | undefined;
+    try {
+      socket = new WebSocket(testEnv.url);
+      const messages: WsMessage[] = [];
+      socket.on('message', raw => messages.push(JSON.parse(String(raw))));
+      const next = (type: string) => until(() => messages.find(message => message.type === type));
+      await until(() => socket!.readyState === WebSocket.OPEN);
+      socket.send(JSON.stringify({ type: 'HELLO' }));
+      await next('IDENTITY');
+      socket.send(JSON.stringify({ type: 'MATCHMAKE_BOT' }));
+      expect((await next('MATCH_FOUND')).opponent.name).toBe('침착맨이할때까지');
+      const update = await next('STATE');
+      expect(update.state.history).toHaveLength(1);
+      expect(messages.filter(message => message.type === 'STATE')).toHaveLength(1);
+      expect(messages.some(message => ['ERROR', 'OPPONENT_LEFT', 'MATCH_RESULT'].includes(message.type))).toBe(false);
+      const traces = await until(async () => {
+        const files = (await readdir(join(testEnv.tempDir, 'jev-decisions'))).filter(file => file.endsWith('.json'));
+        const records = await Promise.all(files.map(async file => JSON.parse(await readFile(join(testEnv.tempDir, 'jev-decisions', file), 'utf8'))));
+        return records.length === 2 && records.some(record => record.status === 'applied') ? records : null;
+      });
+      const failed = traces.find(trace => trace.status === 'error');
+      const applied = traces.find(trace => trace.status === 'applied');
+      expect(failed.error).toBe('http_error');
+      expect(failed.errorStatus).toBe(failure === '503' ? 503 : undefined);
+      expect(failed.stateHash).toBe(applied.stateHash);
+      expect(applied.selection.id).toBe(jevMoveId(update.state.history[0]));
+      expect(applied.recovery.attempt).toBe(2);
+      const health = await (await fetch(`${testEnv.httpUrl}/health`)).json();
+      expect(health.jev).toMatchObject({ acceptingMatches: true, reason: null, turns: 1,
+        successfulMoves: 1, failures: 0, attempts: 2, attemptFailures: 1, retries: 1, recoveredTurns: 1 });
+      const profiles = JSON.parse(await readFile(testEnv.profileDataFile, 'utf8'));
+      expect(profiles.find((profile: any) => profile.playerId === 'ranked-bot-jev').rating).toBe(1200);
+      expect(testEnv.output()).not.toContain('mock-test-key-safe');
+    } finally { socket?.terminate(); await testEnv.cleanup(); }
+  }, 35_000);
+
+  it('preserves actual HTTP 403 through the worker and does not retry a misleading 503 response body', async () => {
+    const testEnv = await startTestServer({ mockStatus: 403 });
+    let socket: WebSocket | undefined;
+    try {
+      socket = new WebSocket(testEnv.url);
+      const messages: WsMessage[] = [];
+      socket.on('message', raw => messages.push(JSON.parse(String(raw))));
+      await until(() => socket!.readyState === WebSocket.OPEN);
+      socket.send(JSON.stringify({ type: 'HELLO' }));
+      await until(() => messages.find(message => message.type === 'IDENTITY'));
+      socket.send(JSON.stringify({ type: 'MATCHMAKE_BOT' }));
+      await until(() => messages.find(message => message.type === 'OPPONENT_LEFT'));
+      const health = await (await fetch(`${testEnv.httpUrl}/health`)).json();
+      expect(health.jev).toMatchObject({ acceptingMatches: false, reason: 'http_403', attempts: 1,
+        retries: 0, failures: 1, lastError: { status: 403, retryable: false } });
+      expect(messages.some(message => ['STATE', 'MATCH_RESULT'].includes(message.type))).toBe(false);
+      const files = (await readdir(join(testEnv.tempDir, 'jev-decisions'))).filter(file => file.endsWith('.json'));
+      expect(files).toHaveLength(1);
+      const trace = JSON.parse(await readFile(join(testEnv.tempDir, 'jev-decisions', files[0]!), 'utf8'));
+      expect(trace.errorStatus).toBe(403);
+      expect(trace.stages[0].httpStatus).toBe(403);
+      expect(trace.stages[0].response.status).toBe(503);
+    } finally { socket?.terminate(); await testEnv.cleanup(); }
+  }, 35_000);
 
   it(
     'executes a complete legal opening move at delay 0 and saves applied trace with matching hashes and 2 API stages',

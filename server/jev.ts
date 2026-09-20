@@ -10,6 +10,7 @@ const MAX_CHOICES = 255;
 export type JevErrorCode =
   | 'http_429'
   | 'http_error'
+  | 'worker_error'
   | 'timeout'
   | 'aborted'
   | 'invalid_response'
