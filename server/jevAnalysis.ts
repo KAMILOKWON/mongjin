@@ -10,6 +10,7 @@ import {
   isGoalCell,
   legalMoves,
   opponent,
+  positionKey,
 } from '../src/core/rules';
 import type { Coord, GameState, Move, Player } from '../src/core/types';
 
@@ -119,6 +120,8 @@ export interface JevAnalyzedCandidate {
   score: number;
   searchedDepth: number;
   proven: JevProof;
+  /** Actual common/partial/extension depth that established an exact proof. */
+  proofSearchedDepth?: number;
   proof: JevProofDetail | null;
   principalVariation: Move[];
   afterFacts: JevStateFacts;
@@ -171,11 +174,40 @@ interface SearchValue {
   horizonFacts: JevStateFacts;
 }
 
+interface ExactProofRecord {
+  value: SearchValue;
+  searchedDepth: number;
+}
+
 interface InternalCandidate extends JevAnalyzedCandidate {
   horizonState: GameState | null;
 }
 
 type RouteCache = Map<string, JevKingRoute>;
+
+interface PositionSummary {
+  result: GameResult | null;
+  moves?: Move[];
+}
+
+// Current canonical getResult/legalMoves depend only on the turn, reserves, and
+// board encoded by positionKey; they ignore history and positionCounts. If a
+// repetition rule starts reading either field, this cache key must include it.
+interface AnalysisCaches {
+  routes: RouteCache;
+  positions: Map<string, PositionSummary>;
+  facts: Map<string, JevStateFacts>;
+  moveOrder: Map<string, Move>;
+}
+
+function createAnalysisCaches(): AnalysisCaches {
+  return {
+    routes: new Map(),
+    positions: new Map(),
+    facts: new Map(),
+    moveOrder: new Map(),
+  };
+}
 
 function check(control: AnalysisControl): void {
   if (control.signal?.aborted) {
@@ -209,6 +241,35 @@ function coordKey(coord: Coord): string {
 
 function sameMove(left: Move, right: Move): boolean {
   return moveKey(left) === moveKey(right);
+}
+
+function positionSummary(
+  state: GameState,
+  key: string,
+  config: RuleConfig,
+  cache: Map<string, PositionSummary>,
+): PositionSummary {
+  const cached = cache.get(key);
+  if (cached) return cached;
+  const summary = { result: getResult(state, config) };
+  cache.set(key, summary);
+  return summary;
+}
+
+function positionMoves(
+  state: GameState,
+  config: RuleConfig,
+  summary: PositionSummary,
+): Move[] {
+  if (!summary.moves) summary.moves = summary.result ? [] : legalMoves(state, config);
+  return summary.moves;
+}
+
+function orderedMoves(moves: Move[], preferredMove: Move | undefined): Move[] {
+  if (!preferredMove) return moves;
+  const preferredIndex = moves.findIndex((move) => sameMove(move, preferredMove));
+  if (preferredIndex <= 0) return moves;
+  return [moves[preferredIndex]!, ...moves.slice(0, preferredIndex), ...moves.slice(preferredIndex + 1)];
 }
 
 function countMaterial(state: GameState, rootPlayer: Player): JevMaterialFacts {
@@ -421,18 +482,25 @@ function stateFacts(
   rootPlayer: Player,
   config: RuleConfig,
   control: AnalysisControl,
-  cache: RouteCache,
+  caches: AnalysisCaches,
+  key = positionKey(state),
+  summary = positionSummary(state, key, config, caches.positions),
 ): JevStateFacts {
-  const terminal = getResult(state, config);
+  const cached = caches.facts.get(key);
+  if (cached) return cached;
+  const terminal = summary.result;
   const routes = terminal
     ? { own: terminalRoute(state, rootPlayer, config), opponent: terminalRoute(state, opponent(rootPlayer), config) }
-    : routesFor(state, rootPlayer, config, control, cache);
-  return {
+    : routesFor(state, rootPlayer, config, control, caches.routes);
+  const facts = {
     terminal,
     material: countMaterial(state, rootPlayer),
     routes,
     complete: routes.own.status !== 'incomplete' && routes.opponent.status !== 'incomplete',
   };
+  // A deadline/abort may leave either route incomplete; never reuse that as a fact.
+  if (facts.complete) caches.facts.set(key, facts);
+  return facts;
 }
 
 function terminalValue(
@@ -442,7 +510,9 @@ function terminalValue(
   plies: number,
   config: RuleConfig,
   control: AnalysisControl,
-  cache: RouteCache,
+  caches: AnalysisCaches,
+  key: string,
+  summary: PositionSummary,
 ): SearchValue {
   const won = result.winner === rootPlayer;
   return {
@@ -451,7 +521,7 @@ function terminalValue(
     proven: won ? 'win' : 'loss',
     proof: { winner: result.winner, reason: result.reason, plies },
     horizonState: state,
-    horizonFacts: stateFacts(state, rootPlayer, config, control, cache),
+    horizonFacts: stateFacts(state, rootPlayer, config, control, caches, key, summary),
   };
 }
 
@@ -466,9 +536,11 @@ function heuristicValue(
   rootPlayer: Player,
   config: RuleConfig,
   control: AnalysisControl,
-  cache: RouteCache,
+  caches: AnalysisCaches,
+  key: string,
+  summary: PositionSummary,
 ): SearchValue {
-  const facts = stateFacts(state, rootPlayer, config, control, cache);
+  const facts = stateFacts(state, rootPlayer, config, control, caches, key, summary);
   if (!facts.complete) {
     const reason = control.stopReason ?? (control.signal?.aborted ? 'aborted' : 'deadline');
     throw new AnalysisHalt(reason);
@@ -532,27 +604,39 @@ function searchNode(
   rootPlayer: Player,
   config: RuleConfig,
   control: SearchControl,
-  cache: RouteCache,
+  caches: AnalysisCaches,
 ): SearchValue {
   visit(control);
-  const result = getResult(state, config);
-  if (result) return terminalValue(state, result, rootPlayer, pliesFromRoot, config, control, cache);
-  if (depthRemaining === 0) return heuristicValue(state, rootPlayer, config, control, cache);
+  const key = positionKey(state);
+  const summary = positionSummary(state, key, config, caches.positions);
+  const result = summary.result;
+  if (result) {
+    return terminalValue(
+      state, result, rootPlayer, pliesFromRoot, config, control, caches, key, summary,
+    );
+  }
+  if (depthRemaining === 0) {
+    return heuristicValue(state, rootPlayer, config, control, caches, key, summary);
+  }
 
   const maximizing = state.turn === rootPlayer;
   const children: SearchValue[] = [];
   let best: SearchValue | null = null;
+  let bestMove: Move | null = null;
   let searchedAllChildren = true;
-  const moves = legalMoves(state, config);
+  const moves = orderedMoves(positionMoves(state, config, summary), caches.moveOrder.get(key));
 
   for (const [index, move] of moves.entries()) {
     const child = searchNode(
       applyMove(state, move), depthRemaining - 1, pliesFromRoot + 1,
-      alpha, beta, rootPlayer, config, control, cache,
+      alpha, beta, rootPlayer, config, control, caches,
     );
     const withMove = { ...child, principalVariation: [move, ...child.principalVariation] };
     children.push(withMove);
-    if (!best || preferred(withMove, best, maximizing)) best = withMove;
+    if (!best || preferred(withMove, best, maximizing)) {
+      best = withMove;
+      bestMove = move;
+    }
     if (maximizing) alpha = Math.max(alpha, best.score);
     else beta = Math.min(beta, best.score);
     if (alpha >= beta) {
@@ -562,6 +646,7 @@ function searchNode(
   }
 
   if (!best) throw new Error('JEV search found no moves in a non-terminal state');
+  caches.moveOrder.set(key, bestMove!);
   const proven = combinedProof(maximizing, children, searchedAllChildren);
   return {
     ...best,
@@ -571,18 +656,18 @@ function searchNode(
 }
 
 function searchCandidate(
-  state: GameState,
+  afterState: GameState,
   move: Move,
   depth: number,
   rootPlayer: Player,
   config: RuleConfig,
   control: SearchControl,
-  cache: RouteCache,
+  caches: AnalysisCaches,
 ): SearchValue {
   const value = searchNode(
-    applyMove(state, move), depth - 1, 1,
+    afterState, depth - 1, 1,
     Number.NEGATIVE_INFINITY, Number.POSITIVE_INFINITY,
-    rootPlayer, config, control, cache,
+    rootPlayer, config, control, caches,
   );
   return { ...value, principalVariation: [move, ...value.principalVariation] };
 }
@@ -607,19 +692,44 @@ function unsearchedCandidate(move: Move): InternalCandidate {
   };
 }
 
+function isExactProof(value: SearchValue | null): value is SearchValue {
+  return value?.proven === 'win' || value?.proven === 'loss';
+}
+
+function withExactProof(
+  candidate: InternalCandidate,
+  exact: ExactProofRecord | null,
+): InternalCandidate {
+  if (!exact) return candidate;
+  return {
+    ...candidate,
+    proven: exact.value.proven,
+    proofSearchedDepth: exact.searchedDepth,
+    proof: exact.value.proof,
+    principalVariation: exact.value.principalVariation,
+    horizonFacts: exact.value.horizonFacts,
+    horizonState: exact.value.horizonState,
+  };
+}
+
 function extensionReasons(
   state: GameState,
   facts: JevStateFacts,
   config: RuleConfig,
   control: AnalysisControl,
+  caches: AnalysisCaches,
 ): JevExtensionReason[] {
   if (facts.terminal) return [];
   check(control);
-  const moves = legalMoves(state, config);
+  const key = positionKey(state);
+  const summary = positionSummary(state, key, config, caches.positions);
+  const moves = positionMoves(state, config, summary);
   const reasons = new Set<JevExtensionReason>();
   for (const move of moves) {
     check(control);
-    if (getResult(applyMove(state, move), config)) reasons.add('terminal-threat');
+    const after = applyMove(state, move);
+    const afterKey = positionKey(after);
+    if (positionSummary(after, afterKey, config, caches.positions).result) reasons.add('terminal-threat');
     if (move.kind === 'MOVE' && state.board[move.to.r]?.[move.to.c]) reasons.add('capture-sequence');
   }
   const own = facts.routes.own;
@@ -654,7 +764,7 @@ export function analyzeJevFacts(
 
   const rootPlayer = state.turn;
   const moves = legalMoves(state, config);
-  const cache: RouteCache = new Map();
+  const caches = createAnalysisCaches();
   const control: AnalysisControl = {
     deadlineMs: options.deadlineMs,
     signal: options.signal,
@@ -698,10 +808,10 @@ export function analyzeJevFacts(
     }
   }
 
-  const initialRoute = routesFor(state, rootPlayer, config, control, cache);
+  const initialRoute = routesFor(state, rootPlayer, config, control, caches.routes);
   for (let index = 0; index < records.length; index += 1) {
     records[index]!.routes = stateFacts(
-      afterStates[index]!, rootPlayer, config, control, cache,
+      afterStates[index]!, rootPlayer, config, control, caches,
     ).routes;
   }
   const analyzedMoves = records.filter((record) => (
@@ -742,7 +852,7 @@ export function analyzeJevCandidates(
   }
 
   const rootPlayer = state.turn;
-  const cache: RouteCache = new Map();
+  const caches = createAnalysisCaches();
   const control: SearchControl = {
     deadlineMs: options.deadlineMs,
     signal: options.signal,
@@ -750,6 +860,8 @@ export function analyzeJevCandidates(
     maxNodes: normalized.maxNodes,
     nodes: 0,
   };
+  const afterStates = moves.map((move) => applyMove(state, move));
+  const exactProofs: Array<ExactProofRecord | null> = moves.map(() => null);
   let committed = moves.map(unsearchedCandidate);
   let completedDepth = 0;
   let commonStopReason: JevAnalysisStopReason = 'complete';
@@ -757,8 +869,12 @@ export function analyzeJevCandidates(
   for (let depth = 1; depth <= normalized.maxDepth; depth += 1) {
     const pending: InternalCandidate[] = [];
     try {
-      for (const move of moves) {
-        const value = searchCandidate(state, move, depth, rootPlayer, config, control, cache);
+      for (let index = 0; index < moves.length; index += 1) {
+        const move = moves[index]!;
+        const value = searchCandidate(
+          afterStates[index]!, move, depth, rootPlayer, config, control, caches,
+        );
+        if (isExactProof(value)) exactProofs[index] = { value, searchedDepth: depth };
         pending.push({
           move,
           score: value.score,
@@ -772,10 +888,11 @@ export function analyzeJevCandidates(
           horizonState: value.horizonState,
         });
       }
-      committed = pending;
+      committed = pending.map((candidate, index) => withExactProof(candidate, exactProofs[index]!));
       completedDepth = depth;
     } catch (error: unknown) {
       if (!(error instanceof AnalysisHalt)) throw error;
+      committed = committed.map((candidate, index) => withExactProof(candidate, exactProofs[index]!));
       commonStopReason = error.reason;
       break;
     }
@@ -788,7 +905,7 @@ export function analyzeJevCandidates(
   };
   for (let index = 0; index < committed.length; index += 1) {
     committed[index]!.afterFacts = stateFacts(
-      applyMove(state, committed[index]!.move), rootPlayer, config, factControl, cache,
+      afterStates[index]!, rootPlayer, config, factControl, caches,
     );
   }
 
@@ -800,11 +917,14 @@ export function analyzeJevCandidates(
 
   if (completedDepth === normalized.maxDepth && extensionTargetDepth > completedDepth) {
     control.deadlineMs = Math.min(options.deadlineMs, Date.now() + EXTENSION_MAX_MS);
-    for (const candidate of committed) {
+    for (let index = 0; index < committed.length; index += 1) {
+      const candidate = committed[index]!;
       if (!candidate.horizonState || !candidate.horizonFacts) continue;
       let reasons: JevExtensionReason[];
       try {
-        reasons = extensionReasons(candidate.horizonState, candidate.horizonFacts, config, control);
+        reasons = extensionReasons(
+          candidate.horizonState, candidate.horizonFacts, config, control, caches,
+        );
       } catch (error: unknown) {
         if (!(error instanceof AnalysisHalt)) throw error;
         extensionStopReason = error.reason;
@@ -819,7 +939,8 @@ export function analyzeJevCandidates(
       for (let depth = completedDepth + 1; depth <= extensionTargetDepth; depth += 1) {
         try {
           extensionValue = searchCandidate(
-            state, candidate.move, depth, rootPlayer, config, control, cache,
+            afterStates[index]!, candidate.move, depth,
+            rootPlayer, config, control, caches,
           );
           searchedDepth = depth;
           if (extensionValue.proven !== 'unknown') break;
@@ -849,6 +970,7 @@ export function analyzeJevCandidates(
       };
       if (exact && extensionValue) {
         candidate.proven = extensionValue.proven;
+        candidate.proofSearchedDepth = searchedDepth;
         candidate.proof = extensionValue.proof;
         candidate.principalVariation = extensionValue.principalVariation;
         candidate.horizonFacts = extensionValue.horizonFacts;

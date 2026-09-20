@@ -1,9 +1,13 @@
+import { readFileSync } from 'node:fs';
 import { beforeAll, describe, expect, it } from 'vitest';
 import { applyMove } from '../src/core/apply';
 import { DEFAULT_CONFIG } from '../src/core/config';
+import { getResult } from '../src/core/result';
 import { initialState, legalMoves } from '../src/core/rules';
 import type { Move } from '../src/core/types';
 import { chooseParallelJevMove, type ParallelTurnTrace } from './jevParallel';
+import { analyzeJevPressure } from './jevPressure';
+import { analyzeJevInitiative } from './jevInitiative';
 import { JEV_PARALLEL_POLICY, jevMoveId, jevStateHash } from './jevPolicy';
 import { JevTraceVerificationError, verifyJevTrace } from './jevReplay';
 import { main, mockEvaluateJev } from './verifyJev';
@@ -16,6 +20,35 @@ const illegalMove: Move = {
 
 function clone(trace: ParallelTurnTrace): ParallelTurnTrace {
   return structuredClone(trace);
+}
+
+const lossRecord = JSON.parse(readFileSync(
+  new URL('./fixtures/jev-first-loss.json', import.meta.url), 'utf8',
+)) as { moves: Move[] };
+
+function recordedPressureTrace(base: ParallelTurnTrace): ParallelTurnTrace {
+  let state = initialState(DEFAULT_CONFIG);
+  for (const move of lossRecord.moves.slice(0, 6)) state = applyMove(state, move);
+  const moves = legalMoves(state, DEFAULT_CONFIG)
+    .filter((move) => ['m_5_4_4_3', 'p_4_4'].includes(jevMoveId(move)));
+  const trace = clone(base);
+  trace.ply = state.history.length;
+  trace.snapshot = state;
+  trace.stateHash = jevStateHash(state);
+  trace.status = 'error';
+  trace.error = 'pressure-replay-fixture';
+  trace.stages = [];
+  trace.searches = [];
+  trace.retainedProofs = [];
+  delete trace.selection;
+  delete trace.expectedAfterHash;
+  delete trace.appliedStateHash;
+  delete trace.initiative;
+  trace.pressure = analyzeJevPressure(state, DEFAULT_CONFIG, moves, {
+    deadlineMs: Date.now() + 5_000,
+    maxNodes: JEV_PARALLEL_POLICY.pressureMaxNodes,
+  });
+  return trace;
 }
 
 describe('verifyJevTrace', () => {
@@ -44,6 +77,120 @@ describe('verifyJevTrace', () => {
     });
     expect(result.selectionId).toBe(valid.selection?.id);
     expect(result.candidateVariations).toBeGreaterThan(0);
+  });
+
+  it.each(['parallel-v4', 'parallel-v5', 'parallel-v6', 'parallel-v7'] as const)('still replays legacy %s traces after a policy upgrade', (version) => {
+    const legacy = clone(valid);
+    (legacy.policy as { version: string }).version = version;
+    delete legacy.coverage;
+    delete legacy.retainedProofs;
+    expect(verifyJevTrace(legacy).selectionId).toBe(valid.selection?.id);
+  });
+
+  it('replays pressure examples, conditional captures, and every checked next reply', () => {
+    const trace = recordedPressureTrace(valid);
+    expect(trace.pressure?.complete).toBe(true);
+    expect(trace.pressure?.candidates.some((candidate) => candidate.examples.length > 0)).toBe(true);
+    expect(verifyJevTrace(trace)).toMatchObject({ ply: 6, status: 'error', selectionId: null });
+  });
+
+  it('rechecks offensive capture threats and rejects an altered opponent escape claim', () => {
+    const trace = recordedPressureTrace(valid);
+    const next = lossRecord.moves[6]!;
+    trace.snapshot = applyMove(trace.snapshot, next);
+    trace.ply++;
+    trace.stateHash = jevStateHash(trace.snapshot);
+    delete trace.pressure;
+    const move = legalMoves(trace.snapshot, trace.config).find((m) => jevMoveId(m) === 'p_3_3')!;
+    trace.initiative = analyzeJevInitiative(trace.snapshot, trace.config, [move], {
+      deadlineMs: Date.now() + 2_000, maxNodes: 10_000,
+    });
+    expect(trace.initiative.candidates[0]?.directCaptureThreat).toBe(true);
+    expect(() => verifyJevTrace(trace)).not.toThrow();
+    trace.initiative.candidates[0]!.safeResponses[0]!.advancesRow = true;
+    expect(() => verifyJevTrace(trace)).toThrowError('invalid-initiative');
+  });
+
+  it('requires offensive facts for every final v8 choice but permits incomplete error traces', () => {
+    const historical = clone(valid);
+    (historical.policy as { version: string }).version = 'parallel-v8';
+    const ids = historical.gates.at(-1)!.candidates;
+    historical.initiative = analyzeJevInitiative(historical.snapshot, historical.config,
+      legalMoves(historical.snapshot, historical.config).filter((m) => ids.includes(jevMoveId(m)))
+        .sort((a, b) => ids.indexOf(jevMoveId(a)) - ids.indexOf(jevMoveId(b))),
+      { deadlineMs: Date.now() + 2_000, maxNodes: 10_000 });
+    expect(() => verifyJevTrace(historical)).not.toThrow();
+    const absent = clone(historical);
+    delete absent.initiative;
+    expect(() => verifyJevTrace(absent)).toThrowError('invalid-initiative');
+    absent.status = 'error';
+    expect(() => verifyJevTrace(absent)).not.toThrow();
+    const subset = clone(historical);
+    subset.initiative!.candidates = subset.initiative!.candidates.slice(1);
+    expect(() => verifyJevTrace(subset)).toThrowError('invalid-initiative');
+  });
+
+  it('rejects tampered pressure replies and conditional capture threats', () => {
+    const replyTampered = recordedPressureTrace(valid);
+    const replyExample = replyTampered.pressure!.candidates.flatMap((candidate) => candidate.examples)[0]!;
+    replyExample.opponentReply = illegalMove;
+    expect(() => verifyJevTrace(replyTampered)).toThrowError('invalid-pressure');
+
+    const captureTampered = recordedPressureTrace(valid);
+    const captureExample = captureTampered.pressure!.candidates.flatMap((candidate) => candidate.examples)[0]!;
+    captureExample.captureThreatsIfUnanswered[0] = illegalMove;
+    expect(() => verifyJevTrace(captureTampered)).toThrowError('invalid-pressure');
+  });
+
+  it('rejects a response falsely recorded safe despite an immediate winning counter', () => {
+    const tampered = recordedPressureTrace(valid);
+    const candidate = tampered.pressure!.candidates.find((entry) => entry.examples.length > 0)!;
+    const example = candidate.examples[0]!;
+    const root = tampered.snapshot;
+    const candidateMove = legalMoves(root, tampered.config)
+      .find((move) => jevMoveId(move) === candidate.id)!;
+    const after = applyMove(root, candidateMove);
+    const reply = legalMoves(after, tampered.config)
+      .find((move) => jevMoveId(move) === jevMoveId(example.opponentReply))!;
+    const threatened = applyMove(after, reply);
+    const unsafe = legalMoves(threatened, tampered.config).find((response) => {
+      const escaped = applyMove(threatened, response);
+      return legalMoves(escaped, tampered.config).some((counter) =>
+        getResult(applyMove(escaped, counter), tampered.config)?.winner === after.turn);
+    })!;
+    expect(unsafe).toBeDefined();
+    example.safeResponses[0] = {
+      move: unsafe,
+      action: unsafe.kind === 'MOVE'
+        && threatened.board[unsafe.from.r]?.[unsafe.from.c]?.type === 'KING' ? 'king' : 'guard',
+      advancesRow: false,
+      immediateWin: false,
+    };
+    expect(() => verifyJevTrace(tampered)).toThrowError('invalid-pressure');
+  });
+
+  it('rejects retained terminal evidence without a matching source search', () => {
+    const tampered = clone(valid);
+    const candidate = tampered.searches[0]!.candidates[0]!;
+    tampered.retainedProofs = [{ id: jevMoveId(candidate.move), proven: 'loss',
+      proof: { winner: 'WHITE', reason: 'goal', plies: 4 }, searchedDepth: 4,
+      sourceSearch: 0, principalVariation: candidate.principalVariation }];
+    expect(() => verifyJevTrace(tampered)).toThrowError('invalid-retained-proof');
+  });
+
+  it('rejects a jointly tampered source and retained proof whose legal PV is non-terminal', () => {
+    const tampered = clone(valid);
+    const candidate = tampered.searches[0]!.candidates.find((item) => item.proven === 'unknown')!;
+    const proof = { winner: 'WHITE' as const, reason: 'goal' as const,
+      plies: candidate.principalVariation.length };
+    candidate.proven = 'loss';
+    candidate.proof = proof;
+    candidate.proofSearchedDepth = candidate.searchedDepth;
+    tampered.retainedProofs = [{ id: jevMoveId(candidate.move), proven: 'loss', proof,
+      searchedDepth: candidate.searchedDepth, sourceSearch: 0,
+      principalVariation: candidate.principalVariation }];
+
+    expect(() => verifyJevTrace(tampered)).toThrowError('invalid-retained-proof');
   });
 
   it('rejects a tampered root hash or serialized snapshot position', () => {
@@ -114,6 +261,10 @@ describe('verifyJevTrace', () => {
   });
 
   it('rejects unsupported policy metadata, invalid selection sources, and selected traces without a selection', () => {
+    const versionTampered = clone(valid);
+    (versionTampered.policy as { version: string }).version = 'parallel-unknown';
+    expect(() => verifyJevTrace(versionTampered)).toThrowError('invalid-trace');
+
     const policyTampered = clone(valid);
     policyTampered.policy = {
       ...policyTampered.policy,

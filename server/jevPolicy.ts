@@ -2,18 +2,20 @@ import { createHash } from 'node:crypto';
 import type { GameState, Move } from '../src/core/types';
 
 export const JEV_PARALLEL_POLICY = {
-  version: 'parallel-v4', rulesVersion: 'mongjin-core-1', protocolVersion: 1,
+  version: 'parallel-v9', rulesVersion: 'mongjin-core-1', protocolVersion: 1,
   turnLimitMs: 30_000, maxPlies: 240, targetP95Ms: 8_000,
-  factsBudgetMs: 2_000, proposalBudgetMs: 5_000, searchBudgetMs: 3_000,
-  finalBudgetMs: 5_000, maxDepth: 4, maxNodes: 100_000, maxReproposals: 1,
+  factsBudgetMs: 2_000, proposalBudgetMs: 8_000, searchBudgetMs: 3_000,
+  finalBudgetMs: 8_000, maxDepth: 4, maxNodes: 100_000, maxReproposals: 1,
+  maxGuardAlternatives: 2,
+  pressureBudgetMs: 1_000, pressureMaxNodes: 20_000,
   // Provisional until fixed-condition timing measurements; never claim these targets were achieved.
   budgetStatus: 'provisional',
 } as const;
 
 export const JEV_ROLES = [
-  { id: 'survival', purpose: 'Reduce the risk of our king being captured or surrounded and preserve escape routes.', priority: 'Should preserving or opening our king escape routes take priority now?' },
-  { id: 'blocking', purpose: 'Delay or prevent the opposing king from reaching its goal.', priority: 'Should blocking the opposing king route take priority now?' },
-  { id: 'breakthrough', purpose: 'Open an obstructed route for our king, using guards where useful.', priority: 'Should using guards to open a currently blocked route take priority now?' },
+  { id: 'survival', purpose: 'Reduce the risk of our king being captured or surrounded and preserve escape routes. Compare deploying a guard with moving the king again; repeated retreat can surrender the goal race.', priority: 'Should preserving or opening our king escape routes take priority now?' },
+  { id: 'blocking', purpose: 'Delay or prevent the opposing king from reaching its goal. Consider guard deployment or movement before the threat is one move from the goal; a reserve guard does not block any square.', priority: 'Should blocking the opposing king route take priority now?' },
+  { id: 'breakthrough', purpose: 'Open an obstructed route for our king, using guards to challenge opposing blockers where useful. Compare developing a guard with repeatedly moving the king around the same obstacle.', priority: 'Should using guards to open a currently blocked route take priority now?' },
   { id: 'exchange', purpose: 'Find a favorable guard exchange, considering the opponent recapture and both reserves and deployed guards.', priority: 'Is there a favorable guard exchange opportunity now, after considering recapture?' },
   { id: 'advance', purpose: 'Find a king move that improves the race to the goal.', priority: 'Should advancing our king take priority now?' },
   { id: 'general', purpose: 'Choose the move most likely to help us win, without restricting yourself to a particular plan.', priority: null },

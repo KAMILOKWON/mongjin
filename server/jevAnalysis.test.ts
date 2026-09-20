@@ -84,6 +84,17 @@ const ORIGINAL_RECORDED_MOVES_THROUGH_PLY_26: Move[] = [
   place([4, 3]),
 ];
 
+const RANKED_LOSS_OPENING_THROUGH_PLY_8: Move[] = [
+  move([8, 4], [7, 4]),
+  move([0, 4], [1, 4]),
+  move([7, 4], [6, 4]),
+  move([1, 4], [2, 4]),
+  move([6, 4], [5, 4]),
+  place([3, 4]),
+  move([5, 4], [4, 3]),
+  move([3, 4], [3, 3]),
+];
+
 describe('analyzeJevFacts', () => {
   it('finds an exact immediate goal win across every canonical root move', () => {
     const state = stateWith([
@@ -196,7 +207,11 @@ describe('analyzeJevCandidates', () => {
 
     expect(analysis.completedDepth).toBe(2);
     expect(analysis.stopReason).toBe('complete');
-    expect(analysis.candidates[0]).toMatchObject({ searchedDepth: 2, proven: 'loss' });
+    expect(analysis.candidates[0]).toMatchObject({
+      searchedDepth: 2,
+      proven: 'loss',
+      proofSearchedDepth: 2,
+    });
     expect(analysis.candidates[0]!.proof?.winner).toBe('WHITE');
     const final = replayLegal(state, analysis.candidates[0]!.principalVariation, smallConfig);
     expect(analysis.candidates[0]!.horizonFacts?.terminal).toEqual({ winner: 'WHITE', reason: 'goal' });
@@ -240,6 +255,7 @@ describe('analyzeJevCandidates', () => {
       proven: 'loss',
       stopReason: 'complete',
     });
+    expect(result.proofSearchedDepth).toBe(2);
     expect(result.principalVariation).toEqual(result.extension!.principalVariation);
   });
 
@@ -262,6 +278,78 @@ describe('analyzeJevCandidates', () => {
       && candidate.searchedDepth === 0
       && candidate.horizonFacts === null
     ))).toBe(true);
+  });
+
+  it('retains a four-ply proof while scores stay at the completed three-ply depth', () => {
+    const state = stateWith([
+      { r: 3, c: 1, piece: { player: 'WHITE', type: 'GUARD' } },
+      { r: 4, c: 3, piece: { player: 'WHITE', type: 'GUARD' } },
+      { r: 6, c: 3, piece: { player: 'WHITE', type: 'GUARD' } },
+      { r: 6, c: 4, piece: { player: 'WHITE', type: 'KING' } },
+      { r: 8, c: 3, piece: { player: 'BLACK', type: 'KING' } },
+    ], 'BLACK', DEFAULT_CONFIG);
+    state.guardsInHand = { BLACK: 8, WHITE: 5 };
+    const legal = legalMoves(state, DEFAULT_CONFIG);
+    const candidates = [
+      findMove(legal, move([8, 3], [7, 4])),
+      findMove(legal, move([8, 3], [7, 3])),
+      findMove(legal, place([7, 3])),
+      findMove(legal, move([8, 3], [8, 4])),
+    ];
+    const commonDepthReference = analyzeJevCandidates(state, DEFAULT_CONFIG, candidates, {
+      deadlineMs: Date.now() + 5_000,
+      maxDepth: 3,
+      maxNodes: 3_000,
+    });
+    const interrupted = analyzeJevCandidates(state, DEFAULT_CONFIG, candidates, {
+      deadlineMs: Date.now() + 5_000,
+      maxDepth: 4,
+      maxNodes: 3_000,
+    });
+
+    expect(interrupted.completedDepth).toBe(3);
+    expect(interrupted.nodes).toBe(3_000);
+    expect(interrupted.stopReason).toBe('node-budget');
+    expect(interrupted.candidates.map((candidate) => candidate.score)).toEqual(
+      commonDepthReference.candidates.map((candidate) => candidate.score),
+    );
+    expect(interrupted.candidates.map((candidate) => candidate.searchedDepth)).toEqual([3, 3, 3, 3]);
+    expect(interrupted.candidates[0]).toMatchObject({
+      proven: 'loss',
+      proofSearchedDepth: 4,
+      proof: { winner: 'WHITE', plies: 4 },
+    });
+    replayLegal(state, interrupted.candidates[0]!.principalVariation, DEFAULT_CONFIG);
+  });
+
+  it('completes four common plies for four ranked candidates within 3,000 nodes', () => {
+    const state = replayLegal(
+      initialState(DEFAULT_CONFIG),
+      RANKED_LOSS_OPENING_THROUGH_PLY_8,
+      DEFAULT_CONFIG,
+    );
+    const legal = legalMoves(state, DEFAULT_CONFIG);
+    const candidates = [
+      findMove(legal, move([4, 3], [5, 3])),
+      findMove(legal, move([4, 3], [3, 4])),
+      findMove(legal, move([4, 3], [3, 2])),
+      findMove(legal, move([4, 3], [4, 2])),
+    ];
+    const analysis = analyzeJevCandidates(state, DEFAULT_CONFIG, candidates, {
+      deadlineMs: Date.now() + 5_000,
+      maxDepth: 4,
+      maxNodes: 3_000,
+    });
+
+    expect(analysis.completedDepth).toBe(4);
+    expect(analysis.nodes).toBeLessThanOrEqual(3_000);
+    expect(analysis.candidates.map((candidate) => candidate.searchedDepth)).toEqual([4, 4, 4, 4]);
+    expect(analysis.candidates.map((candidate) => candidate.score)).toEqual([
+      0, -999_998, -999_998, 0,
+    ]);
+    expect(analysis.candidates.map((candidate) => candidate.proven)).toEqual([
+      'unknown', 'loss', 'loss', 'unknown',
+    ]);
   });
 
   it('replays the original game through ply 26 inline and recognizes the 23-move pre-ply-26 crisis', () => {
