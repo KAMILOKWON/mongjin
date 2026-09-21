@@ -82,7 +82,24 @@ describe('verifyJevTrace', () => {
     expect(result.candidateVariations).toBeGreaterThan(0);
   });
 
-  it.each(['parallel-v4', 'parallel-v5', 'parallel-v6', 'parallel-v7', 'parallel-v9', 'parallel-v14', 'parallel-v15'] as const)('still replays legacy %s traces after a policy upgrade', (version) => {
+  it('rejects a terminal-only extension relabeled as scored, over-depth, or proven', () => {
+    for (const mutate of [
+      (extension: NonNullable<ParallelTurnTrace['searches'][number]['candidates'][number]['extension']>) => { extension.score = 100; },
+      (extension: NonNullable<ParallelTurnTrace['searches'][number]['candidates'][number]['extension']>) => { extension.searchedDepth = 9; },
+      (extension: NonNullable<ParallelTurnTrace['searches'][number]['candidates'][number]['extension']>) => {
+        extension.proven = 'loss'; extension.proof = { winner: 'WHITE', reason: 'goal', plies: 1 };
+      },
+    ]) {
+      const changed = clone(valid);
+      const extension = changed.searches.flatMap(search => search.candidates)
+        .find(candidate => candidate.extension?.method === 'terminal-only-loss-proof')?.extension;
+      expect(extension).toBeDefined();
+      mutate(extension!);
+      expect(() => verifyJevTrace(changed)).toThrow('invalid-extension-pv');
+    }
+  });
+
+  it.each(['parallel-v4', 'parallel-v5', 'parallel-v6', 'parallel-v7', 'parallel-v9', 'parallel-v14', 'parallel-v15', 'parallel-v16'] as const)('still replays legacy %s traces after a policy upgrade', (version) => {
     const legacy = clone(valid);
     (legacy.policy as { version: string }).version = version;
     delete legacy.coverage;

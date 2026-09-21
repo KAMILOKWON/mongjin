@@ -347,7 +347,7 @@ export async function chooseParallelJevMove(options: ParallelTurnOptions) {
       check();
       const search = (options.search ?? analyzeJevCandidates)(state, config, ids.map((id) => movesById.get(id)!), {
         deadlineMs: Math.min(stageDeadline(POLICY.searchBudgetMs), deadlineMs - (POLICY.pressureBudgetMs + POLICY.finalBudgetMs + 1_000)),
-        maxDepth: POLICY.maxDepth, maxNodes: POLICY.maxNodes, signal: options.signal,
+        maxDepth: POLICY.maxDepth, maxNodes: POLICY.maxNodes, terminalProofDepth: POLICY.terminalProofDepth, signal: options.signal,
       });
       trace.searches.push(search);
       trace.timings.searchMs.push(Date.now() - searchStart);

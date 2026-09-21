@@ -66,7 +66,7 @@ export function buildJevDecisionBriefing(state: GameState, config: RuleConfig, c
         proof: candidate.proof,
         exampleLine: candidate.principalVariation.map(jevMoveId),
         end: facts(candidate.horizonFacts, candidate.principalVariation.length % 2 === 0),
-        extension: extension ? { completed: extension.completed, depth: extension.searchedDepth,
+        extension: extension ? { method: extension.method ?? 'heuristic-search-with-terminal-proofs', completed: extension.completed, depth: extension.searchedDepth,
           stopReason: extension.stopReason, reasons: extension.reasons, proven: extension.proven, proof: extension.proof,
           exampleLine: extension.principalVariation.map(jevMoveId),
           end: facts(extension.horizonFacts, extension.principalVariation.length % 2 === 0) } : null },
@@ -123,7 +123,7 @@ export function buildJevDecisionBriefing(state: GameState, config: RuleConfig, c
     rolePriorities: { values: priorities, meaning: 'Earlier model estimates, not facts, independent votes, or game win probabilities.' },
     evidenceMeaning: {
       pressure: 'Opponent replies are optional possibilities, not forced choices. Counts include every checked safe response; at most two response IDs per group are examples. Response safety checks the following immediate loss only. Sideways and backward are measured from the king AFTER the candidate, not from the original square. Geometric forward movement is not a secured path.',
-      search: 'Two-value fact arrays always mean [SELF, OPPONENT]. Frozen first steps are representative examples, NOT every shortest-path first step. Their absence does not prove blockade; unchanged examples do not prove a guard ineffective. A retainedTerminalProof has its own source search, depth and proof line; it remains valid if the latest search is shallower. Exact terminal proofs are distinct from heuristic example lines. Frozen races assume all guards and future deployments remain unchanged. They are estimates, not secured routes.',
+      search: 'Two-value fact arrays always mean [SELF, OPPONENT]. Frozen first steps are representative examples, NOT every shortest-path first step. Their absence does not prove blockade; unchanged examples do not prove a guard ineffective. A retainedTerminalProof has its own source search, depth and proof line; it remains valid if the latest search is shallower. A terminal-only-loss-proof extension checks whether the opponent can force a win: unknown is NOT safety or a SELF win. Its unknown example shows only the candidate, not the full searched tree. Exact terminal proofs are distinct from heuristic example lines. Frozen races assume all guards and future deployments remain unchanged. They are estimates, not secured routes.',
       continuations: 'Every legal first opponent reply is branched. Later actions use one shallow fixed policy for BOTH sides, not future JEV decisions. All nonterminal branches stop at the common horizon; earlier terminal branches stop immediately. Even a terminal is conditional, not a forced result. Branch counts are not probabilities. Horizon references index the shared table; no horizon fact is silently discarded.',
     },
     conditionalContinuations: { firstReplyCoverage: rollouts.firstReplyCoverage, commonPlies: rollouts.commonCompletedPlies,

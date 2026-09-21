@@ -13,6 +13,7 @@ import {
   positionKey,
 } from '../src/core/rules';
 import type { Coord, GameState, Move, Player } from '../src/core/types';
+import { proveJevTerminalLosses } from './jevTerminalProof';
 
 export const JEV_ANALYSIS_VERSION = 'jev-analysis-1' as const;
 export const JEV_SEARCH_VERSION = 'jev-search-1' as const;
@@ -27,7 +28,7 @@ const HEURISTIC_LIMIT = 100_000;
 
 export type JevAnalysisStopReason = 'complete' | 'deadline' | 'node-budget' | 'aborted';
 export type JevProof = 'win' | 'loss' | 'unknown';
-export type JevExtensionReason = 'terminal-threat' | 'capture-sequence' | 'goal-race';
+export type JevExtensionReason = 'terminal-threat' | 'capture-sequence' | 'goal-race' | 'terminal-proof';
 
 export interface JevAnalysisOptions {
   /** Absolute Date.now() deadline allocated by the whole-turn orchestrator. */
@@ -40,6 +41,8 @@ export interface JevSearchOptions extends JevAnalysisOptions {
   maxDepth?: number;
   /** Shared by common search and selective extension. */
   maxNodes?: number;
+  /** Opt-in exact opponent-win extension; shares this search's time/node budget. */
+  terminalProofDepth?: 8;
 }
 
 export interface JevMaterialFacts {
@@ -100,6 +103,7 @@ export interface JevProofDetail {
 }
 
 export interface JevCandidateExtension {
+  method?: 'terminal-only-loss-proof';
   requestedDepth: number;
   searchedDepth: number;
   completed: boolean;
@@ -130,13 +134,13 @@ export interface JevAnalyzedCandidate {
 }
 
 export interface JevExtensionSummary {
-  policyVersion: typeof JEV_EXTENSION_POLICY_VERSION;
-  maxDepth: 6;
+  policyVersion: typeof JEV_EXTENSION_POLICY_VERSION | 'jev-extension-2';
+  maxDepth: 6 | 8;
   attemptedCandidates: number;
   completedCandidates: number;
   nodes: number;
   stopReason: JevAnalysisStopReason;
-  scope: 'unstable-candidates-only';
+  scope: 'unstable-candidates-only' | 'unresolved-candidates-terminal-loss-only';
 }
 
 export interface JevCandidateAnalysis {
@@ -751,6 +755,9 @@ function validateSearchOptions(options: JevSearchOptions): { maxDepth: number; m
   if (!Number.isInteger(maxNodes) || maxNodes < 0) {
     throw new Error('JEV search maxNodes must be a non-negative integer');
   }
+  if (options.terminalProofDepth !== undefined && options.terminalProofDepth !== 8) {
+    throw new Error('JEV terminalProofDepth must be 8 when enabled');
+  }
   return { maxDepth, maxNodes };
 }
 
@@ -907,6 +914,44 @@ export function analyzeJevCandidates(
     committed[index]!.afterFacts = stateFacts(
       afterStates[index]!, rootPlayer, config, factControl, caches,
     );
+  }
+
+  if (options.terminalProofDepth === 8) {
+    const unresolved = committed.filter(candidate => candidate.proven === 'unknown');
+    const terminalProof = proveJevTerminalLosses(state, config, unresolved.map(candidate => candidate.move), {
+      deadlineMs: options.deadlineMs, maxNodes: Math.max(0, normalized.maxNodes - control.nodes),
+      maxDepth: 8, signal: options.signal,
+    });
+    const records = new Map(terminalProof.candidates.map(candidate => [moveKey(candidate.move), candidate]));
+    for (const candidate of unresolved) {
+      const record = records.get(moveKey(candidate.move))!;
+      const exact = record.proven === 'loss';
+      const line = exact ? record.principalVariation : [candidate.move];
+      const horizonState = line.reduce((current, move) => applyMove(current, move), state);
+      const horizonFacts = exact ? stateFacts(horizonState, rootPlayer, config, factControl, caches) : candidate.afterFacts;
+      candidate.extension = {
+        method: 'terminal-only-loss-proof', requestedDepth: 8, searchedDepth: record.searchedDepth,
+        completed: record.completed, nodes: record.nodes, stopReason: record.stopReason,
+        reasons: ['terminal-proof'], score: null, proven: record.proven, proof: record.proof,
+        principalVariation: line, horizonFacts,
+      };
+      if (exact) {
+        candidate.proven = 'loss'; candidate.proof = record.proof;
+        candidate.proofSearchedDepth = record.searchedDepth;
+        candidate.principalVariation = record.principalVariation;
+        candidate.horizonFacts = horizonFacts; candidate.horizonState = horizonState;
+      }
+    }
+    return {
+      version: JEV_SEARCH_VERSION, completedDepth, nodes: control.nodes + terminalProof.nodes,
+      stopReason: completedDepth === normalized.maxDepth ? 'complete' : commonStopReason,
+      candidates: committed.map(({ horizonState: _state, ...candidate }) => candidate),
+      extension: { policyVersion: 'jev-extension-2', maxDepth: 8,
+        attemptedCandidates: terminalProof.candidates.filter(candidate => candidate.nodes > 0).length,
+        completedCandidates: terminalProof.candidates.filter(candidate => candidate.completed).length,
+        nodes: terminalProof.nodes, stopReason: terminalProof.stopReason,
+        scope: 'unresolved-candidates-terminal-loss-only' },
+    };
   }
 
   const extensionStartNodes = control.nodes;

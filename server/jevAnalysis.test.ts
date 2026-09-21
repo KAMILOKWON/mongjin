@@ -4,6 +4,7 @@ import { DEFAULT_CONFIG, type RuleConfig } from '../src/core/config';
 import { initialState, legalMoves } from '../src/core/rules';
 import type { GameState, Move, Piece, Player } from '../src/core/types';
 import { analyzeJevCandidates, analyzeJevFacts } from './jevAnalysis';
+import { jevMoveId } from './jevPolicy';
 
 const smallConfig: RuleConfig = {
   ...DEFAULT_CONFIG,
@@ -54,6 +55,34 @@ function replayLegal(state: GameState, moves: Move[], config: RuleConfig): GameS
   }
   return replay;
 }
+
+it('finds the recorded eight-ply forced loss without declaring unresolved defenses safe', () => {
+  const root = replayLegal(initialState(DEFAULT_CONFIG), [
+    move([8, 4], [7, 4]), move([0, 4], [1, 4]), move([7, 4], [6, 4]),
+    move([1, 4], [2, 3]), move([6, 4], [5, 4]), place([3, 3]), move([5, 4], [4, 5]),
+  ], DEFAULT_CONFIG);
+  const before = structuredClone(root);
+  const candidates = [move([2, 3], [3, 2]), move([3, 3], [3, 4]), place([3, 4]),
+    move([3, 3], [4, 3]), move([2, 3], [3, 4])];
+  const legacy = analyzeJevCandidates(root, DEFAULT_CONFIG, candidates, {
+    deadlineMs: Date.now() + 3_000, maxDepth: 4, maxNodes: 100_000,
+  });
+  expect(legacy.candidates[0]!.proven).toBe('unknown');
+  expect(legacy.extension.policyVersion).toBe('jev-extension-1');
+  const improved = analyzeJevCandidates(root, DEFAULT_CONFIG, candidates, {
+    deadlineMs: Date.now() + 10_000, maxDepth: 4, maxNodes: 100_000, terminalProofDepth: 8,
+  });
+  expect(improved.nodes).toBeLessThanOrEqual(100_000);
+  expect(improved.extension).toMatchObject({ policyVersion: 'jev-extension-2', maxDepth: 8,
+    scope: 'unresolved-candidates-terminal-loss-only' });
+  expect(improved.candidates[0]).toMatchObject({ proven: 'loss', proofSearchedDepth: 8,
+    proof: { winner: 'BLACK', reason: 'goal', plies: 8 }, extension: { method: 'terminal-only-loss-proof' } });
+  expect(improved.candidates.slice(1, 3).map(candidate => candidate.proven)).toEqual(['unknown', 'unknown']);
+  const terminal = replayLegal(root, improved.candidates[0]!.principalVariation, DEFAULT_CONFIG);
+  expect(jevMoveId(improved.candidates[0]!.principalVariation[0]!)).toBe('m_2_3_3_2');
+  expect(terminal.history.length).toBe(root.history.length + 8);
+  expect(root).toEqual(before);
+}, 20_000);
 
 const ORIGINAL_RECORDED_MOVES_THROUGH_PLY_26: Move[] = [
   place([7, 4]),
