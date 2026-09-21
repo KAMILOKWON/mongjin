@@ -7,6 +7,8 @@ import type { ParallelTurnTrace } from './jevParallel';
 import { analyzeJevInitiative } from './jevInitiative';
 import { verifyJevRolloutEvidence } from './jevRolloutReplay';
 import { JEV_PARALLEL_POLICY, jevMoveId, jevStateHash } from './jevPolicy';
+import { briefJevSearchProposal, verifyJevSearchProposal } from './jevSearchProposal';
+import { isDeepStrictEqual } from 'node:util';
 
 // v8 was a local experiment; retain its evidence audit after restoring the v7 briefing.
 const MAX_RECORDED_INITIATIVE_NODES = 10_000;
@@ -21,6 +23,7 @@ export type JevTraceVerificationErrorCode =
   | 'invalid-search-pv'
   | 'invalid-extension-pv'
   | 'invalid-retained-proof'
+  | 'invalid-search-proposal'
   | 'invalid-pressure'
   | 'invalid-initiative'
   | 'invalid-rollouts'
@@ -356,7 +359,7 @@ export function verifyJevTrace(trace: ParallelTurnTrace): JevTraceVerificationRe
   if (!['running', 'selected', 'applied', 'error', 'cancelled'].includes(trace.status)) fail('invalid-trace');
   if (!Array.isArray(trace.searches) || !Array.isArray(trace.stages)) fail('invalid-trace');
   if (!isRecord(trace.policy)
-      || !['parallel-v4', 'parallel-v5', 'parallel-v6', 'parallel-v7', 'parallel-v8', 'parallel-v9', 'parallel-v10', 'parallel-v11', 'parallel-v12', 'parallel-v13', JEV_PARALLEL_POLICY.version].includes(trace.policy.version)
+      || !['parallel-v4', 'parallel-v5', 'parallel-v6', 'parallel-v7', 'parallel-v8', 'parallel-v9', 'parallel-v10', 'parallel-v11', 'parallel-v12', 'parallel-v13', 'parallel-v14', 'parallel-v15', JEV_PARALLEL_POLICY.version].includes(trace.policy.version)
       || trace.policy.rulesVersion !== JEV_PARALLEL_POLICY.rulesVersion
       || trace.policy.protocolVersion !== JEV_PARALLEL_POLICY.protocolVersion) fail('invalid-trace');
 
@@ -459,17 +462,53 @@ export function verifyJevTrace(trace: ParallelTurnTrace): JevTraceVerificationRe
 
   verifyPressure(trace, root);
   verifyInitiative(trace, root);
-  const requiresRollouts = ['parallel-v10', 'parallel-v11', 'parallel-v12', 'parallel-v13', 'parallel-v14', 'parallel-v15'].includes((trace.policy as { version: string }).version)
+  if (trace.searchProposal) {
+    try { verifyJevSearchProposal(root, trace.config, trace.searchProposal); }
+    catch { fail('invalid-search-proposal'); }
+  }
+  const requiresSearchProposal = (trace.policy as { version: string }).version === 'parallel-v16'
+    && ['selected', 'applied'].includes(trace.status) && trace.selection?.source !== 'engine-immediate-win';
+  if (requiresSearchProposal) {
+    if (!Object.hasOwn(trace, 'searchProposal')
+      || !Number.isFinite(trace.searchProposalStartedAt) || !Number.isFinite(trace.searchProposalDeadlineMs)
+      || !Number.isFinite(trace.timings.searchProposalMs) || trace.timings.searchProposalMs! < 0
+      || trace.searchProposalStartedAt! < Date.parse(trace.startedAt)
+      || trace.searchProposalDeadlineMs! > trace.deadlineMs) fail('invalid-search-proposal');
+    if (trace.searchProposal) {
+      if (trace.searchProposalOmission !== undefined
+        || trace.searchProposal.limits.maxMs > trace.searchProposalDeadlineMs! - trace.searchProposalStartedAt!) fail('invalid-search-proposal');
+    } else {
+      if (!['budget-unavailable', 'injected-unavailable'].includes(trace.searchProposalOmission ?? '')) fail('invalid-search-proposal');
+      if (trace.searchProposalOmission === 'budget-unavailable'
+        && trace.searchProposalDeadlineMs! > trace.searchProposalStartedAt! + trace.timings.searchProposalMs!) fail('invalid-search-proposal');
+    }
+  }
+  const requiresRollouts = ['parallel-v10', 'parallel-v11', 'parallel-v12', 'parallel-v13', 'parallel-v14', 'parallel-v15', 'parallel-v16'].includes((trace.policy as { version: string }).version)
     && ['selected', 'applied'].includes(trace.status) && trace.selection?.source === 'jev-final';
   if (requiresRollouts && !trace.rollouts) fail('invalid-rollouts');
   const finalIds = trace.gates?.at(-1)?.candidates;
+  if (requiresSearchProposal) {
+    const included = !!trace.searchProposal && finalIds?.includes(trace.searchProposal.id);
+    if (included && (!trace.coverage?.some(c => c.id === trace.searchProposal!.id
+      && c.category === 'search-proposal' && c.role === 'classical-search' && c.probability === null)
+      || !trace.proposals.find(p => p.id === trace.searchProposal!.id)?.roles.includes('coverage-classical-search'))) {
+      fail('invalid-search-proposal');
+    }
+    if (trace.selection?.source === 'jev-final') {
+      const input = trace.stages.filter(s => s.phase === 'final').at(-1)?.request.state;
+      if (!isRecord(input) || !Object.hasOwn(input, 'searchProposal')
+        || !isDeepStrictEqual(input.searchProposal, included ? briefJevSearchProposal(trace.searchProposal!) : null)) {
+        fail('invalid-search-proposal');
+      }
+    }
+  }
   if (requiresRollouts) {
     const finalStage = trace.stages.filter(stage => stage.phase === 'final').at(-1);
     const question = finalStage?.request.questions.move;
     if (!Array.isArray(finalIds) || !finalIds.length || new Set(finalIds).size !== finalIds.length
       || !finalIds.includes(selectionId!) || question?.type !== 'choice'
       || JSON.stringify(Object.keys(question.criteria).sort()) !== JSON.stringify([...finalIds].sort())
-      || (['parallel-v14', 'parallel-v15'].includes((trace.policy as { version: string }).version)
+      || (['parallel-v14', 'parallel-v15', 'parallel-v16'].includes((trace.policy as { version: string }).version)
         ? trace.rollouts!.version !== 'jev-rollouts-v4' || trace.rollouts!.limits.maxPlies !== 8 || trace.rollouts!.limits.maxNodesPerDecision !== 64
         : trace.rollouts!.limits.maxPlies !== 40 || trace.rollouts!.limits.maxNodesPerDecision !== 128)) fail('invalid-rollouts');
   }

@@ -12,7 +12,7 @@ import {
   type BenchReport,
   type JevMoveChooser,
 } from './benchJev';
-import { chooseParallelJevMove, type ParallelTurnTrace } from './jevParallel';
+import { chooseParallelJevMove as chooseActualJevMove, type ParallelTurnTrace } from './jevParallel';
 import { analyzeJevReplyRollouts } from './jevReplyRollouts';
 import { JEV_MODEL } from './jevGateway';
 import { JEV_PARALLEL_POLICY, jevMoveId, jevStateHash } from './jevPolicy';
@@ -20,6 +20,12 @@ import { DEFAULT_CONFIG } from '../src/core/config';
 import { legalMoves } from '../src/core/rules';
 import { JevError } from './jev';
 import { mockEvaluateJev } from './verifyJev';
+
+// Harness tests exercise persistence/retries; search-proposal behavior has its
+// own canonical and integration tests without repeating a 4.3s search per turn.
+const chooseParallelJevMove: typeof chooseActualJevMove = options => chooseActualJevMove({
+  ...options, searchProposal: () => null,
+});
 
 const MAY_MATCH = {
   botId: 'ranked-bot-may',
@@ -495,5 +501,5 @@ describe('benchJev CLI harness unit tests', () => {
     } finally {
       await rm(testDir, { recursive: true, force: true }).catch(() => {});
     }
-  });
+  }, 35_000); // Two real local search turns, with mocked API responses.
 });

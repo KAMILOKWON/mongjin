@@ -11,6 +11,7 @@ import { readFileSync } from 'node:fs';
 import { applyMove } from '../src/core/apply';
 import { getResult } from '../src/core/result';
 import type { Move } from '../src/core/types';
+import { analyzeJevSearchProposal } from './jevSearchProposal';
 
 const firstLoss = JSON.parse(readFileSync(new URL('./fixtures/jev-first-loss.json', import.meta.url), 'utf8')) as {
   moves: Move[]; winner: string; reason: string;
@@ -53,8 +54,38 @@ function response(options: EvaluateJevOptions): EvaluateJevResult {
 }
 function options(evaluate: typeof evaluateJev) {
   return { gameId: 'local-test', state, config: DEFAULT_CONFIG, apiKey: 'test-key',
-    deadlineMs: Date.now() + 30_000, facts: () => structuredClone(allFacts), search, evaluate };
+    deadlineMs: Date.now() + 30_000, facts: () => structuredClone(allFacts), search, searchProposal: () => null, evaluate };
 }
+
+it.each([false, true])('keeps JEV final authority and exact loss gates with a classical alternative (unsafe=%s)', async (unsafe) => {
+  const kingId = 'm_8_4_7_4'; const guard: Move = { kind: 'PLACE', to: { r: 7, c: 4 } };
+  const guardId = jevMoveId(guard);
+  const api = vi.fn(async (input: EvaluateJevOptions) => {
+    const out = response(input);
+    for (const answer of Object.values(out.answers)) if (answer.type === 'choice') {
+      answer.choice = kingId;
+      answer.probabilities = Object.fromEntries(Object.keys(answer.probabilities).map(id => [id, Number(id === kingId)]));
+    }
+    return out;
+  });
+  const facts = structuredClone(allFacts);
+  if (unsafe) facts.candidates.find(c => jevMoveId(c.move) === guardId)!.immediateLoss = true;
+  const result = await chooseParallelJevMove({ ...options(api), facts: () => facts,
+    searchProposal: (state, config, opts) => analyzeJevSearchProposal(state, config, { ...opts,
+      choose: (_state, _rules, searchOptions) => {
+        searchOptions?.onSearchComplete?.({ nodes: 1, completedDepth: 1, elapsedMs: 1, aborted: false });
+        searchOptions?.onContinuation?.([guard]); return guard;
+      } }),
+  });
+  const final = api.mock.calls.at(-1)![0];
+  const keys = Object.keys((final.questions.move as { criteria: Record<string, string> }).criteria);
+  expect(keys.includes(guardId)).toBe(!unsafe);
+  expect(result.trace.coverage?.some(c => c.id === guardId && c.category === 'search-proposal')).toBe(!unsafe);
+  expect((api.mock.calls[0]![0].state as any).searchProposal).toBeUndefined();
+  expect((final.state as any).searchProposal?.id ?? null).toBe(unsafe ? null : guardId);
+  expect(jevMoveId(result.move)).toBe(kingId);
+  expect(result.trace.selection?.source).toBe('jev-final');
+});
 
 it('always asks six roles and five priorities; final JEV ID wins even with a lower engine score', async () => {
   const api = vi.fn(async (input: EvaluateJevOptions) => response(input));
@@ -264,6 +295,82 @@ it('does not claim global forced loss from losing proposals while unexplored alt
   const result = await chooseParallelJevMove({ ...options(api), state: position, facts: () => facts, search: loseSearch });
   expect(result.trace.stages.filter((s) => s.phase === 'reproposal')).toHaveLength(1);
   expect(result.trace.globalResult).toBe('unknown');
+});
+
+it('preserves a full final window through a slow proposal and all-loss reproposal path', async () => {
+  const startedAt = 1_800_000_000_000;
+  let clock = startedAt;
+  const now = vi.spyOn(Date, 'now').mockImplementation(() => clock);
+  const apiWindows: Array<{ phase: string; startedAt: number; deadlineMs: number }> = [];
+  const searchDeadlines: number[] = [];
+  let searchCalls = 0;
+  let searchProposalCalls = 0;
+  let searchProposalDeadline = 0;
+  let rolloutDeadline = 0;
+
+  try {
+    const api = vi.fn(async (input: EvaluateJevOptions) => {
+      const phase = input.questions.move ? 'final'
+        : (input.state as { recovery?: boolean }).recovery ? 'reproposal' : 'proposals';
+      apiWindows.push({ phase, startedAt: clock, deadlineMs: input.deadlineMs });
+      clock = input.deadlineMs;
+      return response(input);
+    });
+    const timedSearch: typeof search = (...args) => {
+      const budget = args[3];
+      searchDeadlines.push(budget.deadlineMs);
+      const result = search(...args);
+      clock = budget.deadlineMs;
+      if (++searchCalls === 1) {
+        // Mark the exact-result category solely to force the bounded recovery
+        // branch; this simulated-clock test makes no claim about game strength.
+        for (const candidate of result.candidates) candidate.proven = 'loss';
+      }
+      return result;
+    };
+
+    const result = await chooseParallelJevMove({
+      ...options(api),
+      deadlineMs: startedAt + 30_000,
+      search: timedSearch,
+      searchProposal: (_root, _rules, budget) => {
+        searchProposalCalls++;
+        searchProposalDeadline = budget.deadlineMs;
+        clock = budget.deadlineMs;
+        return null;
+      },
+      rollouts: (root, rules, moves, budget) => {
+        rolloutDeadline = budget.deadlineMs;
+        const analysis = analyzeJevReplyRollouts(root, rules, moves, {
+          ...budget,
+          choose: (position, config, searchOptions) => {
+            searchOptions.onSearchComplete?.({ nodes: 1, completedDepth: 1, elapsedMs: 0, aborted: false });
+            return legalMoves(position, config)[0] ?? null;
+          },
+        });
+        clock = budget.deadlineMs;
+        return analysis;
+      },
+    });
+
+    expect(result.trace.stages.map(stage => stage.phase)).toEqual(['proposals', 'reproposal', 'final']);
+    expect(searchProposalCalls).toBe(1);
+    expect(searchProposalDeadline).toBe(startedAt + 9_000);
+    expect(result.trace.searchProposal).toBeNull();
+    expect(result.trace.searchProposalOmission).toBe('budget-unavailable');
+    expect(searchDeadlines).toEqual([startedAt + 12_000, startedAt + 20_000]);
+    expect(rolloutDeadline).toBe(startedAt + 21_500);
+    expect(apiWindows).toEqual([
+      { phase: 'proposals', startedAt, deadlineMs: startedAt + 8_000 },
+      { phase: 'reproposal', startedAt: startedAt + 12_000, deadlineMs: startedAt + 17_000 },
+      { phase: 'final', startedAt: startedAt + 21_500, deadlineMs: startedAt + 29_500 },
+    ]);
+    expect(apiWindows[2]!.deadlineMs - apiWindows[2]!.startedAt).toBe(8_000);
+    expect(result.trace.selection?.source).toBe('jev-final');
+    expect(clock - startedAt).toBe(29_500);
+  } finally {
+    now.mockRestore();
+  }
 });
 
 it('records API errors without advancing the board or calling a fallback engine', async () => {

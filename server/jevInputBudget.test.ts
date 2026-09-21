@@ -109,4 +109,26 @@ describe('JEV request budget', () => {
     expect(out.budget.steps).toContain('intern-repeated-conditional-outcomes');
     expect(out.budget.sentBytes).toBeLessThanOrEqual(JEV_INPUT_BYTE_BUDGET);
   });
+  it('keeps action descriptions and losslessly encodes after-action facts at the last budget step', () => {
+    const afterAction = { terminal: null, complete: false, totalGuardsIncludingReserve: [8, 7],
+      frozenKingMoves: [4, 'unknown'], frozenFirstStepExamples: [[{ r: 3, c: 4 }], []],
+      frozenRaceFirst: 'unknown', frozenArrivalPlies: [8, null] };
+    const cards = Array.from({ length: 16 }, (_, i) => ({ id: `p_${i}_0`,
+      action: `Deploy SELF guard at (${i},0). OPPONENT acts next.`, afterAction: structuredClone(afterAction) }));
+    const q: Record<string, JevQuestion> = { move: { type: 'choice', instructions: 'Compare the cards.',
+      criteria: Object.fromEntries(cards.map(c => [c.id, c.action + ' See checked facts.'])) } };
+    const input: any = { briefingVersion: 'jev-decision-1', decisionCards: cards,
+      conditionalContinuations: { horizons: [['3,4', '5,4']], candidates: [] } };
+    input.padding = 'x'.repeat(27000 - Buffer.byteLength(JSON.stringify(input)) - Buffer.byteLength(JSON.stringify(q)));
+    const before = structuredClone(input); const beforeQuestions = structuredClone(q);
+    const out = prepareJevInput('final', input, q); const sent = out.state as any;
+    expect(out.budget.steps).toContain('table-encode-after-action-facts');
+    for (const card of sent.decisionCards) {
+      expect(Object.fromEntries(sent.afterActionColumns.map((key: string, i: number) => [key, card.afterAction[i]]))).toEqual(afterAction);
+    }
+    expect(out.questions.move.type === 'choice' && out.questions.move.criteria).toEqual(Object.fromEntries(cards.map(c => [c.id, c.action])));
+    expect(sent.conditionalContinuations).toEqual(input.conditionalContinuations);
+    expect(out.budget.sentBytes).toBeLessThanOrEqual(JEV_INPUT_BYTE_BUDGET);
+    expect(input).toEqual(before); expect(q).toEqual(beforeQuestions);
+  });
 });

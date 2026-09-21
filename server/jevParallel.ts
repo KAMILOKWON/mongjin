@@ -15,6 +15,7 @@ import { prepareJevInput } from './jevInputBudget';
 import { buildJevDecisionBriefing } from './jevDecisionBriefing';
 import { getJevThreatEscapeIds } from './jevEscapeCoverage';
 import { briefJevGuardDevelopment } from './jevGuardBriefing';
+import { analyzeJevSearchProposal, briefJevSearchProposal } from './jevSearchProposal';
 import type { analyzeJevInitiative } from './jevInitiative';
 import { buildJevBriefing, describeJevAction, briefJevRoutes } from './jevBriefing';
 import { JEV_PARALLEL_POLICY as POLICY, JEV_ROLES, jevMoveId, jevStateHash } from './jevPolicy';
@@ -55,9 +56,13 @@ export interface ParallelTurnTrace extends JevRecord {
   searches: Search[];
   proposals: { id: string; roles: string[] }[];
   /** Guard suggestions and legal forward king lanes retained without an extra expert vote. */
-  coverage?: { id: string; role: string; probability: number; category: 'deployment' | 'guard-action' | 'king-lane' | 'forcing-guard' | 'king-escape' }[];
+  coverage?: { id: string; role: string; probability: number | null; category: 'deployment' | 'guard-action' | 'king-lane' | 'forcing-guard' | 'king-escape' | 'search-proposal' }[];
   /** One bounded forcing-guard suggestion; inclusion never determines the final move. */
   pressureSuggestion?: ReturnType<typeof chooseJevGuardPressureMove>;
+  searchProposal?: ReturnType<typeof analyzeJevSearchProposal>;
+  searchProposalStartedAt?: number;
+  searchProposalDeadlineMs?: number;
+  searchProposalOmission?: 'budget-unavailable' | 'injected-unavailable';
   /** v5: exact outcomes survive shallower/restarted searches; common scores stay separate. */
   retainedProofs?: JevRetainedProof[];
   pressure?: ReturnType<typeof analyzeJevPressure>;
@@ -72,7 +77,7 @@ export interface ParallelTurnTrace extends JevRecord {
   expectedAfterHash?: string;
   appliedStateHash?: string;
   elapsedMs?: number;
-  timings: { factsMs?: number; searchMs: number[]; pressureMs?: number; initiativeMs?: number; rolloutMs?: number };
+  timings: { factsMs?: number; searchMs: number[]; pressureMs?: number; initiativeMs?: number; rolloutMs?: number; searchProposalMs?: number };
 }
 
 export class ParallelTurnError extends JevError {
@@ -91,6 +96,7 @@ export interface ParallelTurnOptions {
   evaluate?: typeof evaluateJev;
   facts?: typeof analyzeJevFacts;
   search?: typeof analyzeJevCandidates;
+  searchProposal?: typeof analyzeJevSearchProposal;
   rollouts?: typeof analyzeJevRollouts;
   onTrace?: (trace: ParallelTurnTrace) => void;
 }
@@ -126,7 +132,10 @@ export async function chooseParallelJevMove(options: ParallelTurnOptions) {
     try {
       const result = await (options.evaluate ?? evaluateJev)({
         state: prepared.state, questions: prepared.questions, apiKey: options.apiKey, signal: options.signal,
-        deadlineMs: stageDeadline(phase === 'final' ? POLICY.finalBudgetMs : POLICY.proposalBudgetMs),
+        deadlineMs: Math.min(stageDeadline(phase === 'final' ? POLICY.finalBudgetMs : POLICY.proposalBudgetMs),
+          // Recovery must leave one verification, first-reply enumeration and
+          // the full final-call allocation. The long rollout can be shortened.
+          phase === 'reproposal' ? deadlineMs - (POLICY.searchBudgetMs + POLICY.pressureBudgetMs + POLICY.finalBudgetMs + 1_000) : deadlineMs),
         onResponse: (response) => { stage.response = response; checkpoint(); },
       });
       stage.response = result.response;
@@ -222,6 +231,24 @@ export async function chooseParallelJevMove(options: ParallelTurnOptions) {
         board, strategicContext, guardDevelopment, recentHistory: state.history.slice(-12), facts: rootFacts, allowedCandidateIds: ids, recovery,
         uncertainty: 'Unchecked replies are unknown, never safe. Questions run independently; they cannot read each other answers. Frozen-board routes are estimates, not secured future paths.',
       }, questions);
+      if (trace.searchProposal === undefined) {
+        // Do not repeat an expensive search when the provider rejects the first
+        // call. Leave time for verification, pressure, rollouts and final JEV.
+        const suggestionStart = Date.now();
+        const remainingStages = POLICY.searchBudgetMs * 2 + POLICY.pressureBudgetMs
+          + POLICY.finalBudgetMs + 5_000 + 1_000;
+        const allocationDeadline = Math.min(stageDeadline(POLICY.searchProposalBudgetMs), deadlineMs - remainingStages);
+        trace.searchProposalStartedAt = suggestionStart;
+        trace.searchProposalDeadlineMs = allocationDeadline;
+        trace.searchProposal = (options.searchProposal ?? analyzeJevSearchProposal)(state, config, {
+          deadlineMs: allocationDeadline, signal: options.signal,
+        });
+        if (!trace.searchProposal) {
+          trace.searchProposalOmission = allocationDeadline <= Date.now() ? 'budget-unavailable' : 'injected-unavailable';
+        }
+        trace.timings.searchProposalMs = Date.now() - suggestionStart;
+        check(); checkpoint();
+      }
       const proposed = new Set<string>();
       const assessment: Record<string, unknown> = {};
       for (const role of JEV_ROLES) {
@@ -291,6 +318,15 @@ export async function chooseParallelJevMove(options: ParallelTurnOptions) {
         trace.coverage!.push({ id, role: 'survival', category: 'king-escape',
           probability: answer?.type === 'choice' ? answer.probabilities[id] ?? 0 : 0 });
       }
+      const searchId = trace.searchProposal?.id;
+      if (searchId && ids.includes(searchId) && allowed.includes(searchId)) {
+        proposed.add(searchId);
+        const roles = proposedRoles.get(searchId) ?? new Set<string>();
+        roles.add('coverage-classical-search'); proposedRoles.set(searchId, roles);
+        if (!trace.coverage!.some(c => c.id === searchId && c.category === 'search-proposal')) {
+          trace.coverage!.push({ id: searchId, role: 'classical-search', category: 'search-proposal', probability: null });
+        }
+      }
       priorities.push(assessment);
       trace.proposals = [...proposedRoles].map(([id, roles]) => ({ id, roles: [...roles] }));
       return [...proposed];
@@ -310,7 +346,8 @@ export async function chooseParallelJevMove(options: ParallelTurnOptions) {
       const searchStart = Date.now();
       check();
       const search = (options.search ?? analyzeJevCandidates)(state, config, ids.map((id) => movesById.get(id)!), {
-        deadlineMs: stageDeadline(POLICY.searchBudgetMs), maxDepth: POLICY.maxDepth, maxNodes: POLICY.maxNodes, signal: options.signal,
+        deadlineMs: Math.min(stageDeadline(POLICY.searchBudgetMs), deadlineMs - (POLICY.pressureBudgetMs + POLICY.finalBudgetMs + 1_000)),
+        maxDepth: POLICY.maxDepth, maxNodes: POLICY.maxNodes, signal: options.signal,
       });
       trace.searches.push(search);
       trace.timings.searchMs.push(Date.now() - searchStart);
@@ -349,13 +386,14 @@ export async function chooseParallelJevMove(options: ParallelTurnOptions) {
     if (!finalIds.length) throw new JevError('invalid_response', 'No final candidate');
     const pressureStart = Date.now();
     trace.pressure = analyzeJevPressure(state, config, finalIds.map((id) => movesById.get(id)!), {
-      deadlineMs: stageDeadline(POLICY.pressureBudgetMs), maxNodes: POLICY.pressureMaxNodes, signal: options.signal,
+      deadlineMs: Math.min(stageDeadline(POLICY.pressureBudgetMs), deadlineMs - POLICY.finalBudgetMs - 1_000),
+      maxNodes: POLICY.pressureMaxNodes, signal: options.signal,
     });
     trace.timings.pressureMs = Date.now() - pressureStart;
     check(); checkpoint();
     const rolloutStart = Date.now();
     trace.rollouts = (options.rollouts ?? analyzeJevReplyRollouts)(state, config, finalIds.map((id) => movesById.get(id)!), {
-      deadlineMs: stageDeadline(POLICY.rolloutBudgetMs), maxPlies: POLICY.rolloutMaxPlies,
+      deadlineMs: Math.min(stageDeadline(POLICY.rolloutBudgetMs), deadlineMs - POLICY.finalBudgetMs - 500), maxPlies: POLICY.rolloutMaxPlies,
       maxNodesPerDecision: POLICY.rolloutDecisionNodes, signal: options.signal,
     });
     trace.timings.rolloutMs = Date.now() - rolloutStart;
@@ -363,6 +401,7 @@ export async function chooseParallelJevMove(options: ParallelTurnOptions) {
     const decision = buildJevDecisionBriefing(state, config, finalIds.map(id => verified.get(id)!),
       trace.pressure, trace.rollouts, [...proofs.values()], priorities);
     const answers = await api('final', { ...decision.state, guardDevelopment, globalResult: trace.globalResult,
+      searchProposal: trace.searchProposal && finalIds.includes(trace.searchProposal.id) ? briefJevSearchProposal(trace.searchProposal) : null,
       calculation: trace.searches.map(({ candidates: _candidates, ...scope }) => scope),
       proposals: finalIds.map(id => ({ id, roles: [...(proposedRoles.get(id) ?? [])] })),
       proposalMeaning: 'Role agreement is not independent consensus. Coverage adds alternatives for comparison, not an extra vote or recommendation.',

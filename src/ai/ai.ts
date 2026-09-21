@@ -1,6 +1,8 @@
 import type { Coord, GameState, Move, Player } from '../core/types';
 import type { RuleConfig } from '../core/config';
 import type { BotHints } from '../bot/brain';
+import { applyMove } from '../core/apply';
+import { getResult } from '../core/result';
 import {
   findWinningMove,
   pickObviousMove,
@@ -55,6 +57,12 @@ export interface AiOptions {
   elite?: boolean;
   /** 진단·벤치용 탐색 통계 콜백. */
   onSearchComplete?: (stats: AiSearchStats) => void;
+  /**
+   * 선택된 root부터 시작하는 진단용 조건부 수열. 이후 수는 기존 TT를
+   * 따라가므로 bound나 뒤이은 미완료 iteration의 항목을 포함할 수 있으며,
+   * 검증된 PV나 승패 증명이 아니다. 각 수의 canonical 합법성은 재확인한다.
+   */
+  onContinuation?: (line: Move[]) => void;
 }
 
 export interface AiSearchStats {
@@ -683,6 +691,52 @@ function ttStore(
   ctx.tt.set(key, { depth, score, flag, move });
 }
 
+function copyMove(move: Move): Move {
+  if (move.kind === 'PLACE') return { kind: 'PLACE', to: { ...move.to } };
+  return { kind: 'MOVE', from: { ...move.from }, to: { ...move.to } };
+}
+
+/**
+ * 선택을 바꾸지 않는 진단 추출이다. Root는 항상 포함하고, 그 뒤는 마지막
+ * 완료 깊이를 상한으로 현재 TT의 수를 따른다. TT 자체는 이후 미완료
+ * iteration이나 alpha-beta bound에서 온 항목일 수 있으므로 이 line은
+ * 조건부 예시일 뿐 완료 깊이까지 검증된 root PV가 아니다.
+ */
+function extractContinuation(
+  state: GameState,
+  config: RuleConfig,
+  root: Move,
+  completedDepth: number,
+  tt: Map<string, TTEntry>,
+): Move[] {
+  const line: Move[] = [copyMove(root)];
+  const seen = new Set([positionKey(state)]);
+  let current = applyMove(state, root);
+  let key = positionKey(current);
+  if (seen.has(key) || getResult(current, config)) return line;
+  seen.add(key);
+
+  let remaining = Math.max(0, completedDepth - 1);
+  while (remaining > 0) {
+    const entry = tt.get(key);
+    if (!entry?.move || entry.depth < remaining) break;
+    const move = legalMoves(current, config).find((candidate) => movesEqual(candidate, entry.move!));
+    if (!move) break;
+
+    const next = applyMove(current, move);
+    const nextKey = positionKey(next);
+    if (seen.has(nextKey)) break;
+
+    line.push(copyMove(move));
+    current = next;
+    key = nextKey;
+    seen.add(key);
+    remaining--;
+    if (getResult(current, config)) break;
+  }
+  return line;
+}
+
 function quiescence(
   state: GameState,
   ctx: SearchCtx,
@@ -1029,6 +1083,9 @@ export function chooseMove(
       elapsedMs: performance.now() - startedAt,
       aborted: ctx.aborted,
     });
+    if (opts.onContinuation) {
+      opts.onContinuation(move ? extractContinuation(state, config, move, completedDepth, ctx.tt) : []);
+    }
     return move;
   };
   const legal = legalMoves(state, config);

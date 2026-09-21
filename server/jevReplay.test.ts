@@ -11,6 +11,7 @@ import { analyzeJevInitiative } from './jevInitiative';
 import { JEV_PARALLEL_POLICY, jevMoveId, jevStateHash } from './jevPolicy';
 import { JevTraceVerificationError, verifyJevTrace } from './jevReplay';
 import { main, mockEvaluateJev } from './verifyJev';
+import { analyzeJevSearchProposal, briefJevSearchProposal } from './jevSearchProposal';
 
 const illegalMove: Move = {
   kind: 'MOVE',
@@ -63,6 +64,7 @@ describe('verifyJevTrace', () => {
       apiKey: 'test-only-key',
       deadlineMs: Date.now() + JEV_PARALLEL_POLICY.turnLimitMs,
       evaluate: mockEvaluateJev,
+      searchProposal: () => null,
     });
     valid = result.trace;
   }, 35_000);
@@ -80,12 +82,43 @@ describe('verifyJevTrace', () => {
     expect(result.candidateVariations).toBeGreaterThan(0);
   });
 
-  it.each(['parallel-v4', 'parallel-v5', 'parallel-v6', 'parallel-v7', 'parallel-v9'] as const)('still replays legacy %s traces after a policy upgrade', (version) => {
+  it.each(['parallel-v4', 'parallel-v5', 'parallel-v6', 'parallel-v7', 'parallel-v9', 'parallel-v14', 'parallel-v15'] as const)('still replays legacy %s traces after a policy upgrade', (version) => {
     const legacy = clone(valid);
     (legacy.policy as { version: string }).version = version;
     delete legacy.coverage;
     delete legacy.retainedProofs;
     expect(verifyJevTrace(legacy).selectionId).toBe(valid.selection?.id);
+  });
+
+  it('audits the classical record, candidate coverage and exact briefing seen by final JEV', () => {
+    const trace = clone(valid);
+    const move = legalMoves(trace.snapshot, trace.config).find(m => jevMoveId(m) === trace.selection!.id)!;
+    const proposal = analyzeJevSearchProposal(trace.snapshot, trace.config, { deadlineMs: Date.now() + 100,
+      choose: (_state, _rules, options) => {
+        options?.onSearchComplete?.({ nodes: 1, completedDepth: 1, elapsedMs: 1, aborted: false });
+        options?.onContinuation?.([move]); return move;
+      } })!;
+    trace.searchProposal = proposal;
+    delete trace.searchProposalOmission;
+    trace.searchProposalStartedAt = Date.parse(trace.startedAt) + 10;
+    trace.searchProposalDeadlineMs = trace.searchProposalStartedAt + proposal.limits.maxMs;
+    trace.timings.searchProposalMs = 1;
+    trace.coverage!.push({ id: proposal.id, role: 'classical-search', probability: null, category: 'search-proposal' });
+    trace.proposals.find(p => p.id === proposal.id)!.roles.push('coverage-classical-search');
+    (trace.stages.find(s => s.phase === 'final')!.request.state as any).searchProposal = briefJevSearchProposal(proposal);
+    expect(() => verifyJevTrace(trace)).not.toThrow();
+    const edits: Array<(t: ParallelTurnTrace) => void> = [
+      t => { delete t.searchProposal; },
+      t => { t.searchProposal = null; },
+      t => { delete (t.stages.find(s => s.phase === 'final')!.request.state as any).searchProposal; },
+      t => { (t.stages.find(s => s.phase === 'final')!.request.state as any).searchProposal.id = 'p_99_99'; },
+      t => { t.coverage = t.coverage!.filter(c => c.category !== 'search-proposal'); },
+      t => { t.proposals.find(p => p.id === proposal.id)!.roles = ['general']; },
+    ];
+    for (const edit of edits) {
+      const changed = clone(trace); edit(changed);
+      expect(() => verifyJevTrace(changed)).toThrow('invalid-search-proposal');
+    }
   });
 
   it('replays pressure examples, conditional captures, and every checked next reply', () => {
