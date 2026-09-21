@@ -15,6 +15,81 @@ const bytes = (state: unknown, questions: Record<string, JevQuestion>) =>
  * in the request; the full unabridged analysis remains in the turn trace. */
 export function prepareJevInput(phase: Phase, input: unknown, sourceQuestions: Record<string, JevQuestion>) {
   const originalBytes = bytes(input, sourceQuestions);
+  if (phase === 'final' && record(input) && input.briefingVersion === 'jev-decision-1') {
+    const state = structuredClone(input);
+    const steps: string[] = [];
+    const note = () => { state.inputCompaction = { steps: [...steps], fullEvidenceInTrace: true,
+      meaning: 'All first-reply outcomes and horizon positions remain in shared tables. Pressure reply IDs, checked response counts and consequences remain. Example safe-response IDs and unproven extension examples may be omitted, never treated as safe.' }; };
+    if (originalBytes > JEV_INPUT_BYTE_BUDGET) {
+      // Actions remain in each criterion. Preserve the complete reply/horizon
+      // dictionaries and concrete pressure facts before optional PV examples.
+      for (const card of state.decisionCards) delete card.action;
+      steps.push('deduplicate-decision-actions'); note();
+    }
+    if (bytes(state, sourceQuestions) > JEV_INPUT_BYTE_BUDGET) {
+      for (const card of state.decisionCards) {
+        for (const example of card.opponentCapturePressure?.examples ?? []) delete example.safeResponseExamples;
+      }
+      steps.push('omit-response-id-examples-keep-counts-and-replies'); note();
+    }
+    if (bytes(state, sourceQuestions) > JEV_INPUT_BYTE_BUDGET) {
+      state.pressureExampleColumns = ['opponentReply', 'allResponsesChecked', 'checkedResponses', 'totalResponses',
+        'safeResponseCounts', 'immediateWins', 'consequence'];
+      for (const card of state.decisionCards) {
+        const pressure = card.opponentCapturePressure;
+        if (pressure?.examples) pressure.examples = pressure.examples.map((e: any) =>
+          [e.opponentReply, e.allResponsesChecked, e.checkedResponses, e.totalResponses,
+            e.safeResponseCounts, e.immediateWins, e.consequence]);
+      }
+      steps.push('table-encode-pressure-facts'); note();
+    }
+    if (bytes(state, sourceQuestions) > JEV_INPUT_BYTE_BUDGET) {
+      for (const card of state.decisionCards) {
+        const extension = card.search?.extension;
+        if (!extension || extension.proven !== 'unknown') continue;
+        delete extension.end; delete extension.exampleLine;
+        extension.exampleDetail = 'omitted-for-budget; full unproven extension in trace';
+      }
+      steps.push('summarize-unproven-extension-examples'); note();
+    }
+    if (bytes(state, sourceQuestions) > JEV_INPUT_BYTE_BUDGET) {
+      for (const card of state.decisionCards) {
+        const search = card.search; const retained = card.retainedTerminalProof;
+        if (!retained || !search || search.proven !== retained.proven
+          || !['win', 'loss'].includes(search.proven)
+          || ['winner', 'reason', 'plies'].some(key => search.proof?.[key] !== retained.proof?.[key])
+          || JSON.stringify(search.exampleLine) !== JSON.stringify(retained.proofLine)) continue;
+        card.search = { completedDepth: search.completedDepth, proven: search.proven,
+          exactProofReference: 'retainedTerminalProof' };
+      }
+      state.exactProofReferenceMeaning = 'References replace identical current proof/line with the retained proof. Redundant terminal facts and extension examples are omitted; full search remains in trace.';
+      steps.push('deduplicate-matching-terminal-proofs'); note();
+    }
+    if (bytes(state, sourceQuestions) > JEV_INPUT_BYTE_BUDGET) {
+      const continuations = state.conditionalContinuations;
+      if (continuations?.horizonDetail === 'lossless-shared-tables'
+        && continuations.replyColumns?.[1] === 'conditionalOutcome') {
+        const outcomes: string[] = [];
+        for (const candidate of continuations.candidates) {
+          candidate.replies = candidate.replies.map(([reply, outcome, horizon]: [number | null, string, number | null]) => {
+            let index = outcomes.indexOf(outcome);
+            if (index < 0) { index = outcomes.length; outcomes.push(outcome); }
+            return [reply, index, horizon];
+          });
+        }
+        continuations.replyColumns = ['firstReplyIndex', 'conditionalOutcomeIndex', 'horizonIndex'];
+        continuations.conditionalOutcomes = outcomes;
+        continuations.outcomeIndexMeaning = 'conditionalOutcomeIndex refers to conditionalOutcomes; all outcomes are preserved unchanged.';
+        steps.push('intern-repeated-conditional-outcomes'); note();
+      }
+    }
+    const sentBytes = bytes(state, sourceQuestions);
+    if (sentBytes > JEV_INPUT_BYTE_BUDGET) {
+      console.warn('[jev-input-budget]', JSON.stringify({ phase, originalBytes, sentBytes, steps }));
+      throw new JevError('invalid_response', `JEV input exceeds conservative ${JEV_INPUT_BYTE_BUDGET}-byte budget (${sentBytes})`);
+    }
+    return { state, questions: sourceQuestions, budget: { originalBytes, sentBytes, byteBudget: JEV_INPUT_BYTE_BUDGET, steps } };
+  }
   let state = input;
   let questions = sourceQuestions;
   const steps: string[] = [];

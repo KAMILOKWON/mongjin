@@ -5,7 +5,7 @@ import type { JevRoutePair, JevStateFacts } from './jevAnalysis';
 import { describeJevState } from './jev';
 import type { JevPressureAnalysis } from './jevPressure';
 
-export const JEV_BRIEFING_VERSION = 'mongjin-briefing-3';
+export const JEV_BRIEFING_VERSION = 'mongjin-briefing-4';
 const cell = (at: { r: number; c: number }) => `(${at.r},${at.c})`;
 
 export function describeJevAction(state: GameState, move: Move): string {
@@ -30,6 +30,7 @@ export function buildJevBriefing(state: GameState, config: RuleConfig) {
     turnEconomy: 'Players alternate. ONE action per turn: move the king, move a deployed guard, OR deploy one reserve guard. You cannot advance the king and deploy a guard on the same turn. After our action, the opponent can move OR deploy too.',
     exactRules: [...position.rules,
       'Kings cannot capture any piece, including a lone enemy guard; they cannot jump over an occupied cell.',
+      'Unlike chess, kings do NOT attack neighboring cells and may stand directly next to each other, orthogonally or diagonally. Enemy king proximity alone does not make a destination unsafe. An occupied king square also prevents guard deployment on that square.',
       'A captured guard is removed permanently, not returned to reserve. Deployment transfers one guard from reserve onto the board.',
       'A legal action can leave its own king threatened. Legal does not mean safe; the opponent can exploit the threat on its next turn.',
       ...(config.placement === 'adjacent' ? ['Both sides can deploy adjacent to ANY friendly king or guard, including on the opponent half. New guards become new deployment anchors on later turns. A line of guards can therefore grow toward and chase a king.'] : []),
