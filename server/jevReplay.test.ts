@@ -12,6 +12,7 @@ import { JEV_PARALLEL_POLICY, jevMoveId, jevStateHash } from './jevPolicy';
 import { JevTraceVerificationError, verifyJevTrace } from './jevReplay';
 import { main, mockEvaluateJev } from './verifyJev';
 import { analyzeJevSearchProposal, briefJevSearchProposal } from './jevSearchProposal';
+import { analyzeJevCandidates } from './jevAnalysis';
 
 const illegalMove: Move = {
   kind: 'MOVE',
@@ -53,8 +54,104 @@ function recordedPressureTrace(base: ParallelTurnTrace): ParallelTurnTrace {
   return trace;
 }
 
+function move(from: [number, number], to: [number, number]): Move {
+  return { kind: 'MOVE', from: { r: from[0], c: from[1] }, to: { r: to[0], c: to[1] } };
+}
+
+function place(to: [number, number]): Move {
+  return { kind: 'PLACE', to: { r: to[0], c: to[1] } };
+}
+
+function v16Ply7State() {
+  let state = initialState(DEFAULT_CONFIG);
+  for (const candidate of [
+    move([8, 4], [7, 4]), move([0, 4], [1, 4]), move([7, 4], [6, 4]),
+    move([1, 4], [2, 3]), move([6, 4], [5, 4]), place([3, 3]), move([5, 4], [4, 5]),
+  ]) {
+    expect(legalMoves(state, DEFAULT_CONFIG)).toContainEqual(candidate);
+    state = applyMove(state, candidate);
+  }
+  return state;
+}
+
+function terminalProofTrace(base: ParallelTurnTrace): ParallelTurnTrace {
+  const state = v16Ply7State();
+  const ids = ['m_2_3_3_2', 'm_3_3_3_4', 'p_3_4', 'm_3_3_4_3', 'm_2_3_3_4'];
+  const roots = ids.map(id => legalMoves(state, DEFAULT_CONFIG).find(move => jevMoveId(move) === id)!);
+  const search = analyzeJevCandidates(state, DEFAULT_CONFIG, roots, {
+    deadlineMs: Date.now() + 10_000,
+    maxDepth: 4,
+    maxNodes: 100_000,
+    terminalProofDepth: 8,
+  });
+  const retainedProofs = search.candidates.flatMap(candidate => candidate.proven === 'unknown' ? [] : [{
+    id: jevMoveId(candidate.move),
+    proven: candidate.proven,
+    proof: candidate.proof,
+    searchedDepth: candidate.proofSearchedDepth!,
+    sourceSearch: 0,
+    principalVariation: candidate.principalVariation,
+  }]);
+  const retained = new Map(retainedProofs.map(proof => [proof.id, proof.proven]));
+  const wins = ids.filter(id => retained.get(id) === 'win');
+  const unresolved = ids.filter(id => retained.get(id) !== 'loss');
+  const finalIds = wins.length ? wins : unresolved.length ? unresolved : ids;
+  const trace = clone(base);
+  trace.ply = state.history.length;
+  trace.snapshot = state;
+  trace.stateHash = jevStateHash(state);
+  trace.status = 'error';
+  trace.error = 'terminal-proof-replay-fixture';
+  trace.stages = [];
+  trace.searches = [search];
+  trace.retainedProofs = retainedProofs;
+  trace.gates = [{
+    reason: wins.length ? 'proven-win' : unresolved.length ? 'avoid-proven-loss' : 'candidate-loss-global-scope-recorded',
+    candidates: finalIds,
+    excluded: ids.filter(id => !finalIds.includes(id)),
+  }];
+  trace.globalResult = 'unknown';
+  trace.proposals = [];
+  trace.coverage = [];
+  delete trace.selection;
+  delete trace.expectedAfterHash;
+  delete trace.appliedStateHash;
+  delete trace.facts;
+  delete trace.pressure;
+  delete trace.pressureSuggestion;
+  delete trace.initiative;
+  delete trace.rollouts;
+  delete trace.searchProposal;
+  delete trace.searchProposalOmission;
+  return trace;
+}
+
+function stripV17TerminalProofs(trace: ParallelTurnTrace): void {
+  for (const search of trace.searches) {
+    let removed = false;
+    for (const candidate of search.candidates) {
+      if (candidate.extension?.method === 'terminal-only-loss-proof') {
+        candidate.extension = null;
+        removed = true;
+      }
+    }
+    if (removed) {
+      search.extension = {
+        policyVersion: 'jev-extension-1',
+        maxDepth: 6,
+        attemptedCandidates: 0,
+        completedCandidates: 0,
+        nodes: 0,
+        stopReason: 'complete',
+        scope: 'unstable-candidates-only',
+      };
+    }
+  }
+}
+
 describe('verifyJevTrace', () => {
   let valid: ParallelTurnTrace;
+  let terminalValid: ParallelTurnTrace;
 
   beforeAll(async () => {
     const result = await chooseParallelJevMove({
@@ -67,6 +164,7 @@ describe('verifyJevTrace', () => {
       searchProposal: () => null,
     });
     valid = result.trace;
+    terminalValid = terminalProofTrace(valid);
   }, 35_000);
 
   it('verifies an actual initial-state mock turn', () => {
@@ -99,8 +197,130 @@ describe('verifyJevTrace', () => {
     }
   });
 
+  it('reproduces a valid directional terminal-loss proof before accepting the record', () => {
+    expect(() => verifyJevTrace(terminalValid)).not.toThrow();
+    const losses = terminalValid.searches[0]!.candidates.filter(candidate => (
+      candidate.extension?.method === 'terminal-only-loss-proof' && candidate.extension.proven === 'loss'
+    ));
+    expect(losses.length).toBeGreaterThan(0);
+  });
+
+  it('accepts an error checkpoint after verification but before a final gate is created', () => {
+    const partial = clone(terminalValid);
+    const eligible = partial.searches[0]!.candidates.map(candidate => jevMoveId(candidate.move));
+    partial.gates = [{ reason: 'avoid-confirmed-next-reply-loss', candidates: eligible, excluded: [] }];
+
+    expect(() => verifyJevTrace(partial)).not.toThrow();
+  });
+
+  it('uses retained proofs when the latest verification has no terminal-only extensions', () => {
+    const changed = clone(terminalValid);
+    const latest = structuredClone(changed.searches[0]!);
+    for (const candidate of latest.candidates) {
+      if (candidate.extension?.method === 'terminal-only-loss-proof') candidate.extension = null;
+    }
+    latest.extension = {
+      policyVersion: 'jev-extension-1',
+      maxDepth: 6,
+      attemptedCandidates: 0,
+      completedCandidates: 0,
+      nodes: 0,
+      stopReason: 'complete',
+      scope: 'unstable-candidates-only',
+    };
+    changed.searches.push(latest);
+
+    expect(() => verifyJevTrace(changed)).not.toThrow();
+  });
+
+  it('rejects deleting a terminal-loss retained proof and widening the final gate', () => {
+    const changed = clone(terminalValid);
+    const loss = changed.searches[0]!.candidates.find(candidate => (
+      candidate.extension?.method === 'terminal-only-loss-proof' && candidate.extension.proven === 'loss'
+    ))!;
+    const lossId = jevMoveId(loss.move);
+    changed.retainedProofs = changed.retainedProofs!.filter(proof => proof.id !== lossId);
+    const eligible = changed.searches.at(-1)!.candidates.map(candidate => jevMoveId(candidate.move));
+    const retained = new Map(changed.retainedProofs.map(proof => [proof.id, proof.proven]));
+    const widened = eligible.filter(id => retained.get(id) !== 'loss');
+    changed.gates.at(-1)!.candidates = widened;
+    changed.gates.at(-1)!.excluded = eligible.filter(id => !widened.includes(id));
+
+    expect(() => verifyJevTrace(changed)).toThrow('invalid-retained-proof');
+  });
+
+  it('rejects a legal adverse PV that does not prove every SELF defense loses', () => {
+    const changed = clone(terminalValid);
+    const candidate = changed.searches[0]!.candidates.find(item => jevMoveId(item.move) === 'p_3_4')!;
+    expect(candidate.extension).toMatchObject({ method: 'terminal-only-loss-proof', proven: 'unknown' });
+    const adverse = [
+      place([3, 4]), move([4, 5], [3, 6]), move([2, 3], [3, 2]), move([3, 6], [2, 7]),
+      move([3, 2], [4, 2]), move([2, 7], [1, 6]), move([4, 2], [5, 2]), move([1, 6], [0, 5]),
+    ];
+    let terminal = changed.snapshot;
+    for (const move of adverse) {
+      expect(legalMoves(terminal, changed.config)).toContainEqual(move);
+      terminal = applyMove(terminal, move);
+    }
+    const proof = { ...getResult(terminal, changed.config)!, plies: adverse.length };
+    expect(proof).toEqual({ winner: 'BLACK', reason: 'goal', plies: 8 });
+    const fakeHorizon = structuredClone(candidate.afterFacts);
+    fakeHorizon.terminal = { winner: proof.winner, reason: proof.reason };
+    candidate.extension = {
+      ...candidate.extension!,
+      searchedDepth: 8,
+      completed: true,
+      stopReason: 'complete',
+      proven: 'loss',
+      proof,
+      principalVariation: adverse,
+      horizonFacts: fakeHorizon,
+    };
+    candidate.proven = 'loss';
+    candidate.proof = proof;
+    candidate.proofSearchedDepth = 8;
+    candidate.principalVariation = adverse;
+    candidate.horizonFacts = fakeHorizon;
+    changed.retainedProofs!.push({
+      id: 'p_3_4', proven: 'loss', proof, searchedDepth: 8, sourceSearch: 0,
+      principalVariation: adverse,
+    });
+    const eligible = changed.searches[0]!.candidates.map(item => jevMoveId(item.move));
+    const retained = new Map(changed.retainedProofs!.map(item => [item.id, item.proven]));
+    const unresolved = eligible.filter(id => retained.get(id) !== 'loss');
+    changed.gates.at(-1)!.candidates = unresolved;
+    changed.gates.at(-1)!.excluded = eligible.filter(id => !unresolved.includes(id));
+
+    expect(() => verifyJevTrace(changed)).toThrow('invalid-extension-pv');
+  });
+
+  it('rejects terminal-proof promotion, horizon, node-budget, and final-gate metadata tampering', () => {
+    const edits: Array<(trace: ParallelTurnTrace) => void> = [
+      trace => {
+        const candidate = trace.searches[0]!.candidates.find(item => item.extension?.proven === 'loss')!;
+        candidate.proofSearchedDepth = 6;
+      },
+      trace => {
+        const candidate = trace.searches[0]!.candidates.find(item => item.extension?.proven === 'loss')!;
+        candidate.horizonFacts = candidate.afterFacts;
+      },
+      trace => { trace.searches[0]!.extension.nodes = 100_001; },
+      trace => {
+        const ids = trace.searches.at(-1)!.candidates.map(candidate => jevMoveId(candidate.move));
+        trace.gates.at(-1)!.candidates = ids;
+        trace.gates.at(-1)!.excluded = [];
+      },
+    ];
+    for (const edit of edits) {
+      const changed = clone(terminalValid);
+      edit(changed);
+      expect(() => verifyJevTrace(changed)).toThrow();
+    }
+  });
+
   it.each(['parallel-v4', 'parallel-v5', 'parallel-v6', 'parallel-v7', 'parallel-v9', 'parallel-v14', 'parallel-v15', 'parallel-v16'] as const)('still replays legacy %s traces after a policy upgrade', (version) => {
     const legacy = clone(valid);
+    stripV17TerminalProofs(legacy);
     (legacy.policy as { version: string }).version = version;
     delete legacy.coverage;
     delete legacy.retainedProofs;
@@ -164,6 +384,7 @@ describe('verifyJevTrace', () => {
 
   it('requires offensive facts for every final v8 choice but permits incomplete error traces', () => {
     const historical = clone(valid);
+    stripV17TerminalProofs(historical);
     (historical.policy as { version: string }).version = 'parallel-v8';
     const ids = historical.gates.at(-1)!.candidates;
     historical.initiative = analyzeJevInitiative(historical.snapshot, historical.config,
@@ -231,6 +452,8 @@ describe('verifyJevTrace', () => {
 
   it('rejects a jointly tampered source and retained proof whose legal PV is non-terminal', () => {
     const tampered = clone(valid);
+    stripV17TerminalProofs(tampered);
+    (tampered.policy as { version: string }).version = 'parallel-v16';
     const candidate = tampered.searches[0]!.candidates.find((item) => item.proven === 'unknown')!;
     const proof = { winner: 'WHITE' as const, reason: 'goal' as const,
       plies: candidate.principalVariation.length };
@@ -318,7 +541,7 @@ describe('verifyJevTrace', () => {
     const subset = clone(valid); subset.rollouts!.candidates.pop();
     expect(() => verifyJevTrace(subset)).toThrowError('invalid-rollouts');
     const noGate = clone(valid); noGate.gates = [];
-    expect(() => verifyJevTrace(noGate)).toThrowError('invalid-rollouts');
+    expect(() => verifyJevTrace(noGate)).toThrowError('invalid-extension-pv');
     const alteredBudget = clone(valid); alteredBudget.rollouts!.limits.maxNodesPerDecision = 1;
     expect(() => verifyJevTrace(alteredBudget)).toThrowError('invalid-rollouts');
     const alteredCriteria = clone(valid);

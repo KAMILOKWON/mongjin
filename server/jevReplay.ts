@@ -8,6 +8,7 @@ import { analyzeJevInitiative } from './jevInitiative';
 import { verifyJevRolloutEvidence } from './jevRolloutReplay';
 import { JEV_PARALLEL_POLICY, jevMoveId, jevStateHash } from './jevPolicy';
 import { briefJevSearchProposal, verifyJevSearchProposal } from './jevSearchProposal';
+import { proveJevTerminalLosses } from './jevTerminalProof';
 import { isDeepStrictEqual } from 'node:util';
 
 // v8 was a local experiment; retain its evidence audit after restoring the v7 briefing.
@@ -111,6 +112,11 @@ function replayVariation(
     state = applyMove(state, move);
   }
   return state;
+}
+
+function sameVariation(left: Move[], right: Move[]): boolean {
+  return left.length === right.length
+    && left.every((move, index) => jevMoveId(move) === jevMoveId(right[index]!));
 }
 
 function snapshotHash(snapshot: unknown): string {
@@ -412,6 +418,9 @@ export function verifyJevTrace(trace: ParallelTurnTrace): JevTraceVerificationRe
   let extensionVariations = 0;
   for (const search of trace.searches) {
     if (!isRecord(search) || !Array.isArray(search.candidates)) fail('invalid-trace');
+    const terminalCandidates = search.candidates.filter(
+      (candidate) => candidate.extension?.method === 'terminal-only-loss-proof',
+    );
     for (const candidate of search.candidates) {
       if (!isRecord(candidate)) fail('invalid-search-pv');
       replayVariation(root, trace.config, candidate.move, candidate.principalVariation, 'invalid-search-pv');
@@ -421,20 +430,74 @@ export function verifyJevTrace(trace: ParallelTurnTrace): JevTraceVerificationRe
         const extensionEnd = replayVariation(root, trace.config, candidate.move, candidate.extension.principalVariation, 'invalid-extension-pv');
         if (candidate.extension.method === 'terminal-only-loss-proof') {
           const extension = candidate.extension;
-          if (search.extension?.policyVersion !== 'jev-extension-2'
+          if ((trace.policy as { version: string }).version !== 'parallel-v17'
+              || search.extension?.policyVersion !== 'jev-extension-2'
               || extension.requestedDepth !== 8 || extension.score !== null
-              || !Number.isSafeInteger(extension.searchedDepth) || extension.searchedDepth < 0 || extension.searchedDepth > 8
+              || ![0, 2, 4, 6, 8].includes(extension.searchedDepth)
               || !Number.isSafeInteger(extension.nodes) || extension.nodes < 0
+              || typeof extension.completed !== 'boolean'
+              || !['complete', 'deadline', 'node-budget', 'aborted'].includes(extension.stopReason)
               || !['loss', 'unknown'].includes(extension.proven)) fail('invalid-extension-pv');
           if (extension.proven === 'loss') {
             const terminal = getResult(extensionEnd, trace.config);
-            if (!extension.completed || !terminal || terminal.winner === root.turn
+            if (!extension.completed || extension.stopReason !== 'complete' || !terminal || terminal.winner === root.turn
                 || extension.proof?.winner !== terminal.winner || extension.proof?.reason !== terminal.reason
                 || extension.proof?.plies !== extension.principalVariation.length
-                || extension.searchedDepth < extension.principalVariation.length) fail('invalid-extension-pv');
-          } else if (extension.proof !== null || extension.principalVariation.length !== 1) fail('invalid-extension-pv');
+                || extension.searchedDepth < extension.principalVariation.length
+                || candidate.proven !== 'loss'
+                || candidate.proofSearchedDepth !== extension.searchedDepth
+                || !isDeepStrictEqual(candidate.proof, extension.proof)
+                || !sameVariation(candidate.principalVariation, extension.principalVariation)
+                || !isDeepStrictEqual(candidate.horizonFacts, extension.horizonFacts)
+                || !isDeepStrictEqual(extension.horizonFacts?.terminal, terminal)) fail('invalid-extension-pv');
+          } else if (extension.proof !== null || extension.principalVariation.length !== 1
+              || extension.completed !== (extension.searchedDepth === 8)
+              || (extension.completed ? extension.stopReason !== 'complete' : extension.stopReason === 'complete')
+              || candidate.proven !== 'unknown' || candidate.proof !== null
+              || !isDeepStrictEqual(extension.horizonFacts, candidate.afterFacts)) fail('invalid-extension-pv');
         }
         extensionVariations += 1;
+      }
+    }
+    if (terminalCandidates.length) {
+      const summary = search.extension;
+      const terminalNodes = terminalCandidates.reduce((sum, candidate) => sum + candidate.extension!.nodes, 0);
+      const attempted = terminalCandidates.filter((candidate) => candidate.extension!.nodes > 0).length;
+      const completed = terminalCandidates.filter((candidate) => candidate.extension!.completed).length;
+      if (!isRecord(summary) || summary.policyVersion !== 'jev-extension-2'
+          || summary.maxDepth !== 8 || summary.scope !== 'unresolved-candidates-terminal-loss-only'
+          || !Number.isSafeInteger(summary.nodes) || summary.nodes < 0
+          || summary.nodes > JEV_PARALLEL_POLICY.maxNodes || summary.nodes !== terminalNodes
+          || summary.attemptedCandidates !== attempted || summary.completedCandidates !== completed
+          || !['complete', 'deadline', 'node-budget', 'aborted'].includes(summary.stopReason)
+          || (summary.stopReason === 'complete') !== terminalCandidates.every(candidate => candidate.extension!.completed)
+          || !Number.isSafeInteger(search.nodes) || search.nodes < summary.nodes
+          || search.nodes > JEV_PARALLEL_POLICY.maxNodes) fail('invalid-extension-pv');
+
+      if (terminalCandidates.some((candidate) => candidate.extension!.proven === 'loss')) {
+        let reproduced: ReturnType<typeof proveJevTerminalLosses>;
+        try {
+          reproduced = proveJevTerminalLosses(root, trace.config, terminalCandidates.map(candidate => candidate.move), {
+            deadlineMs: Date.now() + 10_000,
+            maxNodes: summary.nodes,
+            maxDepth: 8,
+          });
+        } catch {
+          return fail('invalid-extension-pv');
+        }
+        for (let index = 0; index < terminalCandidates.length; index += 1) {
+          const saved = terminalCandidates[index]!.extension!;
+          if (saved.proven !== 'loss') continue;
+          const actual = reproduced.candidates[index]!;
+          // Unknown and interrupted records are not replayed as safety claims.
+          // A positive forced-loss claim must reproduce before the audit deadline.
+          if (actual.proven !== 'loss'
+              || actual.searchedDepth !== saved.searchedDepth
+              || !isDeepStrictEqual(actual.proof, saved.proof)
+              || !sameVariation(actual.principalVariation, saved.principalVariation)) {
+            fail('invalid-extension-pv');
+          }
+        }
       }
     }
   }
@@ -472,6 +535,45 @@ export function verifyJevTrace(trace: ParallelTurnTrace): JevTraceVerificationRe
           || (retained.proven === 'win') !== (terminal.winner === root.turn)) {
         fail('invalid-retained-proof');
       }
+    }
+  }
+
+  const hasTerminalExtensions = trace.searches.some(search => search.candidates.some(
+    candidate => candidate.extension?.method === 'terminal-only-loss-proof',
+  ));
+  if (hasTerminalExtensions) {
+    const latest = trace.searches.at(-1);
+    if (!latest || !Array.isArray(trace.retainedProofs)) {
+      fail('invalid-extension-pv');
+    }
+    for (let searchIndex = 0; searchIndex < trace.searches.length; searchIndex += 1) {
+      for (const candidate of trace.searches[searchIndex]!.candidates) {
+        if (candidate.extension?.method !== 'terminal-only-loss-proof'
+            || candidate.extension.proven !== 'loss') continue;
+        const retained = trace.retainedProofs.find(proof => proof.id === jevMoveId(candidate.move));
+        if (!retained || retained.proven !== 'loss' || retained.sourceSearch > searchIndex) {
+          fail('invalid-retained-proof');
+        }
+      }
+    }
+    const eligible = latest.candidates.map(candidate => jevMoveId(candidate.move));
+    if (new Set(eligible).size !== eligible.length) fail('invalid-extension-pv');
+    const retained = new Map(trace.retainedProofs.map(proof => [proof.id, proof.proven]));
+    // Retained proofs, including proofs from an earlier verification pass, are
+    // the source of truth used by the runtime gate when a later pass is shallow.
+    const wins = eligible.filter(id => retained.get(id) === 'win');
+    const unresolved = eligible.filter(id => retained.get(id) !== 'loss');
+    const expected = wins.length ? wins : unresolved.length ? unresolved : eligible;
+    const expectedReason = wins.length ? 'proven-win'
+      : unresolved.length ? 'avoid-proven-loss' : 'candidate-loss-global-scope-recorded';
+    const finalReasons = new Set(['proven-win', 'avoid-proven-loss', 'candidate-loss-global-scope-recorded']);
+    const gate = [...trace.gates].reverse().find(candidate => finalReasons.has(candidate.reason));
+    if (!gate) {
+      if (trace.status === 'selected' || trace.status === 'applied') fail('invalid-extension-pv');
+    } else if (gate !== trace.gates.at(-1) || gate.reason !== expectedReason
+        || !isDeepStrictEqual(gate.candidates, expected)
+        || !isDeepStrictEqual(gate.excluded, eligible.filter(id => !expected.includes(id)))) {
+      fail('invalid-extension-pv');
     }
   }
 
