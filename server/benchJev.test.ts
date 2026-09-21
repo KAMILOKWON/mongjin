@@ -13,7 +13,7 @@ import {
   type JevMoveChooser,
 } from './benchJev';
 import { chooseParallelJevMove, type ParallelTurnTrace } from './jevParallel';
-import { analyzeJevRollouts } from './jevRollouts';
+import { analyzeJevReplyRollouts } from './jevReplyRollouts';
 import { JEV_MODEL } from './jevGateway';
 import { JEV_PARALLEL_POLICY, jevMoveId, jevStateHash } from './jevPolicy';
 import { DEFAULT_CONFIG } from '../src/core/config';
@@ -354,14 +354,16 @@ describe('benchJev CLI harness unit tests', () => {
           evaluate: firstAttemptForState ? timeoutEvaluate : mockEvaluateJev,
           // This test covers benchmark retry accounting, not rollout quality.
           // Keep canonical rollout structure while avoiding unrelated search work.
-          rollouts: (state, config, moves, rolloutOptions) => analyzeJevRollouts(
+          rollouts: (state, config, moves, rolloutOptions) => analyzeJevReplyRollouts(
             state,
             config,
             moves,
             {
               ...rolloutOptions,
-              choose: (rolloutState, rolloutConfig) =>
-                legalMoves(rolloutState, rolloutConfig)[0] ?? null,
+              choose: (rolloutState, rolloutConfig, searchOptions) => {
+                searchOptions.onSearchComplete?.({ nodes: 0, completedDepth: 0, elapsedMs: 0, aborted: false });
+                return legalMoves(rolloutState, rolloutConfig)[0] ?? null;
+              },
             },
           ),
         });

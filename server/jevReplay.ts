@@ -356,7 +356,7 @@ export function verifyJevTrace(trace: ParallelTurnTrace): JevTraceVerificationRe
   if (!['running', 'selected', 'applied', 'error', 'cancelled'].includes(trace.status)) fail('invalid-trace');
   if (!Array.isArray(trace.searches) || !Array.isArray(trace.stages)) fail('invalid-trace');
   if (!isRecord(trace.policy)
-      || !['parallel-v4', 'parallel-v5', 'parallel-v6', 'parallel-v7', 'parallel-v8', 'parallel-v9', 'parallel-v10', 'parallel-v11', 'parallel-v12', JEV_PARALLEL_POLICY.version].includes(trace.policy.version)
+      || !['parallel-v4', 'parallel-v5', 'parallel-v6', 'parallel-v7', 'parallel-v8', 'parallel-v9', 'parallel-v10', 'parallel-v11', 'parallel-v12', 'parallel-v13', JEV_PARALLEL_POLICY.version].includes(trace.policy.version)
       || trace.policy.rulesVersion !== JEV_PARALLEL_POLICY.rulesVersion
       || trace.policy.protocolVersion !== JEV_PARALLEL_POLICY.protocolVersion) fail('invalid-trace');
 
@@ -459,7 +459,7 @@ export function verifyJevTrace(trace: ParallelTurnTrace): JevTraceVerificationRe
 
   verifyPressure(trace, root);
   verifyInitiative(trace, root);
-  const requiresRollouts = ['parallel-v10', 'parallel-v11', 'parallel-v12', 'parallel-v13'].includes((trace.policy as { version: string }).version)
+  const requiresRollouts = ['parallel-v10', 'parallel-v11', 'parallel-v12', 'parallel-v13', 'parallel-v14'].includes((trace.policy as { version: string }).version)
     && ['selected', 'applied'].includes(trace.status) && trace.selection?.source === 'jev-final';
   if (requiresRollouts && !trace.rollouts) fail('invalid-rollouts');
   const finalIds = trace.gates?.at(-1)?.candidates;
@@ -468,8 +468,10 @@ export function verifyJevTrace(trace: ParallelTurnTrace): JevTraceVerificationRe
     const question = finalStage?.request.questions.move;
     if (!Array.isArray(finalIds) || !finalIds.length || new Set(finalIds).size !== finalIds.length
       || !finalIds.includes(selectionId!) || question?.type !== 'choice'
-      || JSON.stringify(Object.keys(question.criteria)) !== JSON.stringify(finalIds)
-      || trace.rollouts!.limits.maxPlies !== 40 || trace.rollouts!.limits.maxNodesPerDecision !== 128) fail('invalid-rollouts');
+      || JSON.stringify(Object.keys(question.criteria).sort()) !== JSON.stringify([...finalIds].sort())
+      || ((trace.policy as { version: string }).version === 'parallel-v14'
+        ? trace.rollouts!.version !== 'jev-rollouts-v4' || trace.rollouts!.limits.maxPlies !== 8 || trace.rollouts!.limits.maxNodesPerDecision !== 64
+        : trace.rollouts!.limits.maxPlies !== 40 || trace.rollouts!.limits.maxNodesPerDecision !== 128)) fail('invalid-rollouts');
   }
   if (trace.rollouts) {
     try { verifyJevRolloutEvidence(root, trace.config, trace.rollouts,

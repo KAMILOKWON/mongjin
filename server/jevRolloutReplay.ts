@@ -5,6 +5,7 @@ import { legalMoves } from '../src/core/rules';
 import type { GameState } from '../src/core/types';
 import { jevMoveId } from './jevPolicy';
 import type { JevRolloutAnalysis, JevRolloutPressureMetadata, JevRolloutScenario } from './jevRollouts';
+import { verifyJevReplyRollouts } from './jevReplyRolloutReplay';
 
 const assert = (condition: unknown): void => { if (!condition) throw new Error('Invalid conditional rollout evidence'); };
 const integer = (value: unknown, min: number, max: number) => Number.isSafeInteger(value) && Number(value) >= min && Number(value) <= max;
@@ -77,6 +78,10 @@ function verifyPressure(value: JevRolloutPressureMetadata | null, deadline: numb
 /** Audits recorded legal lines and terminal outcomes. Does not re-run time-limited
  * policies or interpret one conditional line as a full adversarial proof. */
 export function verifyJevRolloutEvidence(root: GameState, config: RuleConfig, value: unknown, expectedIds?: string[]): void {
+  if ((value as JevRolloutAnalysis)?.version === 'jev-rollouts-v4') {
+    verifyJevReplyRollouts(root, config, value as JevRolloutAnalysis, expectedIds);
+    return;
+  }
   const data = value as Omit<JevRolloutAnalysis, 'version'> & { version: string };
   assert(data && ['jev-rollouts-v1', 'jev-rollouts-v2', 'jev-rollouts-v3'].includes(data.version) && data.scope === 'conditional-policy-continuations-not-proofs');
   const v2 = data.version !== 'jev-rollouts-v1';

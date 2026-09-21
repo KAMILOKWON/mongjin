@@ -10,7 +10,14 @@ import { getResult } from '../src/core/result';
 import type { GameState, Move, Player } from '../src/core/types';
 import { RECORD_RULES_VERSION, type GameRecord } from './gameRecords';
 import { RANKED_BOTS } from './rankedBots';
-import { chooseOfficialBotMove, createRankedBot, type OfficialBot } from './officialBot';
+import {
+  chooseOfficialBotMove,
+  createOfficialBot,
+  createRankedBot,
+  type OfficialBot,
+  type OfficialBotPersonality,
+  type OfficialBotSearchProfile,
+} from './officialBot';
 import { JEV_BOT, JEV_EXPIRES_AT } from './jevExperiment';
 import {
   chooseParallelJevMove,
@@ -40,13 +47,46 @@ export interface BenchOptions {
   engine?: string;
   turnPauseMs?: number;
   transientRetries?: number;
+  opponents?: string[];
+  opponentProfiles?: BenchOpponentProfile[];
+  dryRun?: boolean;
 }
+
+export interface BenchOpponentProfile {
+  id: string;
+  name: string;
+  personality: OfficialBotPersonality;
+  configuredSearchRating: number;
+  profileEloLabel: number;
+}
+
+export type BenchOpponentSource = 'ranked-bot' | 'custom-profile';
 
 export interface MatchPairConfig {
   botId: string;
   botName: string;
   botRating: number;
   jevSide: Player;
+  botSource?: BenchOpponentSource;
+  botPersonality?: OfficialBotPersonality;
+  botConfiguredSearchRating?: number;
+  botProfileEloLabel?: number;
+  botStrengthBasis?: 'official-bot-config-not-empirical-elo';
+}
+
+export interface InstantiatedOpponentConfig {
+  source: BenchOpponentSource;
+  personality: OfficialBotPersonality;
+  profileEloLabel: number;
+  configuredSearchRating: number;
+  strengthBasis: 'official-bot-config-not-empirical-elo';
+  randomSeed: number;
+  side: Player;
+  variantKey: string;
+  openingLane: -1 | 1;
+  difficultyBand: OfficialBot['difficultyBand'];
+  search: OfficialBotSearchProfile;
+  firstThreeChoiceWindow: number;
 }
 
 export interface GameSummary {
@@ -57,6 +97,7 @@ export interface GameSummary {
   botRating: number;
   jevSide: Player;
   seed: number;
+  opponentConfig?: InstantiatedOpponentConfig;
   winner: Player | null;
   winnerReason: string | null;
   outcome: 'jev_win' | 'jev_loss' | 'unfinished_plycap' | 'aborted_error';
@@ -102,6 +143,14 @@ export interface BenchReport {
     policyVersion: string;
     rulesVersion: string;
     note: string;
+    options?: {
+      side: BenchOptions['side'];
+      matrix: boolean;
+      bot?: string;
+      rating?: number;
+      opponents: string[];
+      opponentProfiles: BenchOpponentProfile[];
+    };
   };
   matrix: MatchPairConfig[];
   summary: {
@@ -124,6 +173,36 @@ export interface BenchReport {
   games: GameSummary[];
 }
 
+export const BENCH_JEV_HELP = `Usage:
+  cd server
+  node --import tsx benchJev.ts (--mock | --live) --outdir DIR [options]
+
+Modes:
+  --mock                         Use the local deterministic mock evaluator.
+  --live --key-file FILE         Use the existing typesafe-ai/jev gateway key file.
+
+Opponent selection (choose one legacy selector or the explicit selector set):
+  --bot ID_OR_NAME               One ranked bot (legacy).
+  --rating ELO                   Ranked bot nearest the label (legacy).
+  --matrix                       MAY 1000 + Uzumaki 1400 (legacy default matrix).
+  --opponent ID_OR_NAME          Repeat for explicit ranked bot IDs/names.
+  --opponent-profile SPEC        Repeat custom official-bot profiles. SPEC is
+                                 ID:PERSONALITY:SEARCH_RATING[:PROFILE_ELO_LABEL].
+                                 PERSONALITY: runner|guardian|tactician|wanderer.
+                                 SEARCH_RATING configures official bot search; it
+                                 is not an empirically measured Elo.
+
+Run controls:
+  --side BLACK|WHITE|both        JEV side; default both.
+  --seed N                       Benchmark seed; default 20260920.
+  --max-plies N                  Ply cap <= 120; default 80.
+  --engine FILE                  Baseline/candidate chooseParallelJevMove module.
+  --turn-pause-ms N              Delay before JEV turns; default 0.
+  --transient-retries N          Retry 429/503/timeout, 0..2; default 0.
+  --dry-run                      Print the resolved deterministic matrix only.
+  --help, -h                     Show this help.
+`;
+
 function parseStrictInt(value: string | undefined, name: string): number {
   if (value === undefined) throw new Error(`${name} is required`);
   const trimmed = value.trim();
@@ -135,6 +214,58 @@ function parseStrictInt(value: string | undefined, name: string): number {
     throw new Error(`${name} must be a safe integer, received: "${value}"`);
   }
   return n;
+}
+
+const OFFICIAL_BOT_PERSONALITIES: readonly OfficialBotPersonality[] = [
+  'runner',
+  'guardian',
+  'tactician',
+  'wanderer',
+];
+
+function parseOpponentProfile(value: string): BenchOpponentProfile {
+  const parts = value.split(':');
+  if (parts.length < 3 || parts.length > 4) {
+    throw new Error(
+      '--opponent-profile must use ID:PERSONALITY:SEARCH_RATING[:PROFILE_ELO_LABEL]',
+    );
+  }
+  const [id, personalityRaw, searchRatingRaw, profileEloRaw] = parts;
+  if (!id || !/^[a-z0-9][a-z0-9_-]*$/i.test(id)) {
+    throw new Error('--opponent-profile ID must contain only letters, numbers, hyphens, or underscores');
+  }
+  if (id === JEV_BOT.id || RANKED_BOTS.some((bot) => bot.id === id)) {
+    throw new Error(`--opponent-profile ID conflicts with an official ranked bot ID: ${id}`);
+  }
+  const personality = personalityRaw as OfficialBotPersonality;
+  if (!OFFICIAL_BOT_PERSONALITIES.includes(personality)) {
+    throw new Error(
+      `--opponent-profile personality must be ${OFFICIAL_BOT_PERSONALITIES.join(', ')}`,
+    );
+  }
+  const configuredSearchRating = parseStrictInt(
+    searchRatingRaw,
+    '--opponent-profile SEARCH_RATING',
+  );
+  if (configuredSearchRating < 100 || configuredSearchRating > 2400) {
+    throw new Error('--opponent-profile SEARCH_RATING must be an integer between 100 and 2400');
+  }
+  if (configuredSearchRating % 20 !== 0) {
+    throw new Error('--opponent-profile SEARCH_RATING must be a multiple of 20');
+  }
+  const profileEloLabel = profileEloRaw === undefined
+    ? configuredSearchRating
+    : parseStrictInt(profileEloRaw, '--opponent-profile PROFILE_ELO_LABEL');
+  if (profileEloLabel < 100 || profileEloLabel > 3000) {
+    throw new Error('--opponent-profile PROFILE_ELO_LABEL must be an integer between 100 and 3000');
+  }
+  return {
+    id,
+    name: id,
+    personality,
+    configuredSearchRating,
+    profileEloLabel,
+  };
 }
 
 export function parseBenchArgs(argv = process.argv.slice(2)): BenchOptions {
@@ -153,9 +284,12 @@ export function parseBenchArgs(argv = process.argv.slice(2)): BenchOptions {
       'max-plies': { type: 'string', default: '80' },
       seed: { type: 'string', default: '20260920' },
       matrix: { type: 'boolean', default: false },
+      opponent: { type: 'string', multiple: true },
+      'opponent-profile': { type: 'string', multiple: true },
       engine: { type: 'string' },
       'turn-pause-ms': { type: 'string', default: '0' },
       'transient-retries': { type: 'string', default: '0' },
+      'dry-run': { type: 'boolean', default: false },
     },
   });
 
@@ -165,7 +299,7 @@ export function parseBenchArgs(argv = process.argv.slice(2)): BenchOptions {
 
   const mode: 'mock' | 'live' = values.live ? 'live' : 'mock';
 
-  if (mode === 'live' && !values['key-file']) {
+  if (mode === 'live' && !values['key-file'] && !values['dry-run']) {
     throw new Error('--live requires --key-file');
   }
   if (mode === 'mock' && values['key-file']) {
@@ -212,8 +346,26 @@ export function parseBenchArgs(argv = process.argv.slice(2)): BenchOptions {
     }
   }
 
-  if (values.matrix && (values.bot || values.rating !== undefined)) {
-    throw new Error('--matrix cannot be combined with specific --bot or --rating');
+  const opponents = values.opponent ?? [];
+  const opponentProfiles = (values['opponent-profile'] ?? []).map(parseOpponentProfile);
+  const hasExplicitOpponents = opponents.length > 0 || opponentProfiles.length > 0;
+  const legacySelectorCount = Number(Boolean(values.bot))
+    + Number(values.rating !== undefined)
+    + Number(Boolean(values.matrix));
+  if (legacySelectorCount > 1) {
+    throw new Error('--bot, --rating, and --matrix cannot be combined');
+  }
+  if (legacySelectorCount > 0 && hasExplicitOpponents) {
+    throw new Error(
+      '--opponent/--opponent-profile cannot be combined with --bot, --rating, or --matrix',
+    );
+  }
+  const selectorIds = [...opponents, ...opponentProfiles.map((profile) => profile.id)];
+  const duplicateSelector = selectorIds.find(
+    (id, index) => selectorIds.indexOf(id) !== index,
+  );
+  if (duplicateSelector) {
+    throw new Error(`Duplicate opponent selector: ${duplicateSelector}`);
   }
 
   return {
@@ -229,17 +381,51 @@ export function parseBenchArgs(argv = process.argv.slice(2)): BenchOptions {
     engine: values.engine,
     turnPauseMs,
     transientRetries,
+    opponents,
+    opponentProfiles,
+    dryRun: values['dry-run'],
   };
 }
 
 export function resolveMatches(options: BenchOptions): MatchPairConfig[] {
-  let targetBots = RANKED_BOTS.map((bot) => ({
+  let targetBots: Array<{
+    id: string;
+    name: string;
+    rating: number;
+    source: BenchOpponentSource;
+    personality: OfficialBotPersonality;
+    configuredSearchRating: number;
+    profileEloLabel: number;
+  }> = RANKED_BOTS.map((bot) => ({
     id: bot.id,
     name: bot.name,
     rating: bot.rating,
+    source: 'ranked-bot' as const,
+    personality: bot.personality,
+    configuredSearchRating: bot.rating,
+    profileEloLabel: bot.rating,
   }));
 
-  if (options.bot) {
+  const explicitBots = options.opponents ?? [];
+  const explicitProfiles = options.opponentProfiles ?? [];
+
+  if (explicitBots.length > 0 || explicitProfiles.length > 0) {
+    const selectedRanked = explicitBots.map((selector) => {
+      const found = targetBots.find((bot) => bot.id === selector || bot.name === selector);
+      if (!found) throw new Error(`Unknown bot ID or name: ${selector}`);
+      return found;
+    });
+    const selectedProfiles = explicitProfiles.map((profile) => ({
+      id: profile.id,
+      name: profile.name,
+      rating: profile.profileEloLabel,
+      source: 'custom-profile' as const,
+      personality: profile.personality,
+      configuredSearchRating: profile.configuredSearchRating,
+      profileEloLabel: profile.profileEloLabel,
+    }));
+    targetBots = [...selectedRanked, ...selectedProfiles];
+  } else if (options.bot) {
     const found = targetBots.filter((b) => b.id === options.bot || b.name === options.bot);
     if (found.length === 0) {
       throw new Error(`Unknown bot ID or name: ${options.bot}`);
@@ -270,6 +456,11 @@ export function resolveMatches(options: BenchOptions): MatchPairConfig[] {
         botName: bot.name,
         botRating: bot.rating,
         jevSide,
+        botSource: bot.source,
+        botPersonality: bot.personality,
+        botConfiguredSearchRating: bot.configuredSearchRating,
+        botProfileEloLabel: bot.profileEloLabel,
+        botStrengthBasis: 'official-bot-config-not-empirical-elo',
       });
     }
   }
@@ -282,6 +473,113 @@ export function createPrng(seed: number): () => number {
   return () => {
     s = (Math.imul(1664525, s) + 1013904223) >>> 0;
     return s / 4294967296;
+  };
+}
+
+function createCustomProfileBot(
+  profile: BenchOpponentProfile,
+  side: Player,
+  random: () => number,
+): OfficialBot {
+  const personalityIndex = OFFICIAL_BOT_PERSONALITIES.indexOf(profile.personality);
+  let factoryCall = 0;
+  const factoryRandom = () => {
+    factoryCall += 1;
+    if (factoryCall === 1) return 0.5; // exact zero rating offset in balanced mode
+    if (factoryCall === 2) return (personalityIndex * 2 + 0.5) / 8;
+    return 0.5;
+  };
+  const bot = createOfficialBot(
+    profile.configuredSearchRating,
+    profile.name,
+    factoryRandom,
+    undefined,
+    { completed: 3, recentWins: 1, recentLosses: 1 },
+  );
+  if (bot.searchRating !== profile.configuredSearchRating || bot.personality !== profile.personality) {
+    throw new Error(`Failed to instantiate exact opponent profile ${profile.id}`);
+  }
+  bot.playerId = profile.id;
+  bot.name = profile.name;
+  bot.rating = profile.profileEloLabel;
+  bot.side = side;
+  bot.variantKey = `${profile.id}:${side}`;
+  bot.random = random;
+  bot.openingLane = random() < 0.5 ? -1 : 1;
+  return bot;
+}
+
+function instantiateOpponent(
+  match: MatchPairConfig,
+  randomSeed: number,
+): { bot: OfficialBot; config: InstantiatedOpponentConfig } {
+  const random = createPrng(randomSeed);
+  const source = match.botSource ?? 'ranked-bot';
+  let bot: OfficialBot;
+  if (source === 'custom-profile') {
+    if (!match.botPersonality || match.botConfiguredSearchRating === undefined) {
+      throw new Error(`Custom opponent ${match.botId} is missing personality/search configuration`);
+    }
+    bot = createCustomProfileBot({
+      id: match.botId,
+      name: match.botName,
+      personality: match.botPersonality,
+      configuredSearchRating: match.botConfiguredSearchRating,
+      profileEloLabel: match.botProfileEloLabel ?? match.botRating,
+    }, opponent(match.jevSide), random);
+  } else {
+    const startedAt = new Date(0).toISOString();
+    bot = createRankedBot({
+      playerId: match.botId,
+      name: match.botName,
+      rating: match.botRating,
+      token: 'local-bench',
+      wins: 0,
+      losses: 0,
+      createdAt: startedAt,
+      updatedAt: startedAt,
+    }, random);
+    bot.side = opponent(match.jevSide);
+    bot.variantKey = `${match.botId}:${bot.side}`;
+  }
+  const config: InstantiatedOpponentConfig = {
+    source,
+    personality: bot.personality,
+    profileEloLabel: match.botProfileEloLabel ?? match.botRating,
+    configuredSearchRating: bot.searchRating,
+    strengthBasis: 'official-bot-config-not-empirical-elo',
+    randomSeed,
+    side: bot.side,
+    variantKey: bot.variantKey,
+    openingLane: bot.openingLane ?? 1,
+    difficultyBand: bot.difficultyBand,
+    search: structuredClone(bot.search),
+    firstThreeChoiceWindow: Math.max(12, bot.search.choiceWindow),
+  };
+  return { bot, config };
+}
+
+export function buildDryRunPlan(options: BenchOptions) {
+  const matches = resolveMatches(options);
+  return {
+    mode: options.mode,
+    dryRun: true as const,
+    engine: options.engine ?? 'server/jevParallel.ts (default)',
+    benchmarkSeed: options.seed,
+    side: options.side,
+    maxPlies: options.maxPlies,
+    turnPauseMs: options.turnPauseMs ?? 0,
+    transientRetries: options.transientRetries ?? 0,
+    gameCount: matches.length,
+    games: matches.map((match, index) => {
+      const gameSeed = (options.seed + (index + 1) * 7919) >>> 0;
+      return {
+        index: index + 1,
+        match,
+        opponentConfig: instantiateOpponent(match, gameSeed).config,
+      };
+    }),
+    note: 'Profile Elo labels and configured search ratings are metadata/configuration, not empirically measured playing strength.',
   };
 }
 
@@ -443,23 +741,11 @@ export async function playSingleGame(params: {
   const gameId = `bench-${options.mode}-${match.botId}-${match.jevSide.toLowerCase()}-${gameIndex}-${randomUUID().slice(0, 8)}`;
   const startedAt = new Date().toISOString();
   const gameSeed = (options.seed + gameIndex * 7919) >>> 0;
-  const prng = createPrng(gameSeed);
 
   const tracesPath = join(outdir, `${gameId}.traces.jsonl`);
   const recordPath = join(outdir, `${gameId}.record.json`);
 
-  const botProfile = {
-    playerId: match.botId,
-    name: match.botName,
-    rating: match.botRating,
-    token: 'local-bench',
-    wins: 0,
-    losses: 0,
-    createdAt: startedAt,
-    updatedAt: startedAt,
-  };
-  const officialBot: OfficialBot = createRankedBot(botProfile, prng);
-  officialBot.side = opponent(match.jevSide);
+  const { bot: officialBot, config: opponentConfig } = instantiateOpponent(match, gameSeed);
 
   let state: GameState = initialState(config);
   const moves: Move[] = [];
@@ -746,6 +1032,7 @@ export async function playSingleGame(params: {
     botRating: match.botRating,
     jevSide: match.jevSide,
     seed: gameSeed,
+    opponentConfig,
     winner,
     winnerReason,
     outcome,
@@ -780,6 +1067,9 @@ export async function playSingleGame(params: {
 }
 
 export async function runBenchmark(options: BenchOptions): Promise<BenchReport> {
+  if (options.dryRun) {
+    throw new Error('runBenchmark cannot execute when dryRun is enabled; use buildDryRunPlan');
+  }
   const transientRetries = configuredTransientRetries(options);
   await preflightOutdir(options.outdir);
 
@@ -863,6 +1153,14 @@ export async function runBenchmark(options: BenchOptions): Promise<BenchReport> 
       policyVersion: effectivePolicyVersion,
       rulesVersion: RECORD_RULES_VERSION,
       note: 'Deterministic seed fixes PRNG sequence for bot choices, but does not guarantee identical search results under wall-clock time budgets or deterministic AI provider outputs.',
+      options: {
+        side: options.side,
+        matrix: options.matrix,
+        bot: options.bot,
+        rating: options.rating,
+        opponents: [...(options.opponents ?? [])],
+        opponentProfiles: structuredClone(options.opponentProfiles ?? []),
+      },
     },
     matrix: matches,
     summary: {
@@ -893,7 +1191,15 @@ export async function runBenchmark(options: BenchOptions): Promise<BenchReport> 
 }
 
 export async function main(argv = process.argv.slice(2)): Promise<void> {
+  if (argv.includes('--help') || argv.includes('-h')) {
+    console.log(BENCH_JEV_HELP);
+    return;
+  }
   const options = parseBenchArgs(argv);
+  if (options.dryRun) {
+    console.log(JSON.stringify(buildDryRunPlan(options), null, 2));
+    return;
+  }
   await runBenchmark(options);
 }
 

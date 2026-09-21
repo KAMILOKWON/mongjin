@@ -16,10 +16,10 @@ import {
 export const JEV_ROLLOUT_VERSION = 'jev-rollouts-v3' as const;
 export const JEV_ROLLOUT_SCOPE = 'conditional-policy-continuations-not-proofs' as const;
 
-export type JevRolloutVersion = 'jev-rollouts-v1' | typeof JEV_ROLLOUT_VERSION;
+export type JevRolloutVersion = 'jev-rollouts-v1' | 'jev-rollouts-v4' | typeof JEV_ROLLOUT_VERSION;
 export type JevRolloutStopReason = 'complete' | 'deadline' | 'aborted' | 'policy-cutoff';
 export type JevRolloutStatus = 'terminal' | 'ply-cap' | 'deadline' | 'aborted' | 'policy-cutoff';
-export type JevRolloutPolicyId = 'self-tactical' | 'opponent-runner' | 'opponent-guard-pressure';
+export type JevRolloutPolicyId = 'self-tactical' | 'opponent-runner' | 'opponent-guard-pressure' | 'opponent-tactical';
 
 export interface JevRolloutPolicyDefinition {
   id: JevRolloutPolicyId;
@@ -28,7 +28,7 @@ export interface JevRolloutPolicyDefinition {
     method: 'choose-move' | 'guard-pressure';
     maxDepth: 3;
     maxNodes: number;
-    maxMsPerDecision: 30;
+    maxMsPerDecision: 4 | 30;
     choiceWindow: 0;
     planStrength: 0 | 1;
     strategyLevel: 1 | 3;
@@ -107,6 +107,10 @@ export interface JevRolloutSearchSummary {
 
 export interface JevRolloutScenario {
   id: string;
+  /** v4 explicitly enumerates this legal opponent reply before continuing. */
+  forcedReply?: Move | null;
+  /** Facts at the uniformly truncated continuation horizon. */
+  horizon?: { nextPlayer: Player | null; selfReserve: number; opponentReserve: number; selfKing: { r: number; c: number } | null; opponentKing: { r: number; c: number } | null; selfGuards: { r: number; c: number }[]; opponentGuards: { r: number; c: number }[] };
   opponentPolicyId: Extract<JevRolloutPolicyId, `opponent-${string}`>;
   /** Canonical legal line. The first move is always the candidate root move. */
   line: Move[];
@@ -130,6 +134,8 @@ export interface JevRolloutAnalysis {
   version: JevRolloutVersion;
   scope: typeof JEV_ROLLOUT_SCOPE;
   rootPlayer: Player;
+  decisionTimeMeaning?: 'requested-search-target-not-hard-preemption';
+  firstReplyCoverage?: 'all-legal';
   complete: boolean;
   incomplete: boolean;
   stopReason: JevRolloutStopReason;
@@ -139,7 +145,7 @@ export interface JevRolloutAnalysis {
     maxPlies: number;
     maxNodesPerDecision: number;
     maxDepth: 3;
-    maxMsPerDecision: 30;
+    maxMsPerDecision: 4 | 30;
     scenarioCount: number;
   };
   policyDefinitions: JevRolloutPolicyDefinition[];

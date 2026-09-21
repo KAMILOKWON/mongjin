@@ -2,14 +2,14 @@ import { createHash } from 'node:crypto';
 import type { GameState, Move } from '../src/core/types';
 
 export const JEV_PARALLEL_POLICY = {
-  version: 'parallel-v13', rulesVersion: 'mongjin-core-1', protocolVersion: 1,
+  version: 'parallel-v14', rulesVersion: 'mongjin-core-1', protocolVersion: 1,
   turnLimitMs: 30_000, maxPlies: 240, targetP95Ms: 8_000,
   factsBudgetMs: 2_000, proposalBudgetMs: 8_000, searchBudgetMs: 3_000,
   finalBudgetMs: 8_000, maxDepth: 4, maxNodes: 100_000, maxReproposals: 1,
   maxGuardAlternatives: 2,
   maxKingLaneAlternatives: 3,
   pressureBudgetMs: 1_000, pressureMaxNodes: 20_000,
-  rolloutBudgetMs: 4_000, rolloutMaxPlies: 40, rolloutDecisionNodes: 128,
+  rolloutBudgetMs: 4_000, rolloutMaxPlies: 8, rolloutDecisionNodes: 64,
   // Provisional until fixed-condition timing measurements; never claim these targets were achieved.
   budgetStatus: 'provisional',
 } as const;

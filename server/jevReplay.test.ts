@@ -276,13 +276,20 @@ describe('verifyJevTrace', () => {
     if (question.type === 'choice') delete question.criteria[Object.keys(question.criteria)[0]!];
     expect(() => verifyJevTrace(alteredCriteria)).toThrowError('invalid-rollouts');
     const altered = clone(valid);
-    const terminal = altered.rollouts!.candidates.flatMap(c => c.scenarios).find(s => s.terminal);
-    expect(terminal).toBeDefined();
-    terminal!.terminal!.winner = terminal!.terminal!.winner === 'BLACK' ? 'WHITE' : 'BLACK';
+    const terminal = altered.rollouts!.candidates[0]!.scenarios[0]!;
+    terminal.terminal = { winner: 'BLACK', reason: 'goal' };
+    terminal.status = 'terminal';
     expect(() => verifyJevTrace(altered)).toThrowError('invalid-rollouts');
     const illegal = clone(valid);
     illegal.rollouts!.candidates[0]!.scenarios[0]!.line[0] = illegalMove;
     expect(() => verifyJevTrace(illegal)).toThrowError('invalid-rollouts');
+  });
+
+  it('accepts storage reordering of choice-object keys without changing candidate membership', () => {
+    const reordered = clone(valid);
+    const question = reordered.stages.find(s => s.phase === 'final')!.request.questions.move!;
+    if (question.type === 'choice') question.criteria = Object.fromEntries(Object.entries(question.criteria).reverse());
+    expect(() => verifyJevTrace(reordered)).not.toThrow();
   });
 
   it('rejects unsupported policy metadata, invalid selection sources, and selected traces without a selection', () => {

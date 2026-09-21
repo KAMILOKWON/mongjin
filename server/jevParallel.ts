@@ -10,6 +10,8 @@ import { analyzeJevFacts, analyzeJevCandidates } from './jevAnalysis';
 import { analyzeJevPressure } from './jevPressure';
 import { chooseJevGuardPressureMove } from './jevPressurePolicy';
 import { analyzeJevRollouts } from './jevRollouts';
+import { analyzeJevReplyRollouts } from './jevReplyRollouts';
+import { prepareJevInput } from './jevInputBudget';
 import { briefJevRollouts, describeJevRollouts } from './jevRolloutBriefing';
 import type { analyzeJevInitiative } from './jevInitiative';
 import { buildJevBriefing, describeJevAction, describeJevPressure, describeJevRace, briefJevFacts, briefJevRoutes } from './jevBriefing';
@@ -35,6 +37,7 @@ type ApiStage = {
   error?: string;
   /** Actual HTTP response status, independent of provider response-body fields. */
   httpStatus?: number;
+  inputBudget?: ReturnType<typeof prepareJevInput>['budget'];
 };
 
 export interface ParallelTurnTrace extends JevRecord {
@@ -113,12 +116,14 @@ export async function chooseParallelJevMove(options: ParallelTurnOptions) {
   const board = buildJevBriefing(state, config);
   const api = async (phase: ApiStage['phase'], input: unknown, questions: Record<string, JevQuestion>) => {
     check();
-    const stage: ApiStage = { phase, request: { model: JEV_MODEL, state: input, questions } };
+    const prepared = prepareJevInput(phase, input, questions);
+    const stage: ApiStage = { phase, inputBudget: prepared.budget,
+      request: { model: JEV_MODEL, state: prepared.state, questions: prepared.questions } };
     trace.stages.push(stage); checkpoint();
     const stageStart = Date.now();
     try {
       const result = await (options.evaluate ?? evaluateJev)({
-        state: input, questions, apiKey: options.apiKey, signal: options.signal,
+        state: prepared.state, questions: prepared.questions, apiKey: options.apiKey, signal: options.signal,
         deadlineMs: stageDeadline(phase === 'final' ? POLICY.finalBudgetMs : POLICY.proposalBudgetMs),
         onResponse: (response) => { stage.response = response; checkpoint(); },
       });
@@ -201,11 +206,11 @@ export async function chooseParallelJevMove(options: ParallelTurnOptions) {
     const propose = async (ids: string[], recovery: boolean) => {
       const questions: Record<string, JevQuestion> = {};
       const criteria = Object.fromEntries(ids.map((id) => [id,
-        `${describeJevAction(state, movesById.get(id)!)} ${factsById.has(id) ? describeJevRace(factsById.get(id)!.routes, false) : 'Route estimates unknown.'}`,
+        describeJevAction(state, movesById.get(id)!),
       ]));
       for (const role of JEV_ROLES) {
         questions[`proposal_${role.id}`] = { type: 'choice',
-          instructions: `${role.purpose} Consider verified facts and limited estimates separately. ${role.priority ? 'Use none if no candidate usefully serves this purpose.' : 'You must choose a listed legal move.'}`,
+          instructions: `${role.purpose} Match each option ID to its shared root facts; route estimates are listed once there. Consider verified facts and limited estimates separately. ${role.priority ? 'Use none if no candidate usefully serves this purpose.' : 'You must choose a listed legal move.'}`,
           criteria: role.priority ? { ...criteria, none: 'No proposal meaningfully serves this purpose.' } : criteria };
         if (role.priority) questions[`priority_${role.id}`] = { type: 'boolean', instructions: `${role.priority} This is a strategic priority estimate, not a test of exact tactical facts or a game win probability.` };
       }
@@ -336,7 +341,7 @@ export async function chooseParallelJevMove(options: ParallelTurnOptions) {
     trace.timings.pressureMs = Date.now() - pressureStart;
     check(); checkpoint();
     const rolloutStart = Date.now();
-    trace.rollouts = (options.rollouts ?? analyzeJevRollouts)(state, config, finalIds.map((id) => movesById.get(id)!), {
+    trace.rollouts = (options.rollouts ?? analyzeJevReplyRollouts)(state, config, finalIds.map((id) => movesById.get(id)!), {
       deadlineMs: stageDeadline(POLICY.rolloutBudgetMs), maxPlies: POLICY.rolloutMaxPlies,
       maxNodesPerDecision: POLICY.rolloutDecisionNodes, signal: options.signal,
     });
@@ -366,7 +371,7 @@ export async function chooseParallelJevMove(options: ParallelTurnOptions) {
       pressureMeaning: 'Legal opponent replies can force a response to a king capture threat. Capture threats are conditional on SELF failing to answer, not an extra opponent turn. Listed safe responses avoid only the following terminal loss. advancesRow is geometric progress, not a secured route. A reply that leaves only sideways or backward king escapes can begin a chase; compare guard defenses and development. Incomplete or omitted cases remain unknown. These examples supplement, not replace, the search principal variation.',
       calculation: trace.searches.map(({ candidates: _candidates, ...scope }) => scope),
       meaning: 'Role agreement is not independent expert consensus. Coverage retains guard options from one role distribution, legal forward king lanes, and one fully checked immediate guard-pressure alternative so a forcing sequence is not silently dropped. Inclusion is not an extra vote or an endorsement. Role distributions and boolean priorities are separate estimates, not game win probability. Example reply lines are legal possibilities, not guaranteed opponent choices. Unknown does not mean safe. Retained terminal proofs remain valid even if a later common search is shallower.',
-    }, { move: { type: 'choice', instructions: 'Choose the candidate that best helps SELF win the whole game. Exact terminal proofs take priority. Compare the conditional continuation results against both opponent behaviors, along with the goal race and counterplay. Prefer a credible winning continuation to merely moving the king closer while the opponent wins first. Continuations use fixed local policies for BOTH sides, not future JEV choices: they are examples, never forced outcomes, and incomplete lines have unknown results. Guard development can change a losing race but can also waste a turn. Your returned ID will be played unchanged; no code score or bonus will override it.', criteria: finalCriteria } });
+    }, { move: { type: 'choice', instructions: 'Choose the candidate that best helps SELF win the whole game. Exact terminal proofs take priority. Compare every branched first opponent response, including quiet guard development, alongside the goal race and counterplay. Read adverse branches before favorable ones. Branch counts are not probabilities. If the common horizon is short or outcomes unknown, do not infer a secured winning route. Compare the horizon king and guard positions for chase, support and counterplay. Prefer a credible winning continuation to merely moving the king closer while the opponent wins first. Continuations use fixed local policies for BOTH sides, not future JEV choices: they are examples, never forced outcomes, and incomplete lines have unknown results. Guard development can change a losing race but can also waste a turn. Your returned ID will be played unchanged; no code score or bonus will override it.', criteria: finalCriteria } });
     const answer = answers.move;
     if (!answer || answer.type !== 'choice' || !finalIds.includes(answer.choice)) throw new JevError('invalid_response', 'Invalid final ID');
     return finish(answer.choice, 'jev-final');

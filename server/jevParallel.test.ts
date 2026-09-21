@@ -5,7 +5,7 @@ import { chooseParallelJevMove, ParallelTurnError } from './jevParallel';
 import { analyzeJevFacts, analyzeJevCandidates, type JevCandidateAnalysis, type JevAnalyzedCandidate, type JevStateFacts } from './jevAnalysis';
 import { JEV_ROLES, jevMoveId, jevStateHash } from './jevPolicy';
 import { JevError } from './jev';
-import { analyzeJevRollouts } from './jevRollouts';
+import { analyzeJevReplyRollouts } from './jevReplyRollouts';
 import { type evaluateJev, type EvaluateJevOptions, type EvaluateJevResult } from './jevGateway';
 import { readFileSync } from 'node:fs';
 import { applyMove } from '../src/core/apply';
@@ -320,8 +320,11 @@ it('retains a forcing guard follow-up while leaving the final choice to JEV', as
   });
   const result = await chooseParallelJevMove({
     ...options(api), state: position, facts: analyzeJevFacts,
-    rollouts: (state, config, moves, opts) => analyzeJevRollouts(state, config, moves, {
-      ...opts, choose: (next, rules) => legalMoves(next, rules)[0] ?? null,
+    rollouts: (state, config, moves, opts) => analyzeJevReplyRollouts(state, config, moves, {
+      ...opts, choose: (next, rules, searchOptions) => {
+        searchOptions.onSearchComplete?.({ nodes: 0, completedDepth: 0, elapsedMs: 0, aborted: false });
+        return legalMoves(next, rules)[0] ?? null;
+      },
     }),
   });
   expect(result.trace.pressureSuggestion).toMatchObject({
