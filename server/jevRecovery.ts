@@ -2,7 +2,7 @@ import { setTimeout as delay } from 'node:timers/promises';
 import { JevError } from './jev';
 
 export const JEV_RECOVERY_POLICY = {
-  version: 'retry-v1',
+  version: 'retry-v2',
   maxRetries: 2,
   retryDelaysMs: [500, 1_500],
   minimumRetryBudgetMs: 1_000,
@@ -13,7 +13,7 @@ export const JEV_RECOVERY_POLICY = {
 export function classifyJevFailure(error: unknown) {
   const code = error instanceof JevError ? error.code : 'unavailable';
   const status = error instanceof JevError ? error.status : undefined;
-  const retryable = code === 'timeout' || code === 'http_429' || code === 'worker_error'
+  const retryable = code === 'timeout' || code === 'http_429' || code === 'worker_error' || code === 'provider_unavailable'
     || (code === 'http_error' && (status === undefined || status === 408 || status === 429
       || (status >= 500 && status <= 599)));
   return { code, status, retryable };

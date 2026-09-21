@@ -11,6 +11,7 @@ export type JevErrorCode =
   | 'http_429'
   | 'http_error'
   | 'worker_error'
+  | 'provider_unavailable'
   | 'timeout'
   | 'aborted'
   | 'invalid_response'

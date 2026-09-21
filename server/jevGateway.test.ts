@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
+import { readFileSync } from 'node:fs';
 import {
   evaluateJev,
   JEV_MODEL,
@@ -279,6 +280,31 @@ describe('evaluateJev', () => {
   });
 
   describe('HTTP error response body capturing and sanitization', () => {
+    const providerAliasFailure = JSON.parse(readFileSync(new URL('./fixtures/jev-provider-alias-unavailable.json', import.meta.url), 'utf8'));
+
+    it('recognizes the recorded provider alias outage despite its HTTP 400 wrapper', async () => {
+      const onResponse = vi.fn();
+      await expect(evaluateJev({ state: {}, questions: makeMultiQuestions(), apiKey,
+        deadlineMs: Date.now() + 5000, onResponse,
+        fetchImpl: vi.fn(async () => jsonResponse(providerAliasFailure, 400)),
+      })).rejects.toMatchObject({ code: 'provider_unavailable', status: 400 });
+      expect(onResponse).toHaveBeenCalledWith({ status: 400, ...providerAliasFailure });
+    });
+
+    it.each(['authentication', 'billing', 'wrong-model', 'invalid-question', 'unstructured-error'])(
+      'keeps %s failures fatal instead of broadly retrying HTTP 400', async (kind) => {
+        const payload = structuredClone(providerAliasFailure);
+        const status = kind === 'authentication' ? 403 : kind === 'billing' ? 402 : 400;
+        if (kind === 'wrong-model') payload.providerMetadata.gateway.routing.originalModelId = 'unknown/model';
+        if (kind === 'invalid-question') payload.error.param.message = JSON.stringify({ error_type: 'api_usage_error', message: 'Invalid questions' });
+        if (kind === 'unstructured-error') payload.error.param.message = 'Unknown model: jev-latest';
+        await expect(evaluateJev({ state: {}, questions: makeMultiQuestions(), apiKey,
+          deadlineMs: Date.now() + 5000,
+          fetchImpl: vi.fn(async () => jsonResponse(payload, status)),
+        })).rejects.toMatchObject({ code: 'http_error', status });
+      },
+    );
+
     it('captures HTTP 403 customer_verification_required body with masked API key and throws safe http_error', async () => {
       const questions = makeMultiQuestions();
       const errorBody = {

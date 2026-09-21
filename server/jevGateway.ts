@@ -122,6 +122,23 @@ function extractReportedCost(payload: Record<string, unknown>): number | null {
   return Number.isFinite(parsed) ? parsed : null;
 }
 
+/** The gateway can wrap a missing upstream alias in HTTP 400 despite a valid public model ID. */
+function isUnavailableProviderAlias(payload: unknown): boolean {
+  if (!isRecord(payload) || !isRecord(payload.error) || payload.error.type !== 'AI_APICallError') return false;
+  const param = payload.error.param;
+  const metadata = payload.providerMetadata;
+  if (!isRecord(param) || param.statusCode !== 400 || typeof param.message !== 'string'
+    || !isRecord(metadata) || !isRecord(metadata.gateway) || !isRecord(metadata.gateway.routing)) return false;
+  const routing = metadata.gateway.routing;
+  if (routing.originalModelId !== JEV_MODEL || routing.canonicalSlug !== JEV_MODEL
+    || routing.resolvedProvider !== 'typesafe-ai') return false;
+  try {
+    const detail: unknown = JSON.parse(param.message);
+    return isRecord(detail) && detail.error_type === 'api_usage_error'
+      && detail.message === 'Unknown model: jev-latest';
+  } catch { return false; }
+}
+
 function abortError(signal: AbortSignal): unknown {
   return signal.reason ?? new DOMException('Aborted', 'AbortError');
 }
@@ -302,6 +319,9 @@ export async function evaluateJev(options: EvaluateJevOptions): Promise<Evaluate
 
       if (response.status === 429) {
         throw new JevError('http_429', 'JEV request was rate limited.', response.status);
+      }
+      if (response.status === 400 && isUnavailableProviderAlias(errorPayload)) {
+        throw new JevError('provider_unavailable', 'JEV provider model alias is temporarily unavailable.', response.status);
       }
       throw new JevError('http_error', `JEV request failed with HTTP ${response.status}.`, response.status);
     }

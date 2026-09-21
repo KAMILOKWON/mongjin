@@ -20,7 +20,7 @@ const start = Date.parse('2026-09-20T00:00:00Z');
 
 it('classifies only transient transport and worker failures as retryable', () => {
   expect(JEV_RECOVERY_POLICY).toEqual({
-    version: 'retry-v1',
+    version: 'retry-v2',
     maxRetries: 2,
     retryDelaysMs: [500, 1_500],
     minimumRetryBudgetMs: 1_000,
@@ -36,6 +36,7 @@ it('classifies only transient transport and worker failures as retryable', () =>
     new JevError('http_429', 'limited', 429),
     new JevError('timeout', 'timed out'),
     new JevError('worker_error', 'worker exited'),
+    new JevError('provider_unavailable', 'provider alias unavailable', 400),
   ]) {
     expect(classifyJevFailure(error)).toMatchObject({ code: error.code, retryable: true });
   }
@@ -53,11 +54,14 @@ it('classifies only transient transport and worker failures as retryable', () =>
   });
 });
 
-it('retries one HTTP 503 with the same state and one shared deadline, then records recovery', async () => {
+it.each([
+  new JevError('http_error', 'unavailable', 503),
+  new JevError('provider_unavailable', 'provider alias unavailable', 400),
+])('retries a transient %s with the same state and shared deadline, then records recovery', async (failure) => {
   let time = start;
   const before = structuredClone(state);
   const decide = vi.fn()
-    .mockRejectedValueOnce(new JevError('http_error', 'unavailable', 503))
+    .mockRejectedValueOnce(failure)
     .mockResolvedValueOnce(decision);
   const wait = vi.fn(async (ms: number) => { time += ms; });
   const experiment = new JevExperiment(env, () => time, decide as any, wait);
@@ -84,7 +88,7 @@ it('retries one HTTP 503 with the same state and one shared deadline, then recor
     retries: 1,
     recoveredTurns: 1,
     consecutiveFailures: 0,
-    recoveryPolicy: 'retry-v1',
+    recoveryPolicy: 'retry-v2',
     reason: null,
     cooldownUntil: null,
     retryAfterMs: 0,
@@ -132,19 +136,22 @@ it('does not retry or resume after an unverified billing result', async () => {
   });
 });
 
-it('backs off exhausted transient turns without a permanent stop and resets after success', async () => {
+it.each([
+  new JevError('timeout', 'temporary timeout'),
+  new JevError('provider_unavailable', 'provider alias unavailable', 400),
+])('backs off exhausted %s turns without a permanent stop and resets after success', async (failure) => {
   let time = start;
   let shouldSucceed = false;
   const decide = vi.fn(async () => {
     if (shouldSucceed) return decision;
-    throw new JevError('timeout', 'temporary timeout');
+    throw failure;
   });
   const wait = vi.fn(async (ms: number) => { time += ms; });
   const experiment = new JevExperiment(env, () => time, decide as any, wait);
   const cooldowns = [15_000, 30_000, 60_000, 120_000, 120_000];
 
   for (const [index, cooldown] of cooldowns.entries()) {
-    await expect(experiment.move(state, DEFAULT_CONFIG)).rejects.toMatchObject({ code: 'timeout' });
+    await expect(experiment.move(state, DEFAULT_CONFIG)).rejects.toMatchObject({ code: failure.code });
     expect(experiment.status).toMatchObject({
       turns: index + 1,
       failures: index + 1,

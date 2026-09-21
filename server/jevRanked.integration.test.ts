@@ -36,7 +36,7 @@ interface WsMessage {
 }
 
 const mockPreloadScript = `
-import { existsSync, writeFileSync } from 'node:fs';
+import { existsSync, writeFileSync, readFileSync } from 'node:fs';
 const originalDateNow = Date.now;
 const realStart = originalDateNow();
 const fixedSept20 = Date.parse('2026-09-20T12:00:00+09:00');
@@ -57,6 +57,11 @@ globalThis.fetch = async (input, init) => {
   if (failOnce) {
     writeFileSync(oncePath, 'failed', { flag: 'wx' });
     if (process.env.MOCK_JEV_FAILURE_KIND === 'network') throw new TypeError('mock disconnected');
+    if (process.env.MOCK_JEV_FAILURE_KIND === 'provider-alias') {
+      return new Response(readFileSync(process.env.MOCK_JEV_ALIAS_BODY_PATH, 'utf8'), {
+        status: 400, headers: { 'Content-Type': 'application/json' },
+      });
+    }
   }
   const forcedStatus = Number(process.env.MOCK_JEV_HTTP_STATUS || '0');
   if (forcedStatus || failOnce) {
@@ -142,7 +147,7 @@ interface SpawnedTestServer {
 async function startTestServer(options: {
   mock503?: boolean;
   mockStatus?: number;
-  failOnce?: '503' | 'network';
+  failOnce?: '503' | 'network' | 'provider-alias';
   mockDelayMs?: number;
   botRating?: number;
 }): Promise<SpawnedTestServer> {
@@ -181,6 +186,7 @@ async function startTestServer(options: {
       MOCK_JEV_HTTP_STATUS: String(options.mockStatus ?? (options.mock503 ? 503 : 0)),
       MOCK_JEV_FAIL_ONCE_PATH: options.failOnce ? join(tempDir, 'gateway-failed-once') : '',
       MOCK_JEV_FAILURE_KIND: options.failOnce ?? '',
+      MOCK_JEV_ALIAS_BODY_PATH: join(serverDir, 'fixtures', 'jev-provider-alias-unavailable.json'),
       MOCK_JEV_DELAY_MS: String(options.mockDelayMs ?? 0),
     },
     stdio: ['ignore', 'pipe', 'pipe'],
@@ -492,7 +498,7 @@ describe('JEV Ranked WebSocket Integration', () => {
     35000,
   );
 
-  it.each(['503', 'network'] as const)('recovers a single %s failure inside the same turn and applies exactly one JEV move', async (failure) => {
+  it.each(['503', 'network', 'provider-alias'] as const)('recovers a single %s failure inside the same turn and applies exactly one JEV move', async (failure) => {
     const testEnv = await startTestServer({ failOnce: failure });
     let socket: WebSocket | undefined;
     try {
@@ -516,8 +522,8 @@ describe('JEV Ranked WebSocket Integration', () => {
       });
       const failed = traces.find(trace => trace.status === 'error');
       const applied = traces.find(trace => trace.status === 'applied');
-      expect(failed.error).toBe('http_error');
-      expect(failed.errorStatus).toBe(failure === '503' ? 503 : undefined);
+      expect(failed.error).toBe(failure === 'provider-alias' ? 'provider_unavailable' : 'http_error');
+      expect(failed.errorStatus).toBe(failure === '503' ? 503 : failure === 'provider-alias' ? 400 : undefined);
       expect(failed.stateHash).toBe(applied.stateHash);
       expect(applied.selection.id).toBe(jevMoveId(update.state.history[0]));
       expect(applied.recovery.attempt).toBe(2);
@@ -530,8 +536,8 @@ describe('JEV Ranked WebSocket Integration', () => {
     } finally { socket?.terminate(); await testEnv.cleanup(); }
   }, 35_000);
 
-  it('preserves actual HTTP 403 through the worker and does not retry a misleading 503 response body', async () => {
-    const testEnv = await startTestServer({ mockStatus: 403 });
+  it.each([400, 403])('preserves generic HTTP %i through the worker and does not retry a misleading 503 response body', async (status) => {
+    const testEnv = await startTestServer({ mockStatus: status });
     let socket: WebSocket | undefined;
     try {
       socket = new WebSocket(testEnv.url);
@@ -543,14 +549,14 @@ describe('JEV Ranked WebSocket Integration', () => {
       socket.send(JSON.stringify({ type: 'MATCHMAKE_BOT' }));
       await until(() => messages.find(message => message.type === 'OPPONENT_LEFT'));
       const health = await (await fetch(`${testEnv.httpUrl}/health`)).json();
-      expect(health.jev).toMatchObject({ acceptingMatches: false, reason: 'http_403', attempts: 1,
-        retries: 0, failures: 1, lastError: { status: 403, retryable: false } });
+      expect(health.jev).toMatchObject({ acceptingMatches: false, reason: `http_${status}`, attempts: 1,
+        retries: 0, failures: 1, lastError: { status, retryable: false } });
       expect(messages.some(message => ['STATE', 'MATCH_RESULT'].includes(message.type))).toBe(false);
       const files = (await readdir(join(testEnv.tempDir, 'jev-decisions'))).filter(file => file.endsWith('.json'));
       expect(files).toHaveLength(1);
       const trace = JSON.parse(await readFile(join(testEnv.tempDir, 'jev-decisions', files[0]!), 'utf8'));
-      expect(trace.errorStatus).toBe(403);
-      expect(trace.stages[0].httpStatus).toBe(403);
+      expect(trace.errorStatus).toBe(status);
+      expect(trace.stages[0].httpStatus).toBe(status);
       expect(trace.stages[0].response.status).toBe(503);
       messages.length = 0;
       socket.send(JSON.stringify({ type: 'MATCHMAKE_BOT' }));

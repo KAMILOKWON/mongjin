@@ -1,0 +1,23 @@
+{
+  "error": {
+    "type": "AI_APICallError",
+    "param": {
+      "name": "AI_APICallError",
+      "type": "AI_APICallError",
+      "error": "{\"error_type\":\"api_usage_error\",\"message\":\"Unknown model: jev-latest\"}",
+      "message": "{\"error_type\":\"api_usage_error\",\"message\":\"Unknown model: jev-latest\"}",
+      "statusCode": 400,
+      "isRetryable": false
+    },
+    "message": "{\"error_type\":\"api_usage_error\",\"message\":\"Unknown model: jev-latest\"}"
+  },
+  "providerMetadata": {
+    "gateway": {
+      "routing": {
+        "originalModelId": "typesafe-ai/jev",
+        "canonicalSlug": "typesafe-ai/jev",
+        "resolvedProvider": "typesafe-ai"
+      }
+    }
+  }
+}
