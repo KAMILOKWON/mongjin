@@ -24,7 +24,7 @@ import {
   officialBotMoveDelayMs,
   type OfficialBot,
 } from './officialBot';
-import { ensureRankedBots, selectRankedBot, isRankedBotId } from './rankedBots';
+import { ensureRankedBots, selectRankedBot, isRankedBotId, JEV_MATCHMAKING_POLICY } from './rankedBots';
 import { inferMatchPlatform } from './matchAnalytics';
 import { hasPlayerTakenTurn } from './matchLifecycle';
 import { JEV_BOT, JevExperiment } from './jevExperiment';
@@ -904,7 +904,7 @@ const httpServer = createServer((req, res) => {
       activeSessions: sessions.size,
       profileStore: profileRepository.kind,
       officialBotMatches: true,
-      jev: jev.status,
+      jev: { ...jev.status, matchmakingPolicy: JEV_MATCHMAKING_POLICY },
       gameRecords: { schemaVersion: 1, rulesVersion: RECORD_RULES_VERSION },
     });
     return;

@@ -25,6 +25,7 @@ async function until<T>(read: () => T | Promise<T>, timeoutMs = 15000): Promise<
 
 interface WsMessage {
   type: string;
+  roomId?: string;
   side?: string;
   state?: any;
   opponent?: any;
@@ -143,20 +144,21 @@ async function startTestServer(options: {
   mockStatus?: number;
   failOnce?: '503' | 'network';
   mockDelayMs?: number;
+  botRating?: number;
 }): Promise<SpawnedTestServer> {
   const tempDir = await mkdtemp(join(tmpdir(), 'jev-ranked-test-'));
   const mockScriptPath = join(tempDir, 'mock.mjs');
   await writeFile(mockScriptPath, mockPreloadScript, 'utf8');
 
   const profileDataFile = join(tempDir, 'profiles.json');
-  // Seed the existing ranked bots with rating 100.
+  // Most engine tests isolate JEV by rating; matchmaking tests use an equal-rated roster.
   const seededBots = RANKED_BOTS.map((bot) => ({
     playerId: bot.id,
     token: `token-${bot.id}`,
     name: bot.name,
     wins: 0,
     losses: 0,
-    rating: 100,
+    rating: options.botRating ?? 100,
     createdAt: new Date('2026-09-20T00:00:00.000Z').toISOString(),
     updatedAt: new Date('2026-09-20T00:00:00.000Z').toISOString(),
   }));
@@ -212,6 +214,69 @@ async function startTestServer(options: {
 }
 
 describe('JEV Ranked WebSocket Integration', () => {
+  it('preserves human matching, prioritizes idle JEV, and falls back while busy or after the same opponent', async () => {
+    const testEnv = await startTestServer({ botRating: 1200 });
+    const sockets: WebSocket[] = [];
+    const connect = async () => {
+      const socket = new WebSocket(testEnv.url);
+      sockets.push(socket);
+      const messages: WsMessage[] = [];
+      socket.on('message', raw => messages.push(JSON.parse(String(raw))));
+      const next = (type: string) => until(() => {
+        const index = messages.findIndex(message => message.type === type);
+        return index >= 0 ? messages.splice(index, 1)[0] : undefined;
+      });
+      const send = (type: string) => socket.send(JSON.stringify({ type }));
+      await until(() => socket.readyState === WebSocket.OPEN);
+      send('HELLO');
+      await next('IDENTITY');
+      return { send, next };
+    };
+    try {
+      const first = await connect();
+      const second = await connect();
+      const health = await (await fetch(`${testEnv.httpUrl}/health`)).json();
+      expect(health.jev).toMatchObject({ acceptingMatches: true, matchmakingPolicy: 'idle-priority-v1' });
+
+      // A free JEV must never intercept two people asking for human matchmaking.
+      first.send('MATCHMAKE');
+      await until(async () => (await (await fetch(`${testEnv.httpUrl}/health`)).json()).queued === 1);
+      second.send('MATCHMAKE');
+      const humanFirst = await first.next('MATCH_FOUND');
+      const humanSecond = await second.next('MATCH_FOUND');
+      expect(humanFirst.roomId).toBe(humanSecond.roomId);
+      expect(humanFirst.side).not.toBe(humanSecond.side);
+      expect(humanFirst.opponent.isBot).not.toBe(true);
+      expect(humanSecond.opponent.isBot).not.toBe(true);
+      first.send('RESIGN');
+      await first.next('MATCH_RESULT');
+      await second.next('MATCH_RESULT');
+
+      first.send('MATCHMAKE_BOT');
+      expect((await first.next('MATCH_FOUND')).opponent.name).toBe('침착맨이할때까지');
+      second.send('MATCHMAKE_BOT');
+      const busyFallback = await second.next('MATCH_FOUND');
+      expect(busyFallback.opponent.isBot).toBe(true);
+      expect(busyFallback.opponent.name).not.toBe('침착맨이할때까지');
+
+      first.send('RESIGN');
+      await first.next('MATCH_RESULT');
+      // The JEV slot is free again, but this player just completed a JEV game.
+      first.send('MATCHMAKE_BOT');
+      const repeatFallback = await first.next('MATCH_FOUND');
+      expect(repeatFallback.opponent.isBot).toBe(true);
+      expect(repeatFallback.opponent.name).not.toBe('침착맨이할때까지');
+
+      second.send('RESIGN');
+      await second.next('MATCH_RESULT');
+      second.send('MATCHMAKE_BOT');
+      expect((await second.next('MATCH_FOUND')).opponent.name).toBe('침착맨이할때까지');
+    } finally {
+      sockets.forEach(socket => socket.terminate());
+      await testEnv.cleanup();
+    }
+  }, 35_000);
+
   it(
     'matches JEV, verifies leaderboard JEV 1200, handles delayed in-flight resign without stale STATE and changes Elo once',
     async () => {
@@ -487,6 +552,11 @@ describe('JEV Ranked WebSocket Integration', () => {
       expect(trace.errorStatus).toBe(403);
       expect(trace.stages[0].httpStatus).toBe(403);
       expect(trace.stages[0].response.status).toBe(503);
+      messages.length = 0;
+      socket.send(JSON.stringify({ type: 'MATCHMAKE_BOT' }));
+      const fallback = await until(() => messages.find(message => message.type === 'MATCH_FOUND'));
+      expect(fallback.opponent.isBot).toBe(true);
+      expect(fallback.opponent.name).not.toBe('침착맨이할때까지');
     } finally { socket?.terminate(); await testEnv.cleanup(); }
   }, 35_000);
 

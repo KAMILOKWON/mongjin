@@ -25,8 +25,10 @@ const RATING_BAND = 250;
 const MIN_CANDIDATES = 5;
 const RATING_WEIGHT_SCALE = 200;
 const RECENT_PENALTIES = [5, 3, 2, 1.5, 1] as const;
+export const JEV_MATCHMAKING_POLICY = 'idle-priority-v1';
 
 export interface RankedBotSelectionOptions {
+  /** Caller verifies experiment availability and that no JEV game is in progress. */
   includeJev?: boolean;
   /** 최신순. 같은 ID가 반복되면 차단하지 않고 감점만 누적한다. */
   recentBotIds?: readonly string[];
@@ -67,18 +69,24 @@ export function selectRankedBot(
   options: RankedBotSelectionOptions = {},
 ): StoredProfile {
   const normalizedRating = Number.isFinite(rating) ? rating : 1200;
+  const recentBotIds = (options.recentBotIds ?? []).slice(0, RECENT_PENALTIES.length);
   const ranked = [...profiles]
-    .filter((profile) => isRankedBotId(profile.playerId) && (profile.playerId !== JEV_BOT.id || options.includeJev))
+    .filter((profile) => isRankedBotId(profile.playerId) && (profile.playerId !== JEV_BOT.id
+      || (options.includeJev && recentBotIds[0] !== JEV_BOT.id)))
     .sort((left, right) =>
       Math.abs(left.rating - normalizedRating) - Math.abs(right.rating - normalizedRating) ||
       left.playerId.localeCompare(right.playerId));
   if (!ranked.length) throw new Error('고정 봇 프로필이 없습니다');
 
+  // Use the available experiment slot before the ordinary weighted draw, at any Elo.
+  // A completed JEV game still excludes an immediate rematch for the same player.
+  const jevCandidate = ranked.find((profile) => profile.playerId === JEV_BOT.id);
+  if (jevCandidate) return jevCandidate;
+
   const closestGap = Math.abs(ranked[0]!.rating - normalizedRating);
   const withinBand = ranked.filter(
     (profile) => Math.abs(profile.rating - normalizedRating) <= closestGap + RATING_BAND,
   );
-  const recentBotIds = (options.recentBotIds ?? []).slice(0, RECENT_PENALTIES.length);
   const immediatePrevious = recentBotIds[0];
   const excludePrevious = immediatePrevious && ranked.some((candidate) => candidate.playerId !== immediatePrevious);
   const eligibleRanked = excludePrevious
@@ -91,11 +99,6 @@ export function selectRankedBot(
   const candidates = eligibleBand.length >= minimumSize
     ? eligibleBand
     : eligibleRanked.slice(0, minimumSize);
-  // The temporary JEV experiment accepts every rating without replacing the
-  // usual nearby candidates or bypassing availability/recent-opponent rules.
-  const jevCandidate = eligibleRanked.find((profile) => profile.playerId === JEV_BOT.id);
-  if (jevCandidate && !candidates.includes(jevCandidate)) candidates.push(jevCandidate);
-
   const weighted = candidates.map((profile) => {
     const gap = Math.abs(profile.rating - normalizedRating);
     const ratingWeight = Math.exp(-gap / RATING_WEIGHT_SCALE);
