@@ -13,6 +13,25 @@ import { getResult } from '../src/core/result';
 import type { Move } from '../src/core/types';
 import { analyzeJevSearchProposal } from './jevSearchProposal';
 
+it('fits every legal role choice after early guard development without dropping candidates', async () => {
+  const fixture = JSON.parse(readFileSync(new URL('./fixtures/jev-development-input.json', import.meta.url), 'utf8'));
+  let captured: EvaluateJevOptions | undefined;
+  let trace: any;
+  await expect(chooseParallelJevMove({ gameId: 'development-input-regression', state: fixture.snapshot,
+    config: fixture.config, apiKey: 'unused-local-test', deadlineMs: Date.now() + 30_000,
+    onTrace: value => { trace = value; },
+    evaluate: async input => { captured = input; throw new JevError('aborted', 'stop after local request check'); },
+  })).rejects.toMatchObject({ code: 'aborted' });
+  expect(captured).toBeDefined();
+  const ids = legalMoves(fixture.snapshot, fixture.config).map(jevMoveId).sort();
+  for (const q of Object.values(captured!.questions)) if (q.type === 'choice') {
+    expect(Object.keys(q.criteria).filter(id => id !== 'none').sort()).toEqual(ids);
+  }
+  expect(trace.stages[0].inputBudget.sentBytes).toBeLessThanOrEqual(26_000);
+  expect(trace.stages[0].inputBudget.steps).toContain('reference-shared-move-ids-in-role-criteria');
+  expect(JSON.stringify(captured!.state)).toContain('guardInfrastructure');
+});
+
 const firstLoss = JSON.parse(readFileSync(new URL('./fixtures/jev-first-loss.json', import.meta.url), 'utf8')) as {
   moves: Move[]; winner: string; reason: string;
 };

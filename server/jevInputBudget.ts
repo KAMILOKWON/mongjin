@@ -243,6 +243,19 @@ export function prepareJevInput(phase: Phase, input: unknown, sourceQuestions: R
     state.facts = state.facts.map((f: any) => [f.id, f.immediateWin, f.immediateLoss, f.opponentWinningReplies.map(jevMoveId), f.checkedReplies, f.repliesComplete, f.totalGuardsIncludingReserve, route(f.frozenRoutesAfterAction.self), route(f.frozenRoutesAfterAction.opponent), f.frozenRoutesAfterAction.frozenRaceFuturePlies]);
     steps.push('table-encode-all-root-facts'); note();
   }
+  if (phase !== 'final' && bytes(state, questions) > JEV_INPUT_BYTE_BUDGET && record(state)
+    && Array.isArray(state.facts) && state.moveIdFormat) {
+    // Every role sees the same shared board and root fact table. Repeating a
+    // sentence for each move in six criteria maps adds no information.
+    for (const question of Object.values(questions)) {
+      if (question.type !== 'choice') continue;
+      question.criteria = Object.fromEntries(Object.keys(question.criteria).map(id => [id,
+        id === 'none' ? 'No useful move serves this role.' : id,
+      ]));
+    }
+    state.choiceReferences = 'Criteria values are move IDs. Decode each using moveIdFormat and its shared root-fact row; all choices are retained.';
+    steps.push('reference-shared-move-ids-in-role-criteria'); note();
+  }
   const sentBytes = bytes(state, questions);
   if (sentBytes > JEV_INPUT_BYTE_BUDGET) {
     console.warn('[jev-input-budget]', JSON.stringify({ phase, originalBytes, sentBytes, steps }));
