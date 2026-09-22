@@ -464,7 +464,7 @@ async function abandonJevMatch(room: Room, reason: string) {
     recentBotIdsByPlayer.set(playerId, room.recentBotIdsBeforeMatch);
   }
   // Existing clients can leave/requeue; an infrastructure failure is never a rated win/loss.
-  broadcastRoom(room, { type: 'ERROR', message: 'JEV 실험 대국을 중단했습니다. 이번 대국은 승패와 점수에 반영되지 않습니다.' });
+  broadcastRoom(room, { type: 'ERROR', message: '대국이 종료되었습니다. 이번 대국은 승패와 점수에 반영되지 않습니다.' });
   broadcastRoom(room, { type: 'OPPONENT_LEFT' });
   releaseFinishedRoom(room);
   await recordSaved;
@@ -475,7 +475,7 @@ function markJevRecovery(room: Room) {
   room.jevRecoveryStartedAt = Date.now();
   // ERROR is a non-destructive toast/status on released clients. OPPONENT_LEFT
   // would leave the board, so do not send it while waiting for the provider.
-  broadcastRoom(room, { type: 'ERROR', message: 'JEV 응답이 지연되어 자동으로 다시 시도합니다. 대국은 유지되며, 기다리는 동안 나가도 점수가 차감되지 않습니다.' });
+  broadcastRoom(room, { type: 'ERROR', message: '상대의 응답을 기다리고 있습니다. 대국은 유지되며, 기다리는 동안 나가도 점수가 차감되지 않습니다.' });
 }
 
 function scheduleBotMove(room: Room) {
@@ -572,7 +572,7 @@ function scheduleBotMove(room: Room) {
       room.state = applyMove(room.state, move);
       if (room.jevRecoveryStartedAt !== undefined) {
         room.jevRecoveryStartedAt = undefined;
-        broadcastRoom(room, { type: 'ERROR', message: 'JEV 응답이 복구되어 대국을 이어갑니다.' });
+        broadcastRoom(room, { type: 'ERROR', message: '대국을 이어갑니다.' });
       }
       if (jevTrace) {
         jevTrace.status = 'applied'; jevTrace.appliedStateHash = jevStateHash(room.state);

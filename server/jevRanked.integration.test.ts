@@ -437,7 +437,7 @@ describe('JEV Ranked WebSocket Integration', () => {
         const fixedState = structuredClone(matchFound.state);
 
         const waiting = await next('ERROR');
-        expect(waiting.message).toContain('자동으로 다시 시도');
+        expect(waiting.message).toContain('상대의 응답을 기다리고');
         expect(waiting.message).toContain('대국은 유지');
         await until(() => testEnv.output().includes('"event":"match_recovery_wait"'), 45_000);
 
@@ -454,14 +454,14 @@ describe('JEV Ranked WebSocket Integration', () => {
             plies: message.state?.history?.length }));
           throw new Error(`${String(error)}\nmessages=${JSON.stringify(messages)}\nserver=${testEnv.output()}`);
         });
-        expect(recovered.message).toContain('응답이 복구');
+        expect(recovered.message).toContain('대국을 이어갑니다');
         const update = await next('STATE', 50_000);
         expect(update.state.history).toHaveLength(1);
         expect(legalMoves(fixedState, DEFAULT_CONFIG)).toContainEqual(update.state.history[0]);
         expect(applyMove(fixedState, update.state.history[0])).toEqual(update.state);
 
         const recoveryIndex = received.findIndex(message => message.type === 'ERROR'
-          && message.message?.includes('응답이 복구'));
+          && message.message?.includes('대국을 이어갑니다'));
         const stateIndex = received.findIndex(message => message.type === 'STATE');
         expect(recoveryIndex).toBeGreaterThan(-1);
         expect(stateIndex).toBeGreaterThan(recoveryIndex);
@@ -519,7 +519,7 @@ describe('JEV Ranked WebSocket Integration', () => {
         const fixed = await next('STATE');
         expect(fixed.state.history).toHaveLength(2);
         expect(fixed.state.history[1]).toEqual(humanMove);
-        expect((await next('ERROR')).message).toContain('자동으로 다시 시도');
+        expect((await next('ERROR')).message).toContain('상대의 응답을 기다리고');
         expect((await (await fetch(`${testEnv.httpUrl}/health`)).json()).jev).toMatchObject({
           matchRecoveryPolicy: 'preserve-v1', waitingMatches: 1,
         });
@@ -577,8 +577,9 @@ describe('JEV Ranked WebSocket Integration', () => {
       expect(applyMove(matchFound.state, update.state.history[0])).toEqual(update.state);
       expect(messages.filter(message => message.type === 'STATE')).toHaveLength(1);
       const notices = messages.filter(message => message.type === 'ERROR').map(message => message.message);
-      expect(notices.some(message => message?.includes('자동으로 다시 시도'))).toBe(true);
-      expect(notices.some(message => message?.includes('응답이 복구'))).toBe(true);
+      expect(notices.join(' ')).not.toMatch(/JEV|봇|모델|실험/i);
+      expect(notices.some(message => message?.includes('상대의 응답을 기다리고'))).toBe(true);
+      expect(notices.some(message => message?.includes('대국을 이어갑니다'))).toBe(true);
       expect(messages.some(message => ['OPPONENT_LEFT', 'MATCH_RESULT'].includes(message.type))).toBe(false);
       const traces = await until(async () => {
         const files = (await readdir(join(testEnv.tempDir, 'jev-decisions'))).filter(file => file.endsWith('.json'));
@@ -620,6 +621,8 @@ describe('JEV Ranked WebSocket Integration', () => {
       await until(() => messages.find(message => message.type === 'IDENTITY'));
       socket.send(JSON.stringify({ type: 'MATCHMAKE_BOT' }));
       await until(() => messages.find(message => message.type === 'OPPONENT_LEFT'));
+      expect(messages.filter(message => message.type === 'ERROR').map(message => message.message).join(' '))
+        .not.toMatch(/JEV|봇|모델|실험/i);
       const health = await (await fetch(`${testEnv.httpUrl}/health`)).json();
       expect(health.jev).toMatchObject({ acceptingMatches: false, reason: `http_${status}`, attempts: 1,
         retries: 0, failures: 1, lastError: { status, retryable: false } });
