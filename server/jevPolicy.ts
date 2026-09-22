@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import type { GameState, Move } from '../src/core/types';
 
 export const JEV_PARALLEL_POLICY = {
-  version: 'parallel-v18', rulesVersion: 'mongjin-core-1', protocolVersion: 1,
+  version: 'parallel-v19', rulesVersion: 'mongjin-core-1', protocolVersion: 1,
   turnLimitMs: 30_000, maxPlies: 240, targetP95Ms: 8_000,
   factsBudgetMs: 2_000, proposalBudgetMs: 8_000, searchBudgetMs: 3_000,
   searchProposalBudgetMs: 4_300,

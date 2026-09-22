@@ -4,8 +4,9 @@ import type { GameState } from '../src/core/types';
 import { legalMoves } from '../src/core/rules';
 import { applyMove } from '../src/core/apply';
 import { getResult } from '../src/core/result';
-import { JevError } from './jev';
+import { JevError, type JevErrorCode } from './jev';
 import { evaluateJev, JEV_MODEL, type JevQuestion, type EvaluateJevResult } from './jevGateway';
+import { runJevApiWithRetry, type JevApiRetryDependencies } from './jevApiRetry';
 import { analyzeJevFacts, analyzeJevCandidates } from './jevAnalysis';
 import { analyzeJevPressure } from './jevPressure';
 import { chooseJevGuardPressureMove } from './jevPressurePolicy';
@@ -32,13 +33,26 @@ export type JevRetainedProof = {
   sourceSearch: number;
   principalVariation: Search['candidates'][number]['principalVariation'];
 };
-type ApiStage = {
-  phase: 'proposals' | 'reproposal' | 'final';
-  request: { model: string; state: unknown; questions: Record<string, JevQuestion> };
+export type ApiAttempt = {
+  attempt: number;
+  startedAt: string;
+  deadlineMs: number;
   response?: unknown;
   result?: Omit<EvaluateJevResult, 'request' | 'response'>;
   elapsedMs?: number;
-  error?: string;
+  error?: JevErrorCode;
+  /** Actual HTTP response status, independent of provider response-body fields. */
+  httpStatus?: number;
+};
+
+export type ApiStage = {
+  phase: 'proposals' | 'reproposal' | 'final';
+  request: { model: string; state: unknown; questions: Record<string, JevQuestion> };
+  attempts: ApiAttempt[];
+  response?: unknown;
+  result?: Omit<EvaluateJevResult, 'request' | 'response'>;
+  elapsedMs?: number;
+  error?: JevErrorCode;
   /** Actual HTTP response status, independent of provider response-body fields. */
   httpStatus?: number;
   inputBudget?: ReturnType<typeof prepareJevInput>['budget'];
@@ -100,6 +114,7 @@ export interface ParallelTurnOptions {
   searchProposal?: typeof analyzeJevSearchProposal;
   rollouts?: typeof analyzeJevRollouts;
   onTrace?: (trace: ParallelTurnTrace) => void;
+  apiRetry?: JevApiRetryDependencies;
 }
 
 /** A fresh immutable snapshot per attempt; no unlogged reuse of previous model answers. */
@@ -126,27 +141,60 @@ export async function chooseParallelJevMove(options: ParallelTurnOptions) {
   const api = async (phase: ApiStage['phase'], input: unknown, questions: Record<string, JevQuestion>) => {
     check();
     const prepared = prepareJevInput(phase, input, questions);
+    const requestDeadlineMs = Math.min(stageDeadline(phase === 'final' ? POLICY.finalBudgetMs : POLICY.proposalBudgetMs),
+      // Recovery must leave one verification, first-reply enumeration and
+      // the full final-call allocation. The long rollout can be shortened.
+      phase === 'reproposal' ? deadlineMs - (POLICY.searchBudgetMs + POLICY.pressureBudgetMs + POLICY.finalBudgetMs + 1_000) : deadlineMs);
     const stage: ApiStage = { phase, inputBudget: prepared.budget,
-      request: { model: JEV_MODEL, state: prepared.state, questions: prepared.questions } };
+      request: { model: JEV_MODEL, state: prepared.state, questions: prepared.questions }, attempts: [] };
     trace.stages.push(stage); checkpoint();
     const stageStart = Date.now();
     try {
-      const result = await (options.evaluate ?? evaluateJev)({
-        state: prepared.state, questions: prepared.questions, apiKey: options.apiKey, signal: options.signal,
-        deadlineMs: Math.min(stageDeadline(phase === 'final' ? POLICY.finalBudgetMs : POLICY.proposalBudgetMs),
-          // Recovery must leave one verification, first-reply enumeration and
-          // the full final-call allocation. The long rollout can be shortened.
-          phase === 'reproposal' ? deadlineMs - (POLICY.searchBudgetMs + POLICY.pressureBudgetMs + POLICY.finalBudgetMs + 1_000) : deadlineMs),
-        onResponse: (response) => { stage.response = response; checkpoint(); },
+      const result = await runJevApiWithRetry({
+        deadlineMs: requestDeadlineMs, signal: options.signal, dependencies: options.apiRetry,
+        attempt: async (attemptNumber) => {
+          const attemptStart = Date.now();
+          const attempt: ApiAttempt = { attempt: attemptNumber,
+            startedAt: new Date(attemptStart).toISOString(), deadlineMs: requestDeadlineMs };
+          stage.attempts.push(attempt); checkpoint();
+          try {
+            const result = await (options.evaluate ?? evaluateJev)({
+              state: prepared.state, questions: prepared.questions, apiKey: options.apiKey, signal: options.signal,
+              deadlineMs: requestDeadlineMs,
+              onResponse: (response) => {
+                attempt.response = response;
+                // Preserve the latest body for legacy failure diagnostics. A
+                // later successful attempt overwrites this with its response.
+                stage.response = response;
+                checkpoint();
+              },
+            });
+            attempt.response = result.response;
+            const { request: _request, response: _response, ...metadata } = result;
+            attempt.result = metadata;
+            attempt.elapsedMs = Date.now() - attemptStart;
+            stage.response = result.response;
+            stage.result = metadata;
+            delete stage.error; delete stage.httpStatus;
+            stage.elapsedMs = Date.now() - stageStart; checkpoint();
+            return result;
+          } catch (error) {
+            const code = error instanceof JevError ? error.code : 'invalid_response';
+            const status = error instanceof JevError ? error.status : undefined;
+            attempt.error = code; attempt.httpStatus = status;
+            attempt.elapsedMs = Date.now() - attemptStart;
+            stage.error = code; stage.httpStatus = status;
+            stage.elapsedMs = Date.now() - stageStart; checkpoint();
+            throw error;
+          }
+        },
       });
-      stage.response = result.response;
-      const { request: _request, response: _response, ...metadata } = result;
-      stage.result = metadata;
       check();
       return result.answers;
     } catch (error) {
       stage.error = error instanceof JevError ? error.code : 'invalid_response';
       stage.httpStatus = error instanceof JevError ? error.status : undefined;
+      stage.elapsedMs = Date.now() - stageStart; checkpoint();
       throw error;
     } finally { stage.elapsedMs = Date.now() - stageStart; checkpoint(); }
   };

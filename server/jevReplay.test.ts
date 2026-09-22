@@ -205,8 +205,8 @@ describe('verifyJevTrace', () => {
     expect(losses.length).toBeGreaterThan(0);
   });
 
-  it('audits current v18 proof, search-proposal, and rollout evidence while retaining v17 replay', () => {
-    expect(valid.policy.version).toBe('parallel-v18');
+  it('audits current v19 proof, search-proposal, and rollout evidence while retaining v17 replay', () => {
+    expect(valid.policy.version).toBe('parallel-v19');
     expect(valid.rollouts).toMatchObject({
       version: 'jev-rollouts-v4',
       limits: { maxPlies: 8, maxNodesPerDecision: 64 },
@@ -237,6 +237,37 @@ describe('verifyJevTrace', () => {
     ))!;
     loss.extension!.proof!.plies += 1;
     expect(() => verifyJevTrace(alteredProof)).toThrowError('invalid-extension-pv');
+  });
+
+  it('preserves transient API attempts and rejects a changed retry or final response', () => {
+    const recovered = clone(valid);
+    const final = recovered.stages.find(stage => stage.phase === 'final')!;
+    const success = final.attempts[0]!;
+    final.attempts = [{ attempt: 1, startedAt: success.startedAt, deadlineMs: success.deadlineMs,
+      error: 'http_error', httpStatus: 503, response: { error: 'unavailable' }, elapsedMs: 0 },
+    { ...success, attempt: 2 }];
+    expect(() => verifyJevTrace(recovered)).not.toThrow();
+    for (const alter of [
+      (trace: ParallelTurnTrace) => { trace.stages.find(s => s.phase === 'final')!.attempts[0]!.httpStatus = 403; },
+      (trace: ParallelTurnTrace) => { trace.stages.find(s => s.phase === 'final')!.attempts[1]!.attempt = 3; },
+      (trace: ParallelTurnTrace) => { trace.stages.find(s => s.phase === 'final')!.attempts[1]!.response = { answers: {} }; },
+      (trace: ParallelTurnTrace) => { trace.stages.find(s => s.phase === 'final')!.attempts[1]!.deadlineMs += 1; },
+    ]) {
+      const tampered = clone(recovered);
+      alter(tampered);
+      expect(() => verifyJevTrace(tampered)).toThrow('invalid-trace');
+    }
+  });
+
+  it.each(['timeout', 'aborted'] as const)('audits a response discarded by %s before selection', error => {
+    const interrupted = clone(valid);
+    interrupted.status = error === 'aborted' ? 'cancelled' : 'error';
+    interrupted.error = error;
+    interrupted.stages.find(stage => stage.phase === 'final')!.error = error;
+    delete interrupted.selection;
+    delete interrupted.expectedAfterHash;
+    delete interrupted.appliedStateHash;
+    expect(() => verifyJevTrace(interrupted)).not.toThrow();
   });
 
   it('accepts an error checkpoint after verification but before a final gate is created', () => {
@@ -352,7 +383,7 @@ describe('verifyJevTrace', () => {
     }
   });
 
-  it.each(['parallel-v4', 'parallel-v5', 'parallel-v6', 'parallel-v7', 'parallel-v9', 'parallel-v14', 'parallel-v15', 'parallel-v16', 'parallel-v17'] as const)('still replays legacy %s traces after a policy upgrade', (version) => {
+  it.each(['parallel-v4', 'parallel-v5', 'parallel-v6', 'parallel-v7', 'parallel-v9', 'parallel-v14', 'parallel-v15', 'parallel-v16', 'parallel-v17', 'parallel-v18'] as const)('still replays legacy %s traces after a policy upgrade', (version) => {
     const legacy = clone(valid);
     stripV17TerminalProofs(legacy);
     (legacy.policy as { version: string }).version = version;

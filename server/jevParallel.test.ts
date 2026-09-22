@@ -403,17 +403,67 @@ it('preserves a full final window through a slow proposal and all-loss reproposa
   }
 });
 
-it('records API errors without advancing the board or calling a fallback engine', async () => {
-  const api = vi.fn(async () => { throw new JevError('http_429', 'Limited'); });
+it('records hard API errors without retrying, advancing the board or calling a fallback engine', async () => {
+  const api = vi.fn(async (input: EvaluateJevOptions) => {
+    input.onResponse?.({ model: 'typesafe-ai/jev', answers: null });
+    throw new JevError('invalid_response', 'Malformed answer');
+  });
   const before = structuredClone(state);
   let failure: ParallelTurnError | undefined;
   try { await chooseParallelJevMove(options(api)); }
   catch (error) { expect(error).toBeInstanceOf(ParallelTurnError); failure = error as ParallelTurnError; }
   expect(failure?.trace.status).toBe('error');
-  expect(failure?.trace.stages[0]?.error).toBe('http_429');
+  expect(failure?.trace.stages[0]?.error).toBe('invalid_response');
+  expect(failure?.trace.stages[0]?.attempts).toEqual([
+    expect.objectContaining({ attempt: 1, error: 'invalid_response', response: { model: 'typesafe-ai/jev', answers: null } }),
+  ]);
+  expect(failure?.trace.stages[0]?.response).toEqual({ model: 'typesafe-ai/jev', answers: null });
   expect(failure?.trace.selection).toBeUndefined();
   expect(api).toHaveBeenCalledTimes(1);
   expect(state).toEqual(before);
+});
+
+it('retries only the failed final API stage with the identical prepared request and preserves every attempt', async () => {
+  let finalCalls = 0;
+  const finalInputs: EvaluateJevOptions[] = [];
+  const snapshots: any[] = [];
+  const wait = vi.fn(async () => {});
+  const searchOnce = vi.fn(search);
+  const api = vi.fn(async (input: EvaluateJevOptions) => {
+    if (input.questions.move) {
+      finalInputs.push(input);
+      if (finalCalls++ === 0) {
+        input.onResponse?.({ status: 503, error: 'temporary upstream failure' });
+        throw new JevError('http_error', 'Unavailable', 503);
+      }
+    }
+    return response(input);
+  });
+
+  const result = await chooseParallelJevMove({ ...options(api), search: searchOnce,
+    apiRetry: { wait }, onTrace: trace => snapshots.push(trace) });
+  const finalStage = result.trace.stages.find(stage => stage.phase === 'final')!;
+
+  expect(result.trace.stages.map(stage => stage.phase)).toEqual(['proposals', 'final']);
+  expect(searchOnce).toHaveBeenCalledTimes(1);
+  expect(finalInputs).toHaveLength(2);
+  expect(finalInputs[1]!.state).toBe(finalInputs[0]!.state);
+  expect(finalInputs[1]!.questions).toBe(finalInputs[0]!.questions);
+  expect(finalInputs[1]!.deadlineMs).toBe(finalInputs[0]!.deadlineMs);
+  expect(wait).toHaveBeenCalledTimes(1);
+  expect(wait).toHaveBeenCalledWith(1_000, undefined);
+  expect(finalStage.attempts).toHaveLength(2);
+  expect(finalStage.attempts[0]).toMatchObject({ attempt: 1, error: 'http_error', httpStatus: 503,
+    response: { status: 503, error: 'temporary upstream failure' } });
+  expect(finalStage.attempts[1]).toMatchObject({ attempt: 2, result: { cost: 0 } });
+  expect(finalStage.attempts.filter(attempt => attempt.result)).toHaveLength(1);
+  expect(finalStage.error).toBeUndefined();
+  expect(finalStage.httpStatus).toBeUndefined();
+  expect(finalStage.response).toEqual(finalStage.attempts[1]!.response);
+  expect(snapshots.some(trace => trace.stages.at(-1)?.phase === 'final'
+    && trace.stages.at(-1)?.error === 'http_error'
+    && trace.stages.at(-1)?.attempts.at(-1)?.httpStatus === 503)).toBe(true);
+  expect(result.trace.selection?.source).toBe('jev-final');
 });
 
 it('skips API only for an engine-confirmed immediate winning move', async () => {

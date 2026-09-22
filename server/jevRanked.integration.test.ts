@@ -38,9 +38,10 @@ interface WsMessage {
 const mockPreloadScript = `
 import { existsSync, writeFileSync, readFileSync } from 'node:fs';
 const originalDateNow = Date.now;
-const realStart = originalDateNow();
-const fixedSept20 = Date.parse('2026-09-20T12:00:00+09:00');
-Date.now = () => fixedSept20 + (originalDateNow() - realStart);
+// Use the same offset in the server and every later worker. Resetting each
+// worker to a fixed epoch makes its absolute deadline stale after a long wait.
+const clockOffset = Number(process.env.MOCK_JEV_CLOCK_OFFSET_MS);
+Date.now = () => originalDateNow() + clockOffset;
 
 Math.random = () => 0;
 
@@ -63,8 +64,10 @@ globalThis.fetch = async (input, init) => {
       });
     }
   }
+  const recoverPath = process.env.MOCK_JEV_RECOVER_PATH;
+  const waitingForRecovery = recoverPath && !existsSync(recoverPath);
   const forcedStatus = Number(process.env.MOCK_JEV_HTTP_STATUS || '0');
-  if (forcedStatus || failOnce) {
+  if (forcedStatus || failOnce || waitingForRecovery) {
     // The transport status must win over a conflicting provider body field.
     return new Response(JSON.stringify({ status: 503, error: 'mock gateway failure' }), {
       status: forcedStatus || 503,
@@ -140,6 +143,7 @@ interface SpawnedTestServer {
   server: ChildProcess;
   url: string;
   httpUrl: string;
+  recoveryFlagPath: string;
   output: () => string;
   cleanup: () => Promise<void>;
 }
@@ -148,6 +152,8 @@ async function startTestServer(options: {
   mock503?: boolean;
   mockStatus?: number;
   failOnce?: '503' | 'network' | 'provider-alias';
+  recoverAfterFlag?: boolean;
+  startRecovered?: boolean;
   mockDelayMs?: number;
   botRating?: number;
 }): Promise<SpawnedTestServer> {
@@ -156,6 +162,8 @@ async function startTestServer(options: {
   await writeFile(mockScriptPath, mockPreloadScript, 'utf8');
 
   const profileDataFile = join(tempDir, 'profiles.json');
+  const recoveryFlagPath = join(tempDir, 'gateway-recovered');
+  if (options.startRecovered) await writeFile(recoveryFlagPath, 'recover', 'utf8');
   // Most engine tests isolate JEV by rating; matchmaking tests use an equal-rated roster.
   const seededBots = RANKED_BOTS.map((bot) => ({
     playerId: bot.id,
@@ -183,9 +191,11 @@ async function startTestServer(options: {
       HOST: '127.0.0.1',
       PORT: '0',
       DATABASE_URL: '',
+      MOCK_JEV_CLOCK_OFFSET_MS: String(Date.parse('2026-09-20T12:00:00+09:00') - Date.now()),
       MOCK_JEV_HTTP_STATUS: String(options.mockStatus ?? (options.mock503 ? 503 : 0)),
       MOCK_JEV_FAIL_ONCE_PATH: options.failOnce ? join(tempDir, 'gateway-failed-once') : '',
       MOCK_JEV_FAILURE_KIND: options.failOnce ?? '',
+      MOCK_JEV_RECOVER_PATH: options.recoverAfterFlag ? recoveryFlagPath : '',
       MOCK_JEV_ALIAS_BODY_PATH: join(serverDir, 'fixtures', 'jev-provider-alias-unavailable.json'),
       MOCK_JEV_DELAY_MS: String(options.mockDelayMs ?? 0),
     },
@@ -214,6 +224,7 @@ async function startTestServer(options: {
     server,
     url,
     httpUrl,
+    recoveryFlagPath,
     output: () => serverOutput,
     cleanup,
   };
@@ -392,21 +403,23 @@ describe('JEV Ranked WebSocket Integration', () => {
   );
 
   it(
-    'bounds repeated 503 retries, preserves every failed attempt without Elo changes, and reopens matching automatically',
+    'preserves the board through a full failed 503 turn and applies exactly one late recovered move',
     async () => {
-      // Separate server for failure scenario
-      const testEnv = await startTestServer({ mock503: true });
+      const testEnv = await startTestServer({ recoverAfterFlag: true });
       let socket: WebSocket | undefined;
 
       try {
         socket = new WebSocket(testEnv.url);
         const messages: WsMessage[] = [];
+        const received: WsMessage[] = [];
 
         socket.on('message', (raw) => {
-          messages.push(JSON.parse(String(raw)));
+          const message = JSON.parse(String(raw));
+          messages.push(message);
+          received.push(message);
         });
 
-        const next = (type: string, timeoutMs = 15000) =>
+        const next = (type: string, timeoutMs = 20_000) =>
           until(() => {
             const idx = messages.findIndex((m) => m.type === type);
             return idx >= 0 ? messages.splice(idx, 1)[0] : undefined;
@@ -421,81 +434,128 @@ describe('JEV Ranked WebSocket Integration', () => {
         socket.send(JSON.stringify({ type: 'MATCHMAKE_BOT' }));
         const matchFound = await next('MATCH_FOUND');
         expect(matchFound.opponent.name).toBe('침착맨이할때까지');
+        const fixedState = structuredClone(matchFound.state);
 
-        // JEV opening move runs, encounters 503 gateway error, and abandons match
-        const errorMsg = await next('ERROR');
-        expect(errorMsg.message).toContain('JEV 실험 대국을 중단했습니다');
+        const waiting = await next('ERROR');
+        expect(waiting.message).toContain('자동으로 다시 시도');
+        expect(waiting.message).toContain('대국은 유지');
+        await until(() => testEnv.output().includes('"event":"match_recovery_wait"'), 45_000);
 
-        const opponentLeft = await next('OPPONENT_LEFT');
-        expect(opponentLeft).toBeDefined();
+        const waitingHealth = await (await fetch(`${testEnv.httpUrl}/health`)).json();
+        expect(waitingHealth).toMatchObject({ rooms: 1, jev: {
+          matchRecoveryPolicy: 'preserve-v1', waitingMatches: 1,
+          acceptingMatches: false, reason: 'transient_cooldown',
+        } });
+        expect(received.some(message => ['STATE', 'OPPONENT_LEFT', 'MATCH_RESULT'].includes(message.type))).toBe(false);
 
-        // Ensure NO MATCH_RESULT message is ever emitted
-        await pause(600);
-        expect(messages.some((m) => m.type === 'MATCH_RESULT')).toBe(false);
+        await writeFile(testEnv.recoveryFlagPath, 'recover', 'utf8');
+        const recovered = await next('ERROR', 50_000).catch((error) => {
+          const messages = received.map(message => ({ type: message.type, message: message.message,
+            plies: message.state?.history?.length }));
+          throw new Error(`${String(error)}\nmessages=${JSON.stringify(messages)}\nserver=${testEnv.output()}`);
+        });
+        expect(recovered.message).toContain('응답이 복구');
+        const update = await next('STATE', 50_000);
+        expect(update.state.history).toHaveLength(1);
+        expect(legalMoves(fixedState, DEFAULT_CONFIG)).toContainEqual(update.state.history[0]);
+        expect(applyMove(fixedState, update.state.history[0])).toEqual(update.state);
 
-        // Verify NO Elo change occurred
-        const profilesJson = JSON.parse(
-          await readFile(testEnv.profileDataFile, 'utf8'),
-        ) as Array<{ playerId: string; rating: number }>;
-        const humanStored = profilesJson.find(
-          (p) => p.playerId === identity.profile.playerId,
-        );
-        expect(humanStored?.rating).toBe(1200);
+        const recoveryIndex = received.findIndex(message => message.type === 'ERROR'
+          && message.message?.includes('응답이 복구'));
+        const stateIndex = received.findIndex(message => message.type === 'STATE');
+        expect(recoveryIndex).toBeGreaterThan(-1);
+        expect(stateIndex).toBeGreaterThan(recoveryIndex);
+        expect(received.filter(message => message.type === 'STATE')).toHaveLength(1);
+        expect(received.some(message => ['OPPONENT_LEFT', 'MATCH_RESULT'].includes(message.type))).toBe(false);
 
-        const jevStored = profilesJson.find((p) => p.playerId === 'ranked-bot-jev');
-        expect(jevStored?.rating).toBe(1200);
+        const records = await until(async () => {
+          const files = (await readdir(join(testEnv.tempDir, 'jev-decisions'))).filter(file => file.endsWith('.json'));
+          const saved = await Promise.all(files.map(async file => JSON.parse(
+            await readFile(join(testEnv.tempDir, 'jev-decisions', file), 'utf8'),
+          )));
+          return saved.filter(record => record.status === 'applied').length === 1 ? saved : null;
+        });
+        expect(records.filter(record => record.status === 'applied')).toHaveLength(1);
+        expect(new Set(records.map(record => record.stateHash))).toEqual(new Set([jevStateHash(fixedState)]));
+        expect(records.every(record => record.ply === 0)).toBe(true);
 
-        // Verify preserved game record trace
-        const gameRecordFiles = await readdir(join(testEnv.tempDir, 'game-records'));
-        const jsonGameFiles = gameRecordFiles.filter((f) => f.endsWith('.json'));
-        expect(jsonGameFiles.length).toBeGreaterThan(0);
-
-        const gameRecord = JSON.parse(
-          await readFile(
-            join(testEnv.tempDir, 'game-records', jsonGameFiles[0]!),
-            'utf8',
-          ),
-        );
-        expect(gameRecord.reason).toMatch(/^jev_/);
-        expect(gameRecord.reason).toBe('jev_http_error');
-        // No board advance
-        expect(gameRecord.moves).toEqual([]);
-
-        // Verify preserved JEV decision trace
-        const decisionFiles = await readdir(join(testEnv.tempDir, 'jev-decisions'));
-        const jsonDecisionFiles = decisionFiles.filter((f) => f.endsWith('.json'));
-        expect(jsonDecisionFiles.length).toBeGreaterThan(0);
-
-        const decisionRecord = JSON.parse(
-          await readFile(
-            join(testEnv.tempDir, 'jev-decisions', jsonDecisionFiles[0]!),
-            'utf8',
-          ),
-        );
-        expect(decisionRecord.status).toBe('error');
-        expect(decisionRecord.error).toBe('http_error');
-        expect(jsonDecisionFiles).toHaveLength(3);
-        for (const file of jsonDecisionFiles) {
-          const attempt = JSON.parse(await readFile(join(testEnv.tempDir, 'jev-decisions', file), 'utf8'));
-          expect(attempt.errorStatus).toBe(503);
-          expect(attempt.stages[0].httpStatus).toBe(503);
-          expect(attempt.ply).toBe(0);
-        }
-        const stopped = await (await fetch(`${testEnv.httpUrl}/health`)).json();
-        expect(stopped.jev).toMatchObject({ acceptingMatches: false, reason: 'transient_cooldown',
-          attempts: 3, retries: 2, failures: 1, attemptFailures: 3,
-          lastError: { status: 503, retryable: true } });
-        expect(stopped.jev.retryAfterMs).toBeGreaterThan(0);
-        await until(async () => (await (await fetch(`${testEnv.httpUrl}/health`)).json()).jev.acceptingMatches, 20_000);
-        socket.send(JSON.stringify({ type: 'MATCHMAKE_BOT' }));
-        const recoveredMatch = await next('MATCH_FOUND');
-        expect(recoveredMatch.opponent.name).toBe('침착맨이할때까지');
+        const recoveredHealth = await (await fetch(`${testEnv.httpUrl}/health`)).json();
+        expect(recoveredHealth.jev).toMatchObject({ matchRecoveryPolicy: 'preserve-v1', waitingMatches: 0,
+          acceptingMatches: true, reason: null, successfulMoves: 1 });
+        const profiles = JSON.parse(await readFile(testEnv.profileDataFile, 'utf8')) as Array<{ playerId: string; rating: number }>;
+        expect(profiles.find(profile => profile.playerId === identity.profile.playerId)?.rating).toBe(1200);
+        expect(profiles.find(profile => profile.playerId === 'ranked-bot-jev')?.rating).toBe(1200);
       } finally {
         socket?.terminate();
         await testEnv.cleanup();
       }
     },
-    35000,
+    90_000,
+  );
+
+  it.each(['resign', 'disconnect'] as const)(
+    'voids a recovering match without Elo when the player leaves by %s',
+    async (departure) => {
+      const testEnv = await startTestServer({ recoverAfterFlag: true, startRecovered: true });
+      let socket: WebSocket | undefined;
+      try {
+        socket = new WebSocket(testEnv.url);
+        const messages: WsMessage[] = [];
+        socket.on('message', raw => messages.push(JSON.parse(String(raw))));
+        const next = (type: string, timeoutMs = 20_000) => until(() => {
+          const index = messages.findIndex(message => message.type === type);
+          return index < 0 ? undefined : messages.splice(index, 1)[0];
+        }, timeoutMs);
+        await until(() => socket!.readyState === WebSocket.OPEN);
+        socket.send(JSON.stringify({ type: 'HELLO' }));
+        const identity = await next('IDENTITY');
+        socket.send(JSON.stringify({ type: 'MATCHMAKE_BOT' }));
+        await next('MATCH_FOUND');
+        const opening = await next('STATE');
+        expect(opening.state.history).toHaveLength(1);
+        await rm(testEnv.recoveryFlagPath);
+        const humanMove = legalMoves(opening.state, DEFAULT_CONFIG)[0]!;
+        socket.send(JSON.stringify({ type: 'MOVE', move: humanMove }));
+        const fixed = await next('STATE');
+        expect(fixed.state.history).toHaveLength(2);
+        expect(fixed.state.history[1]).toEqual(humanMove);
+        expect((await next('ERROR')).message).toContain('자동으로 다시 시도');
+        expect((await (await fetch(`${testEnv.httpUrl}/health`)).json()).jev).toMatchObject({
+          matchRecoveryPolicy: 'preserve-v1', waitingMatches: 1,
+        });
+        messages.length = 0;
+
+        if (departure === 'resign') {
+          socket.send(JSON.stringify({ type: 'RESIGN' }));
+          expect((await next('ERROR')).message).toContain('점수에 반영되지 않습니다');
+          await next('OPPONENT_LEFT');
+        } else {
+          socket.terminate();
+          socket = undefined;
+        }
+        await until(async () => {
+          const health = await (await fetch(`${testEnv.httpUrl}/health`)).json();
+          return health.rooms === 0 && health.jev.waitingMatches === 0;
+        });
+        await pause(300);
+        expect(messages.some(message => ['STATE', 'MATCH_RESULT'].includes(message.type))).toBe(false);
+
+        const gameRecord = await until(async () => {
+          const files = (await readdir(join(testEnv.tempDir, 'game-records'))).filter(file => file.endsWith('.json'));
+          if (!files.length) return null;
+          return JSON.parse(await readFile(join(testEnv.tempDir, 'game-records', files[0]!), 'utf8'));
+        });
+        expect(gameRecord).toMatchObject({ reason: 'jev_recovery_player_left', moves: fixed.state.history });
+        expect(gameRecord.moves).toHaveLength(2);
+        const profiles = JSON.parse(await readFile(testEnv.profileDataFile, 'utf8')) as Array<{ playerId: string; rating: number }>;
+        expect(profiles.find(profile => profile.playerId === identity.profile.playerId)?.rating).toBe(1200);
+        expect(profiles.find(profile => profile.playerId === 'ranked-bot-jev')?.rating).toBe(1200);
+      } finally {
+        socket?.terminate();
+        await testEnv.cleanup();
+      }
+    },
+    60_000,
   );
 
   it.each(['503', 'network', 'provider-alias'] as const)('recovers a single %s failure inside the same turn and applies exactly one JEV move', async (failure) => {
@@ -510,31 +570,43 @@ describe('JEV Ranked WebSocket Integration', () => {
       socket.send(JSON.stringify({ type: 'HELLO' }));
       await next('IDENTITY');
       socket.send(JSON.stringify({ type: 'MATCHMAKE_BOT' }));
-      expect((await next('MATCH_FOUND')).opponent.name).toBe('침착맨이할때까지');
+      const matchFound = await next('MATCH_FOUND');
+      expect(matchFound.opponent.name).toBe('침착맨이할때까지');
       const update = await next('STATE');
       expect(update.state.history).toHaveLength(1);
+      expect(applyMove(matchFound.state, update.state.history[0])).toEqual(update.state);
       expect(messages.filter(message => message.type === 'STATE')).toHaveLength(1);
-      expect(messages.some(message => ['ERROR', 'OPPONENT_LEFT', 'MATCH_RESULT'].includes(message.type))).toBe(false);
+      const notices = messages.filter(message => message.type === 'ERROR').map(message => message.message);
+      expect(notices.some(message => message?.includes('자동으로 다시 시도'))).toBe(true);
+      expect(notices.some(message => message?.includes('응답이 복구'))).toBe(true);
+      expect(messages.some(message => ['OPPONENT_LEFT', 'MATCH_RESULT'].includes(message.type))).toBe(false);
       const traces = await until(async () => {
         const files = (await readdir(join(testEnv.tempDir, 'jev-decisions'))).filter(file => file.endsWith('.json'));
         const records = await Promise.all(files.map(async file => JSON.parse(await readFile(join(testEnv.tempDir, 'jev-decisions', file), 'utf8'))));
-        return records.length === 2 && records.some(record => record.status === 'applied') ? records : null;
+        return records.length === 1 && records[0]?.status === 'applied' ? records : null;
       });
-      const failed = traces.find(trace => trace.status === 'error');
-      const applied = traces.find(trace => trace.status === 'applied');
-      expect(failed.error).toBe(failure === 'provider-alias' ? 'provider_unavailable' : 'http_error');
-      expect(failed.errorStatus).toBe(failure === '503' ? 503 : failure === 'provider-alias' ? 400 : undefined);
-      expect(failed.stateHash).toBe(applied.stateHash);
+      const applied = traces[0];
+      const retriedStage = applied.stages.find((stage: any) => stage.attempts?.length === 2);
+      expect(retriedStage).toBeDefined();
+      expect(retriedStage.attempts[0]).toMatchObject({ attempt: 1,
+        error: failure === 'provider-alias' ? 'provider_unavailable' : 'http_error' });
+      expect(retriedStage.attempts[0].httpStatus).toBe(
+        failure === '503' ? 503 : failure === 'provider-alias' ? 400 : undefined,
+      );
+      expect(retriedStage.attempts[1]).toMatchObject({ attempt: 2, result: { cost: 0 } });
+      expect(retriedStage.error).toBeUndefined();
+      expect(retriedStage.result).toEqual(retriedStage.attempts[1].result);
       expect(applied.selection.id).toBe(jevMoveId(update.state.history[0]));
-      expect(applied.recovery.attempt).toBe(2);
+      expect(applied.recovery.attempt).toBe(1);
       const health = await (await fetch(`${testEnv.httpUrl}/health`)).json();
       expect(health.jev).toMatchObject({ acceptingMatches: true, reason: null, turns: 1,
-        successfulMoves: 1, failures: 0, attempts: 2, attemptFailures: 1, retries: 1, recoveredTurns: 1 });
+        successfulMoves: 1, failures: 0, attempts: 1, attemptFailures: 0, retries: 0,
+        recoveredTurns: 0, waitingMatches: 0, matchRecoveryPolicy: 'preserve-v1' });
       const profiles = JSON.parse(await readFile(testEnv.profileDataFile, 'utf8'));
       expect(profiles.find((profile: any) => profile.playerId === 'ranked-bot-jev').rating).toBe(1200);
       expect(testEnv.output()).not.toContain('mock-test-key-safe');
     } finally { socket?.terminate(); await testEnv.cleanup(); }
-  }, 35_000);
+  }, 60_000);
 
   it.each([400, 403])('preserves generic HTTP %i through the worker and does not retry a misleading 503 response body', async (status) => {
     const testEnv = await startTestServer({ mockStatus: status });

@@ -27,11 +27,13 @@ import {
 import { ensureRankedBots, selectRankedBot, isRankedBotId, JEV_MATCHMAKING_POLICY } from './rankedBots';
 import { inferMatchPlatform } from './matchAnalytics';
 import { hasPlayerTakenTurn } from './matchLifecycle';
-import { JEV_BOT, JevExperiment } from './jevExperiment';
+import { JEV_BOT, JEV_EXPIRES_AT, JevExperiment } from './jevExperiment';
 import { JevError } from './jev';
 import { ParallelTurnError, type ParallelTurnTrace } from './jevParallel';
 import { JEV_PARALLEL_POLICY, jevStateHash, jevMoveId } from './jevPolicy';
 import { createJevRecordStore, waitForJevRecord } from './jevRecords';
+import { classifyJevFailure } from './jevRecovery';
+import { JEV_MATCH_RECOVERY_POLICY, preserveJevTurn } from './jevMatchRecovery';
 
 import { createGameRecordStore, GameRecorder, RECORD_RULES_VERSION, type GameRecord } from './gameRecords';
 
@@ -69,6 +71,7 @@ interface Room {
   finished: boolean;
   gameRecord?: GameRecord;
   botRequest?: AbortController;
+  jevRecoveryStartedAt?: number;
   recentBotIdsBeforeMatch?: string[];
 }
 
@@ -467,6 +470,14 @@ async function abandonJevMatch(room: Room, reason: string) {
   await recordSaved;
 }
 
+function markJevRecovery(room: Room) {
+  if (room.finished || room.jevRecoveryStartedAt !== undefined) return;
+  room.jevRecoveryStartedAt = Date.now();
+  // ERROR is a non-destructive toast/status on released clients. OPPONENT_LEFT
+  // would leave the board, so do not send it while waiting for the provider.
+  broadcastRoom(room, { type: 'ERROR', message: 'JEV 응답이 지연되어 자동으로 다시 시도합니다. 대국은 유지되며, 기다리는 동안 나가도 점수가 차감되지 않습니다.' });
+}
+
 function scheduleBotMove(room: Room) {
   if (
     room.kind !== 'bot' ||
@@ -493,16 +504,43 @@ function scheduleBotMove(room: Room) {
         const request = new AbortController();
         room.botRequest = request;
         try {
-          const decision = await jev.move(stateAtRequest, config, request.signal, room.matchId, undefined,
-            (trace) => waitForJevRecord(jevRecords!.save(trace), trace.deadlineMs, request.signal));
+          const current = () => rooms.get(room.id) === room && !room.finished && room.state === stateAtRequest;
+          const decision = await preserveJevTurn(async () => {
+            jevTrace = undefined;
+            const next = await jev.move(stateAtRequest, config, request.signal, room.matchId, (trace) => {
+              const stage = trace.stages.at(-1);
+              if (current() && !request.signal.aborted && stage?.error
+                && classifyJevFailure(new JevError(stage.error as JevError['code'], stage.error, stage.httpStatus)).retryable) {
+                markJevRecovery(room);
+              }
+            }, (trace) => waitForJevRecord(jevRecords!.save(trace), trace.deadlineMs, request.signal));
+            jevTrace = next.trace;
+            if (!current() || request.signal.aborted) throw new JevError('aborted', 'JEV match ended');
+            await waitForJevRecord(jevRecords!.save(jevTrace), jevTrace.deadlineMs, request.signal);
+            if (Date.now() >= jevTrace.deadlineMs) throw new JevError('timeout', 'JEV recording exceeded turn deadline');
+            if (jevStateHash(room.state) !== jevTrace.stateHash
+              || !isValidMove(room.state, next.move) || jevMoveId(next.move) !== jevTrace.selection?.id) {
+              throw new ParallelTurnError('invalid_response', { ...jevTrace, status: 'error', error: 'state-or-selection-changed' });
+            }
+            return next;
+          }, {
+            signal: request.signal, expiresAt: Date.parse(JEV_EXPIRES_AT), isCurrent: current,
+            unavailableReason: () => jev.unavailableReason, retryAfterMs: () => jev.status.retryAfterMs,
+            onRetry: (error, delayMs, failureCount) => {
+              if (error instanceof ParallelTurnError) {
+                void jevRecords?.save(error.trace).catch(() => console.error('[jev] 복구 대기 판단 기록 저장 실패'));
+              } else if (jevTrace) {
+                void jevRecords?.save({ ...jevTrace, status: 'error', error: 'recording_timeout' })
+                  .catch(() => console.error('[jev] 복구 대기 판단 기록 저장 실패'));
+              }
+              markJevRecovery(room);
+              console.warn('[jev]', JSON.stringify({ event: 'match_recovery_wait', matchId: room.matchId,
+                ply: stateAtRequest.history.length, delayMs, failureCount, ...classifyJevFailure(error) }));
+            },
+          });
           move = decision.move;
           jevTrace = decision.trace;
           if (rooms.get(room.id) !== room || room.finished || request.signal.aborted) return;
-          await waitForJevRecord(jevRecords!.save(jevTrace), jevTrace.deadlineMs, request.signal);
-          if (Date.now() >= jevTrace.deadlineMs || jevStateHash(room.state) !== jevTrace.stateHash ||
-              !isValidMove(room.state, move) || jevMoveId(move) !== jevTrace.selection?.id) {
-            throw new ParallelTurnError('invalid_response', { ...jevTrace, status: 'error', error: 'state-or-deadline-changed' });
-          }
           console.log('[jev]', JSON.stringify({ event: 'move', matchId: room.matchId, ply: stateAtRequest.history.length,
             elapsedMs: decision.elapsedMs, inputTokens: decision.inputTokens, outputTokens: decision.outputTokens, cost: decision.cost }));
         } catch (error) {
@@ -532,6 +570,10 @@ function scheduleBotMove(room: Room) {
         return;
       }
       room.state = applyMove(room.state, move);
+      if (room.jevRecoveryStartedAt !== undefined) {
+        room.jevRecoveryStartedAt = undefined;
+        broadcastRoom(room, { type: 'ERROR', message: 'JEV 응답이 복구되어 대국을 이어갑니다.' });
+      }
       if (jevTrace) {
         jevTrace.status = 'applied'; jevTrace.appliedStateHash = jevStateHash(room.state);
         jevTrace.appliedElapsedMs = Date.now() - Date.parse(jevTrace.startedAt);
@@ -691,6 +733,10 @@ function detachPlayer(ws: WebSocket) {
   const room = session?.roomId ? rooms.get(session.roomId) : undefined;
   if (room) {
     const side: Player | null = room.black === ws ? 'BLACK' : room.white === ws ? 'WHITE' : null;
+    if (side && room.bot?.playerId === JEV_BOT.id && room.jevRecoveryStartedAt !== undefined && !room.finished) {
+      // Leaving an infrastructure wait is not a resignation or a ranked loss.
+      void abandonJevMatch(room, 'recovery_player_left');
+    }
     if (side && room.kind !== 'friend' && !room.finished) recordMatchAbandoned(room, side, 'disconnect');
     if (
       room.kind === 'bot' &&
@@ -904,7 +950,9 @@ const httpServer = createServer((req, res) => {
       activeSessions: sessions.size,
       profileStore: profileRepository.kind,
       officialBotMatches: true,
-      jev: { ...jev.status, matchmakingPolicy: JEV_MATCHMAKING_POLICY },
+      jev: { ...jev.status, matchmakingPolicy: JEV_MATCHMAKING_POLICY,
+        matchRecoveryPolicy: JEV_MATCH_RECOVERY_POLICY.version,
+        waitingMatches: [...rooms.values()].filter(room => !room.finished && room.jevRecoveryStartedAt !== undefined).length },
       gameRecords: { schemaVersion: 1, rulesVersion: RECORD_RULES_VERSION },
     });
     return;
@@ -1115,6 +1163,7 @@ wss.on('connection', (ws, request) => {
       const room = roomId ? rooms.get(roomId) : undefined;
       const side: Player | null = room && room.black === ws ? 'BLACK' : room && room.white === ws ? 'WHITE' : null;
       if (!room || !side) send(ws, { type: 'ERROR', message: '방에 참가한 뒤 항복할 수 있습니다' });
+      else if (room.bot?.playerId === JEV_BOT.id && room.jevRecoveryStartedAt !== undefined && !room.finished) await abandonJevMatch(room, 'recovery_player_left');
       else if (room.kind === 'random' && !room.finished) await finishRandomMatch(room, opponent(side), 'forfeit', 'resign');
       else if (room.kind === 'bot' && !room.finished && room.bot) await finishBotMatch(room, room.bot.side, 'forfeit', 'resign');
       return;
