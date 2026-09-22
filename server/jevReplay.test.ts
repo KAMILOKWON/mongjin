@@ -205,6 +205,40 @@ describe('verifyJevTrace', () => {
     expect(losses.length).toBeGreaterThan(0);
   });
 
+  it('audits current v18 proof, search-proposal, and rollout evidence while retaining v17 replay', () => {
+    expect(valid.policy.version).toBe('parallel-v18');
+    expect(valid.rollouts).toMatchObject({
+      version: 'jev-rollouts-v4',
+      limits: { maxPlies: 8, maxNodesPerDecision: 64 },
+    });
+    expect(Object.hasOwn(valid, 'searchProposal')).toBe(true);
+    expect(() => verifyJevTrace(valid)).not.toThrow();
+    expect(() => verifyJevTrace(terminalValid)).not.toThrow();
+
+    const legacyV17 = clone(valid);
+    (legacyV17.policy as { version: string }).version = 'parallel-v17';
+    expect(() => verifyJevTrace(legacyV17)).not.toThrow();
+
+    const missingProposal = clone(valid);
+    delete missingProposal.searchProposal;
+    expect(() => verifyJevTrace(missingProposal)).toThrowError('invalid-search-proposal');
+
+    const missingRollouts = clone(valid);
+    delete missingRollouts.rollouts;
+    expect(() => verifyJevTrace(missingRollouts)).toThrowError('invalid-rollouts');
+
+    const alteredV4Budget = clone(valid);
+    alteredV4Budget.rollouts!.limits.maxPlies = 7;
+    expect(() => verifyJevTrace(alteredV4Budget)).toThrowError('invalid-rollouts');
+
+    const alteredProof = clone(terminalValid);
+    const loss = alteredProof.searches[0]!.candidates.find(candidate => (
+      candidate.extension?.method === 'terminal-only-loss-proof' && candidate.extension.proven === 'loss'
+    ))!;
+    loss.extension!.proof!.plies += 1;
+    expect(() => verifyJevTrace(alteredProof)).toThrowError('invalid-extension-pv');
+  });
+
   it('accepts an error checkpoint after verification but before a final gate is created', () => {
     const partial = clone(terminalValid);
     const eligible = partial.searches[0]!.candidates.map(candidate => jevMoveId(candidate.move));
@@ -318,7 +352,7 @@ describe('verifyJevTrace', () => {
     }
   });
 
-  it.each(['parallel-v4', 'parallel-v5', 'parallel-v6', 'parallel-v7', 'parallel-v9', 'parallel-v14', 'parallel-v15', 'parallel-v16'] as const)('still replays legacy %s traces after a policy upgrade', (version) => {
+  it.each(['parallel-v4', 'parallel-v5', 'parallel-v6', 'parallel-v7', 'parallel-v9', 'parallel-v14', 'parallel-v15', 'parallel-v16', 'parallel-v17'] as const)('still replays legacy %s traces after a policy upgrade', (version) => {
     const legacy = clone(valid);
     stripV17TerminalProofs(legacy);
     (legacy.policy as { version: string }).version = version;

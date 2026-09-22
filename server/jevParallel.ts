@@ -14,7 +14,8 @@ import { analyzeJevReplyRollouts } from './jevReplyRollouts';
 import { prepareJevInput } from './jevInputBudget';
 import { buildJevDecisionBriefing } from './jevDecisionBriefing';
 import { getJevThreatEscapeIds } from './jevEscapeCoverage';
-import { briefJevGuardDevelopment } from './jevGuardBriefing';
+import { briefJevGuardDevelopment, briefJevGuardInfrastructure } from './jevGuardBriefing';
+import { buildJevDevelopmentBriefing } from './jevDevelopmentBriefing';
 import { analyzeJevSearchProposal, briefJevSearchProposal } from './jevSearchProposal';
 import type { analyzeJevInitiative } from './jevInitiative';
 import { buildJevBriefing, describeJevAction, briefJevRoutes } from './jevBriefing';
@@ -228,7 +229,9 @@ export async function chooseParallelJevMove(options: ParallelTurnOptions) {
         if (role.priority) questions[`priority_${role.id}`] = { type: 'boolean', instructions: `${role.priority} This is a strategic priority estimate, not a test of exact tactical facts or a game win probability.` };
       }
       const answers = await api(recovery ? 'reproposal' : 'proposals', {
-        board, strategicContext, guardDevelopment, recentHistory: state.history.slice(-12), facts: rootFacts, allowedCandidateIds: ids, recovery,
+        board, strategicContext, guardDevelopment,
+        guardInfrastructure: briefJevGuardInfrastructure(buildJevDevelopmentBriefing(state, config)),
+        recentHistory: state.history.slice(-12), facts: rootFacts, allowedCandidateIds: ids, recovery,
         uncertainty: 'Unchecked replies are unknown, never safe. Questions run independently; they cannot read each other answers. Frozen-board routes are estimates, not secured future paths.',
       }, questions);
       if (trace.searchProposal === undefined) {
@@ -400,7 +403,9 @@ export async function chooseParallelJevMove(options: ParallelTurnOptions) {
     check(); checkpoint();
     const decision = buildJevDecisionBriefing(state, config, finalIds.map(id => verified.get(id)!),
       trace.pressure, trace.rollouts, [...proofs.values()], priorities);
-    const answers = await api('final', { ...decision.state, guardDevelopment, globalResult: trace.globalResult,
+    const answers = await api('final', { ...decision.state, guardDevelopment,
+      guardInfrastructure: briefJevGuardInfrastructure(buildJevDevelopmentBriefing(state, config, finalIds.map(id => movesById.get(id)!))),
+      globalResult: trace.globalResult,
       searchProposal: trace.searchProposal && finalIds.includes(trace.searchProposal.id) ? briefJevSearchProposal(trace.searchProposal) : null,
       calculation: trace.searches.map(({ candidates: _candidates, ...scope }) => scope),
       proposals: finalIds.map(id => ({ id, roles: [...(proposedRoles.get(id) ?? [])] })),

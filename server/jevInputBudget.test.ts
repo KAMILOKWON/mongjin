@@ -4,6 +4,28 @@ import type { JevQuestion } from './jevGateway';
 
 const questions: Record<string, JevQuestion> = { move: { type: 'choice', instructions: 'Choose the best legal move.', criteria: { p_1_1: 'Deploy a guard.', m_1_1_2_1: 'Move the king.' } } };
 describe('JEV request budget', () => {
+  it('encodes large continuation boards without dropping any cell, reply or terminal outcome', () => {
+    const guardSets = Array.from({ length: 250 }, (_, i) => ['0,0', '8,8', `${i % 9},4`, '3,6']);
+    const horizons = Array.from({ length: 250 }, (_, i) => [i % 2 ? null : '0,0', '8,8', i, 0, 4, 5, 'SELF']);
+    const input: any = { briefingVersion: 'jev-decision-1', board: { position: { board: Array(9).fill('.........') } },
+      decisionCards: [], conditionalContinuations: { horizonDetail: 'lossless-shared-tables',
+        replyColumns: ['firstReplyIndex', 'conditionalOutcome', 'horizonIndex'],
+        replyIds: ['p_1_1'], guardSets, horizons,
+        candidates: [{ id: 'p_1_1', replies: [[0, 'OPPONENT won:goal', 2], [0, 'unknown', 0]] }] } };
+    input.padding = 'x'.repeat(27000 - Buffer.byteLength(JSON.stringify(input)));
+    const before = structuredClone(input);
+    const out = prepareJevInput('final', input, questions);
+    const c = (out.state as any).conditionalContinuations;
+    const decode = (n: number | null) => n === null ? null : `${Math.floor(n / 9)},${n % 9}`;
+    expect(out.budget.steps).toContain('encode-horizon-cells-as-board-indexes');
+    expect(c.guardSets.map((s: number[]) => s.map(decode))).toEqual(guardSets);
+    expect(c.horizons.map(([a, b, ...rest]: [number | null, number | null, ...unknown[]]) => [decode(a), decode(b), ...rest])).toEqual(horizons);
+    expect(c.candidates[0].replies.map(([r, o, h]: number[]) => [r, c.conditionalOutcomes[o], h]))
+      .toEqual(before.conditionalContinuations.candidates[0].replies);
+    expect(out.budget.sentBytes).toBeLessThanOrEqual(JEV_INPUT_BYTE_BUDGET);
+    expect(out.questions).toEqual(questions);
+    expect(input).toEqual(before);
+  });
   it('keeps small requests and the original objects unchanged', () => {
     const input = { board: 'small' };
     const out = prepareJevInput('final', input, questions);

@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import type { GameState, Move } from '../src/core/types';
 
 export const JEV_PARALLEL_POLICY = {
-  version: 'parallel-v17', rulesVersion: 'mongjin-core-1', protocolVersion: 1,
+  version: 'parallel-v18', rulesVersion: 'mongjin-core-1', protocolVersion: 1,
   turnLimitMs: 30_000, maxPlies: 240, targetP95Ms: 8_000,
   factsBudgetMs: 2_000, proposalBudgetMs: 8_000, searchBudgetMs: 3_000,
   searchProposalBudgetMs: 4_300,
@@ -18,11 +18,11 @@ export const JEV_PARALLEL_POLICY = {
 
 export const JEV_ROLES = [
   { id: 'survival', purpose: 'Reduce the risk of our king being captured or surrounded and preserve escape routes. Compare deploying a guard with moving the king again; repeated retreat can surrender the goal race.', priority: 'Should preserving or opening our king escape routes take priority now?' },
-  { id: 'blocking', purpose: 'Delay or prevent the opposing king from reaching its goal. Consider guard deployment or movement before the threat is one move from the goal; a reserve guard does not block any square.', priority: 'Should blocking the opposing king route take priority now?' },
+  { id: 'blocking', purpose: 'Build guard deployment anchors early, before the kings meet, then intercept the opposing king approach and sideways bypasses. Compare a persistent guard line with rushing our undeveloped king. Delay the opponent long enough to advance our king; do not wait until their goal is one move away.', priority: 'Should developing or extending our guard interception line take priority now?' },
   { id: 'breakthrough', purpose: 'Open an obstructed route for our king, using guards to challenge opposing blockers where useful. Compare developing a guard with repeatedly moving the king around the same obstacle.', priority: 'Should using guards to open a currently blocked route take priority now?' },
   { id: 'exchange', purpose: 'Find a favorable guard exchange, considering the opponent recapture and both reserves and deployed guards.', priority: 'Is there a favorable guard exchange opportunity now, after considering recapture?' },
-  { id: 'advance', purpose: 'Find a king move that improves the race to the goal.', priority: 'Should advancing our king take priority now?' },
-  { id: 'general', purpose: 'Choose the move most likely to help us win, without restricting yourself to a particular plan.', priority: null },
+  { id: 'advance', purpose: 'Find a timely king advance after considering guard preparation. Shorter frozen distance is insufficient: identify how our guards will answer the opposing king approach or bypass. In an undeveloped opening, abstain when building a guard anchor should come first. Immediate wins and urgent escapes remain valid.', priority: 'Is now the time to advance our king rather than establish or extend guard interception?' },
+  { id: 'general', purpose: 'Choose the move most likely to help us win against resistance. Apply the development plan: establish guard anchors before an unsupported king rush, intercept the enemy approach, then use the delay for our king. Check concrete counterplay and stop building when king progress is better.', priority: null },
 ] as const;
 
 export function jevMoveId(move: Move): string {

@@ -101,6 +101,17 @@ it('always asks six roles and five priorities; final JEV ID wins even with a low
     expect(q.criteria && Object.hasOwn(q.criteria, 'none')).toBe(role.id !== 'general');
   }
   const final = api.mock.calls[1]![0];
+  // The final stage intentionally strips the general board decisionGuide.
+  // Opening coaching must therefore survive as explicit final-stage context.
+  const proposalState = first.state as any;
+  const finalState = final.state as any;
+  expect(proposalState.board.decisionGuide).toEqual(expect.arrayContaining([
+    expect.stringContaining('BEFORE rushing the king'),
+  ]));
+  expect(finalState.developmentPlan).toEqual(expect.arrayContaining([
+    expect.stringContaining('BEFORE rushing the king'),
+    expect.stringContaining('Convert the delay into our king progress'),
+  ]));
   expect(JSON.stringify(final.state)).not.toMatch(/"score"|BEST|LOWER/);
   const criteria = (final.questions.move as { criteria: Record<string, string> }).criteria;
   expect(result.trace.selection).toMatchObject({ id: Object.keys(criteria).at(-1), source: 'jev-final' });

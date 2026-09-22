@@ -4,7 +4,7 @@ import type { JevAnalyzedCandidate, JevStateFacts } from './jevAnalysis';
 import type { JevPressureAnalysis } from './jevPressure';
 import type { JevRolloutAnalysis } from './jevRollouts';
 import type { JevRetainedProof } from './jevParallel';
-import { buildJevBriefing, describeJevAction } from './jevBriefing';
+import { buildJevBriefing, describeJevAction, JEV_DEVELOPMENT_PLAN } from './jevBriefing';
 import { jevMoveId } from './jevPolicy';
 
 /** Action-centred facts for the final choice. Raw analysis stays in the trace.
@@ -119,6 +119,7 @@ export function buildJevDecisionBriefing(state: GameState, config: RuleConfig, c
   const { decisionGuide: _repeatedGuide, ...board } = buildJevBriefing(state, config);
   return { state: {
     briefingVersion: 'jev-decision-1', board, decisionCards: cards,
+    developmentPlan: JEV_DEVELOPMENT_PLAN,
     safeResponseColumns: ['forwardKing', 'sidewaysKing', 'backwardKing', 'guard'],
     rolePriorities: { values: priorities, meaning: 'Earlier model estimates, not facts, independent votes, or game win probabilities.' },
     evidenceMeaning: {
@@ -133,6 +134,6 @@ export function buildJevDecisionBriefing(state: GameState, config: RuleConfig, c
       dictionaryMeaning: 'All indexes are zero-based references into replyIds, horizons, or guardSets. Cells use row,column. A null reply means the candidate itself ended the game.',
       horizonDetail: 'lossless-shared-tables', replyIds, guardSets, horizons, candidates: continuations },
   }, questions: { move: { type: 'choice' as const,
-    instructions: 'Choose the action that best supports SELF winning against a resisting opponent. Compare decisionCards. Exact terminal proofs take priority. If OPPONENT arrives first in the plain king race, continuing that same race does not catch up: look for blocking, route opening or a forcing capture threat that changes it. Use guardDevelopment to compare the checked effects of guards on opponent forward replies, together with representative route first steps; these counts are not win scores. This is a reason to find concrete counterplay, not to deploy a useless guard. When two nonterminal king moves have the same frozen goal distance, prefer the one that does NOT let a checked opponent reply leave only sideways/backward king responses, unless concrete counterplay justifies accepting that chase. A straight advance is not better than a diagonal advance merely because it is central. Mongjin kings do not attack neighboring squares, so adjacency to the enemy king alone is not danger. Conditional horizons are examples, never promises or votes. Your chosen ID will be played unchanged.',
+    instructions: 'Choose the action that best supports SELF winning against a resisting opponent. Exact terminal proofs take priority. Apply developmentPlan before comparing frozen race distances: build useful guard anchors before rushing an undeveloped king, intercept the opponent approach and sideways bypasses, then convert the delay into king progress. Compare guardInfrastructure with decisionCards and guardDevelopment; geometric access is not a secured wall, counts are not win scores. An urgent escape or concrete breakthrough can justify moving now. A worse frozen race after spending a turn on deployment does not justify more guards: require a concrete benefit against the enemy route and preserve our king exit. Between equally advancing king moves, avoid a checked reply forcing only sideways/backward king responses unless concrete counterplay justifies the chase. Kings do not attack neighboring squares. Conditional horizons are examples, never promises or votes. Your chosen ID will be played unchanged.',
     criteria } } };
 }

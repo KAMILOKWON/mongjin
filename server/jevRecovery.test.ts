@@ -18,6 +18,22 @@ const decision = {
 const env = { MONGJIN_JEV_ENABLED: '1', AI_GATEWAY_API_KEY: 'test-key' };
 const start = Date.parse('2026-09-20T00:00:00Z');
 
+it('does not retry an oversized position or permanently stop future matches', async () => {
+  let time = start;
+  const decide = vi.fn().mockRejectedValueOnce(new JevError('input_budget', 'oversized input')).mockResolvedValueOnce(decision);
+  const wait = vi.fn();
+  const experiment = new JevExperiment(env, () => time, decide as any, wait);
+  await expect(experiment.move(state, DEFAULT_CONFIG)).rejects.toMatchObject({ code: 'input_budget' });
+  expect(decide).toHaveBeenCalledTimes(1);
+  expect(wait).not.toHaveBeenCalled();
+  expect(experiment.status).toMatchObject({ acceptingMatches: false, reason: 'transient_cooldown',
+    lastError: { code: 'input_budget', retryable: false } });
+  time += JEV_RECOVERY_POLICY.baseCooldownMs;
+  expect(experiment.canMatch).toBe(true);
+  await expect(experiment.move(state, DEFAULT_CONFIG)).resolves.toEqual(decision);
+  expect(experiment.status).toMatchObject({ acceptingMatches: true, reason: null, successfulMoves: 1 });
+});
+
 it('classifies only transient transport and worker failures as retryable', () => {
   expect(JEV_RECOVERY_POLICY).toEqual({
     version: 'retry-v2',

@@ -365,7 +365,7 @@ export function verifyJevTrace(trace: ParallelTurnTrace): JevTraceVerificationRe
   if (!['running', 'selected', 'applied', 'error', 'cancelled'].includes(trace.status)) fail('invalid-trace');
   if (!Array.isArray(trace.searches) || !Array.isArray(trace.stages)) fail('invalid-trace');
   if (!isRecord(trace.policy)
-      || !['parallel-v4', 'parallel-v5', 'parallel-v6', 'parallel-v7', 'parallel-v8', 'parallel-v9', 'parallel-v10', 'parallel-v11', 'parallel-v12', 'parallel-v13', 'parallel-v14', 'parallel-v15', 'parallel-v16', JEV_PARALLEL_POLICY.version].includes(trace.policy.version)
+      || !['parallel-v4', 'parallel-v5', 'parallel-v6', 'parallel-v7', 'parallel-v8', 'parallel-v9', 'parallel-v10', 'parallel-v11', 'parallel-v12', 'parallel-v13', 'parallel-v14', 'parallel-v15', 'parallel-v16', 'parallel-v17', JEV_PARALLEL_POLICY.version].includes(trace.policy.version)
       || trace.policy.rulesVersion !== JEV_PARALLEL_POLICY.rulesVersion
       || trace.policy.protocolVersion !== JEV_PARALLEL_POLICY.protocolVersion) fail('invalid-trace');
 
@@ -430,7 +430,7 @@ export function verifyJevTrace(trace: ParallelTurnTrace): JevTraceVerificationRe
         const extensionEnd = replayVariation(root, trace.config, candidate.move, candidate.extension.principalVariation, 'invalid-extension-pv');
         if (candidate.extension.method === 'terminal-only-loss-proof') {
           const extension = candidate.extension;
-          if ((trace.policy as { version: string }).version !== 'parallel-v17'
+          if (!['parallel-v17', 'parallel-v18'].includes((trace.policy as { version: string }).version)
               || search.extension?.policyVersion !== 'jev-extension-2'
               || extension.requestedDepth !== 8 || extension.score !== null
               || ![0, 2, 4, 6, 8].includes(extension.searchedDepth)
@@ -583,7 +583,7 @@ export function verifyJevTrace(trace: ParallelTurnTrace): JevTraceVerificationRe
     try { verifyJevSearchProposal(root, trace.config, trace.searchProposal); }
     catch { fail('invalid-search-proposal'); }
   }
-  const requiresSearchProposal = ['parallel-v16', 'parallel-v17'].includes((trace.policy as { version: string }).version)
+  const requiresSearchProposal = ['parallel-v16', 'parallel-v17', 'parallel-v18'].includes((trace.policy as { version: string }).version)
     && ['selected', 'applied'].includes(trace.status) && trace.selection?.source !== 'engine-immediate-win';
   if (requiresSearchProposal) {
     if (!Object.hasOwn(trace, 'searchProposal')
@@ -600,7 +600,7 @@ export function verifyJevTrace(trace: ParallelTurnTrace): JevTraceVerificationRe
         && trace.searchProposalDeadlineMs! > trace.searchProposalStartedAt! + trace.timings.searchProposalMs!) fail('invalid-search-proposal');
     }
   }
-  const requiresRollouts = ['parallel-v10', 'parallel-v11', 'parallel-v12', 'parallel-v13', 'parallel-v14', 'parallel-v15', 'parallel-v16', 'parallel-v17'].includes((trace.policy as { version: string }).version)
+  const requiresRollouts = ['parallel-v10', 'parallel-v11', 'parallel-v12', 'parallel-v13', 'parallel-v14', 'parallel-v15', 'parallel-v16', 'parallel-v17', 'parallel-v18'].includes((trace.policy as { version: string }).version)
     && ['selected', 'applied'].includes(trace.status) && trace.selection?.source === 'jev-final';
   if (requiresRollouts && !trace.rollouts) fail('invalid-rollouts');
   const finalIds = trace.gates?.at(-1)?.candidates;
@@ -625,7 +625,7 @@ export function verifyJevTrace(trace: ParallelTurnTrace): JevTraceVerificationRe
     if (!Array.isArray(finalIds) || !finalIds.length || new Set(finalIds).size !== finalIds.length
       || !finalIds.includes(selectionId!) || question?.type !== 'choice'
       || JSON.stringify(Object.keys(question.criteria).sort()) !== JSON.stringify([...finalIds].sort())
-      || (['parallel-v14', 'parallel-v15', 'parallel-v16', 'parallel-v17'].includes((trace.policy as { version: string }).version)
+      || (['parallel-v14', 'parallel-v15', 'parallel-v16', 'parallel-v17', 'parallel-v18'].includes((trace.policy as { version: string }).version)
         ? trace.rollouts!.version !== 'jev-rollouts-v4' || trace.rollouts!.limits.maxPlies !== 8 || trace.rollouts!.limits.maxNodesPerDecision !== 64
         : trace.rollouts!.limits.maxPlies !== 40 || trace.rollouts!.limits.maxNodesPerDecision !== 128)) fail('invalid-rollouts');
   }

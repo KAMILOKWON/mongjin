@@ -15,6 +15,7 @@ export type JevErrorCode =
   | 'timeout'
   | 'aborted'
   | 'invalid_response'
+  | 'input_budget'
   | 'non_free';
 
 export class JevError extends Error {

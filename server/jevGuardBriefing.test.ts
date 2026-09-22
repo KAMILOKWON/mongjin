@@ -3,7 +3,8 @@ import { applyMove } from '../src/core/apply';
 import { DEFAULT_CONFIG } from '../src/core/config';
 import { findKing, initialState, legalMoves } from '../src/core/rules';
 import type { GameState, Move } from '../src/core/types';
-import { briefJevGuardDevelopment } from './jevGuardBriefing';
+import { briefJevGuardDevelopment, briefJevGuardInfrastructure } from './jevGuardBriefing';
+import { buildJevDevelopmentBriefing } from './jevDevelopmentBriefing';
 import { jevMoveId } from './jevPolicy';
 import {
   JEV_GUARD_PRESSURE_LIMITS,
@@ -19,6 +20,26 @@ function play(state: GameState, id: string): GameState {
   expect(move, `${id} must be canonical and legal`).toBeDefined();
   return applyMove(state, move!);
 }
+
+it('preserves guard anchors, remaining reserves and every placement category through compact encoding', () => {
+  const state = play(play(initialState(DEFAULT_CONFIG), 'p_7_4'), 'm_0_4_1_4');
+  const moves = legalMoves(state, DEFAULT_CONFIG);
+  const raw = buildJevDevelopmentBriefing(state, DEFAULT_CONFIG, moves);
+  const out = briefJevGuardInfrastructure(raw);
+  for (const [i, candidate] of raw.candidates.entries()) {
+    const row = out.candidates[i]!;
+    const decoded = Object.fromEntries(out.candidateColumns.map((key, n) => [key, row[n]])) as any;
+    expect(decoded.id).toBe(jevMoveId(moves[i]!));
+    expect(decoded.terminal).toEqual(candidate.terminal);
+    expect(decoded.selfAfter).toEqual([candidate.afterAction.self.king ? [candidate.afterAction.self.king.r, candidate.afterAction.self.king.c] : null, candidate.afterAction.self.deployedGuards.map(p => [p.r,p.c]), candidate.afterAction.self.reserveGuards]);
+    expect(decoded.futureDeployment).toEqual(candidate.futureSelfTurnDeployment
+      ? [candidate.futureSelfTurnDeployment.kingOnlyCells, candidate.futureSelfTurnDeployment.guardSupportedCells, candidate.futureSelfTurnDeployment.ruleOnlyCells].map(ps => ps.map(p => [p.r,p.c])) : null);
+    expect(decoded.new).toEqual(candidate.futureSelfTurnDeployment?.newCells.map(p => [p.r,p.c]) ?? null);
+    expect(decoded.lost).toEqual(candidate.futureSelfTurnDeployment?.lostCells.map(p => [p.r,p.c]) ?? null);
+  }
+  expect(out.meaning).toContain('not a legal extra turn');
+  expect(Buffer.byteLength(JSON.stringify(out))).toBeLessThan(Buffer.byteLength(JSON.stringify(raw)));
+});
 
 function guardianWhitePly7(): GameState {
   let state = initialState(DEFAULT_CONFIG);

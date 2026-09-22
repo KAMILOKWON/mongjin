@@ -5,7 +5,15 @@ import type { JevRoutePair, JevStateFacts } from './jevAnalysis';
 import { describeJevState } from './jev';
 import type { JevPressureAnalysis } from './jevPressure';
 
-export const JEV_BRIEFING_VERSION = 'mongjin-briefing-4';
+export const JEV_BRIEFING_VERSION = 'mongjin-briefing-5';
+
+/** Human coaching is a strategic prior, not a new rule or a forced opening. */
+export const JEV_DEVELOPMENT_PLAN = [
+  'Opening plan: establish useful guard deployment anchors BEFORE rushing the king. An undeveloped king rush can let the opponent approach while we have no guard line to intercept it; repeated capture threats can then consume every turn we needed for deployment. Prefer building that infrastructure early over merely reducing frozen king distance.',
+  'Develop a connected guard line toward the opponent approach, threaten its king, and cover sideways bypasses as needed. New guards preserve deployment access after our king leaves. Judge the concrete cells and enemy routes, not the number of guards or placement cells. A guard line is not impenetrable: the opponent can detour, deploy, capture and exchange guards.',
+  'Convert the delay into our king progress once interception holds long enough. Before advancing, identify the next enemy approach or flank bypass and our guard answer. Preserve our king exit and route. A deployment spends a turn, so its worse frozen race is NOT by itself a reason to deploy again. More placement cells are not progress by themselves. Add a guard only for a concrete interception, protection or breakthrough benefit; otherwise advance or open our route.',
+  'An immediate win, an urgent king escape, or a concretely supported breakthrough overrides the opening preference. This plan is human strategic guidance, not a proven winning opening. Exact rules and terminal proofs take priority; JEV still selects the final action.',
+] as const;
 const cell = (at: { r: number; c: number }) => `(${at.r},${at.c})`;
 
 export function describeJevAction(state: GameState, move: Move): string {
@@ -41,6 +49,7 @@ export function buildJevBriefing(state: GameState, config: RuleConfig) {
       selfDeployedGuards: guardCells(state.turn), opponentDeployedGuards: guardCells(other),
     },
     decisionGuide: [
+      ...JEV_DEVELOPMENT_PLAN,
       'Judge the position AFTER the opponent best plausible response, including guard deployment. A free-looking forward square can become a trap or the start of a sideways/backward chase.',
       'Compare developing a guard now with postponing it. Once a king is repeatedly threatened, there may be no free turn left to deploy. A guard is useful only if it blocks, protects, supports another guard, or creates a capture threat; an unsupported sacrifice can waste a turn.',
       'Threatening our king costs the opponent an action too: they cannot deploy a guard AND advance their king on that turn. A safely answered threat is not automatically a lost race. Likewise, avoiding every hypothetical threat by deploying guards can hand the opponent a winning race. Compare both kings arrival timing and actual replies together.',

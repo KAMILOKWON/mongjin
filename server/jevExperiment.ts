@@ -68,7 +68,9 @@ export class JevExperiment {
     const failure = classifyJevFailure(error);
     this.failures++;
     this.consecutiveFailures++;
-    if (failure.retryable) {
+    // An oversized position should not disable all later matches. It remains a
+    // failed turn (no fallback move), with no repeat of the same oversized input.
+    if (failure.retryable || failure.code === 'input_budget') {
       const cooldown = Math.min(JEV_RECOVERY_POLICY.maxCooldownMs,
         JEV_RECOVERY_POLICY.baseCooldownMs * 2 ** Math.min(10, this.consecutiveFailures - 1));
       this.cooldownUntil = this.now() + cooldown;

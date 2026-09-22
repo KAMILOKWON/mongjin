@@ -107,10 +107,69 @@ export function prepareJevInput(phase: Phase, input: unknown, sourceQuestions: R
       state.afterActionMeaning = 'Arrays use afterActionColumns. A terminal ends the game; its future route columns are not applicable. Other null values remain unknown.';
       steps.push('table-encode-after-action-facts'); note();
     }
+    if (bytes(state, questions) > JEV_INPUT_BYTE_BUDGET) {
+      const c = state.conditionalContinuations;
+      const size = state.board?.position?.board?.length;
+      const validCell = (value: unknown) => value === null || typeof value === 'string'
+        && /^\d+,\d+$/.test(value) && value.split(',').every(n => Number(n) < size);
+      if (Number.isSafeInteger(size) && size >= 3 && c?.horizonDetail === 'lossless-shared-tables'
+        && Array.isArray(c.guardSets) && Array.isArray(c.horizons)
+        && c.guardSets.every((set: unknown[]) => Array.isArray(set) && set.every(validCell))
+        && c.horizons.every((h: unknown[]) => Array.isArray(h) && h.length === 7 && validCell(h[0]) && validCell(h[1]))) {
+        const encode = (value: string | null) => {
+          if (value === null) return null;
+          const [r, col] = value.split(',').map(Number); return r! * size + col!;
+        };
+        c.guardSets = c.guardSets.map((set: (string | null)[]) => set.map(encode));
+        c.horizons = c.horizons.map(([self, enemy, ...rest]: [string | null, string | null, ...unknown[]]) =>
+          [encode(self), encode(enemy), ...rest]);
+        c.cellEncoding = { boardSize: size, formula: 'cellId = row * boardSize + column; row = floor(cellId / boardSize), column = cellId % boardSize; zero-based' };
+        c.dictionaryMeaning = 'Reply, horizon and guard-set indexes refer to their tables. King cells and guardSets cells use cellEncoding numeric IDs; null king means absent. All positions and replies are preserved.';
+        steps.push('encode-horizon-cells-as-board-indexes'); note();
+      }
+    }
+    if (bytes(state, questions) > JEV_INPUT_BYTE_BUDGET) {
+      // Dense guard positions can exceed the budget through repeated field
+      // names alone. Keep every candidate, proof and reply; encode schemas once.
+      state.searchFactColumns = ['terminal', 'complete', 'totalGuardsIncludingReserve', 'frozenKingMoves',
+        'frozenFirstStepExamples', 'frozenRaceFirst', 'frozenArrivalPlies'];
+      state.searchExtensionColumns = ['method', 'completed', 'depth', 'stopReason', 'reasons',
+        'proven', 'proof', 'exampleLine', 'end', 'exampleDetail'];
+      state.searchColumns = ['completedDepth', 'proven', 'proof', 'exampleLine', 'end', 'extension', 'exactProofReference'];
+      state.capturePressureColumns = ['allRepliesChecked', 'checkedReplies', 'totalReplies', 'captureThreatReplies', 'examples'];
+      state.decisionCardColumns = ['id', 'afterAction', 'opponentCapturePressure', 'retainedTerminalProof', 'search'];
+      const row = (value: any, columns: string[]) => record(value) ? columns.map(key => value[key] ?? null) : value;
+      state.decisionCards = state.decisionCards.map((card: any) => {
+        const search = card.search;
+        if (record(search)) {
+          search.end = row(search.end, state.searchFactColumns);
+          if (record(search.extension)) {
+            search.extension.end = row(search.extension.end, state.searchFactColumns);
+            search.extension = row(search.extension, state.searchExtensionColumns);
+          }
+          card.search = row(search, state.searchColumns);
+        }
+        card.opponentCapturePressure = row(card.opponentCapturePressure, state.capturePressureColumns);
+        return row(card, state.decisionCardColumns);
+      });
+      state.decisionTableMeaning = 'decisionCards, search, search extension, search end and opponentCapturePressure use the named column schemas. Null optional facts are unavailable, never safety or zero. Proof objects and every first-reply/horizon entry are preserved.';
+      steps.push('table-encode-decision-evidence'); note();
+    }
+    if (bytes(state, questions) > JEV_INPUT_BYTE_BUDGET && input.decisionCards.length > 0
+      && input.decisionCards.every((card: any) => card.retainedTerminalProof?.proven === 'loss')) {
+      // Opening coaching and earlier model opinions cannot overturn these exact
+      // losses. Keep the board, all proofs and complete reply/horizon evidence.
+      delete state.developmentPlan;
+      delete state.rolePriorities;
+      delete state.proposals;
+      delete state.calculation;
+      state.omittedAdvisoryContext = 'Every listed candidate has an exact retained loss proof. Earlier model priorities, proposal provenance, runtime statistics and opening coaching are omitted for space, not treated as facts. Full context remains in the trace.';
+      steps.push('omit-advisory-context-for-all-proven-loss-choices'); note();
+    }
     const sentBytes = bytes(state, questions);
     if (sentBytes > JEV_INPUT_BYTE_BUDGET) {
       console.warn('[jev-input-budget]', JSON.stringify({ phase, originalBytes, sentBytes, steps }));
-      throw new JevError('invalid_response', `JEV input exceeds conservative ${JEV_INPUT_BYTE_BUDGET}-byte budget (${sentBytes})`);
+      throw new JevError('input_budget', `JEV input exceeds conservative ${JEV_INPUT_BYTE_BUDGET}-byte budget (${sentBytes})`);
     }
     return { state, questions, budget: { originalBytes, sentBytes, byteBudget: JEV_INPUT_BYTE_BUDGET, steps } };
   }
@@ -187,7 +246,7 @@ export function prepareJevInput(phase: Phase, input: unknown, sourceQuestions: R
   const sentBytes = bytes(state, questions);
   if (sentBytes > JEV_INPUT_BYTE_BUDGET) {
     console.warn('[jev-input-budget]', JSON.stringify({ phase, originalBytes, sentBytes, steps }));
-    throw new JevError('invalid_response', `JEV input exceeds conservative ${JEV_INPUT_BYTE_BUDGET}-byte budget (${sentBytes})`);
+    throw new JevError('input_budget', `JEV input exceeds conservative ${JEV_INPUT_BYTE_BUDGET}-byte budget (${sentBytes})`);
   }
   return { state, questions, budget: { originalBytes, sentBytes, byteBudget: JEV_INPUT_BYTE_BUDGET, steps } };
 }
