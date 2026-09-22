@@ -262,6 +262,9 @@ describe('benchJev CLI harness unit tests', () => {
         return chooseParallelJevMove({
           ...opts,
           evaluate: states.length === 1 ? explicit503Evaluate : mockEvaluateJev,
+          // The API backoff is tested separately with a clock and through WS.
+          // This unit test isolates the benchmark's outer turn retry limit.
+          apiRetry: { wait: async () => {} },
         });
       };
 
@@ -292,6 +295,7 @@ describe('benchJev CLI harness unit tests', () => {
       expect(result.summary.failureCodes).toEqual(['http_503']);
       expect(result.summary.completedAfterRecovery).toBe(false);
       expect(result.traces).toHaveLength(2);
+      expect(result.traces[0]!.stages[0]!.attempts).toHaveLength(4);
       expect(result.traces.map((trace) => trace.stateHash)).toEqual([
         states[0]!.hash,
         states[0]!.hash,
@@ -401,7 +405,7 @@ describe('benchJev CLI harness unit tests', () => {
     }
   }, 15_000);
 
-  it('never retries non-free or unrecognized HTTP errors', async () => {
+  it('never restarts a benchmark turn for non-free or unrecognized HTTP errors', async () => {
     const scenarios = [
       {
         name: 'non-free',
@@ -427,6 +431,7 @@ describe('benchJev CLI harness unit tests', () => {
           return chooseParallelJevMove({
             ...opts,
             evaluate: scenario.evaluate as typeof mockEvaluateJev,
+            apiRetry: { wait: async () => {} },
           });
         };
         const options = parseBenchArgs([
@@ -446,6 +451,8 @@ describe('benchJev CLI harness unit tests', () => {
         expect(result.summary.retryCount, scenario.name).toBe(0);
         expect(result.summary.jevAttemptsCount, scenario.name).toBe(1);
         expect(result.summary.failureCodes, scenario.name).toEqual([scenario.expectedCode]);
+        expect(result.traces[0]!.stages[0]!.attempts, scenario.name)
+          .toHaveLength(scenario.name === 'non-free' ? 1 : 4);
       } finally {
         await rm(testDir, { recursive: true, force: true }).catch(() => {});
       }
