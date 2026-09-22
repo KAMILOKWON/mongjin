@@ -8,12 +8,12 @@ import { applyMove } from '../src/core/apply';
 import { getResult } from '../src/core/result';
 import { FileProfileRepository, PostgresProfileRepository, type ProfileRepository, type StoredProfile } from './profileRepository';
 import { RANKED_BOTS, ensureRankedBots, selectRankedBot } from './rankedBots';
-import { JEV_BOT } from './jevExperiment';
 import { createRankedBot, chooseOfficialBotMove } from './officialBot';
 import { learnBotOpening, learnedOpeningHints, type BotLearningGame } from './rankedBotLearning';
 import { buildLeaderboard } from './leaderboard';
 
 const dirs: string[] = [];
+const STRONG_LOCAL_BOT = RANKED_BOTS.find((bot) => bot.id === 'ranked-bot-jev')!;
 afterEach(() => { for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true }); });
 function fileRepo() {
   const dir = mkdtempSync(join(tmpdir(), 'mongjin-ranked-')); dirs.push(dir);
@@ -34,28 +34,38 @@ function finishedGame(): BotLearningGame {
   return { moves: state.history, config: DEFAULT_CONFIG, side: 'BLACK', ...result };
 }
 
-it('기존 14명에 기보 봇을 추가해도 기존 전적·학습을 보존하고 재시작 시 중복 생성하지 않는다', async () => {
+it('상시 로컬 봇을 1200점으로 추가하고 기존 Elo·전적·학습을 재시작 후에도 보존한다', async () => {
   const { path, repo } = fileRepo();
   const now = '2026-09-07T00:00:00.000Z';
-  await repo.importProfiles(RANKED_BOTS.slice(0, 14).map((bot) => ({
+  await repo.importProfiles(RANKED_BOTS.filter((bot) => bot.id !== STRONG_LOCAL_BOT.id).map((bot) => ({
     playerId: bot.id, name: bot.name, token: `legacy-${bot.id}`,
     rating: bot.rating, wins: 0, losses: 0, createdAt: now, updatedAt: now,
   })));
-  const original = (await repo.loadProfiles())[0]!;
+
+  const seeded = await ensureRankedBots(repo);
+  const original = seeded.find((profile) => profile.playerId === STRONG_LOCAL_BOT.id)!;
+  expect(original).toMatchObject({
+    playerId: 'ranked-bot-jev',
+    name: '침착맨이할때까지',
+    rating: 1200,
+    wins: 0,
+    losses: 0,
+  });
   const preserved = {
     ...original,
-    rating: 1700,
-    wins: 2,
+    rating: 1537,
+    wins: 12,
+    losses: 4,
     botLearning: learnBotOpening(undefined, finishedGame()),
   };
   await repo.saveProfile(preserved);
 
   const profiles = await ensureRankedBots(repo);
   expect(profiles.map((p) => p.name)).toEqual(RANKED_BOTS.map((b) => b.name));
-  expect(profiles).toHaveLength(15);
+  expect(profiles).toHaveLength(RANKED_BOTS.length);
   expect(profiles.find((profile) => profile.playerId === preserved.playerId)).toEqual(preserved);
   const reopened = await ensureRankedBots(new FileProfileRepository(path));
-  expect(reopened).toHaveLength(15);
+  expect(reopened).toHaveLength(RANKED_BOTS.length);
   expect(reopened.find((profile) => profile.playerId === preserved.playerId)).toEqual(preserved);
   await repo.saveProfile({ ...preserved, playerId: 'human', token: 'human' });
   await expect(ensureRankedBots(repo)).rejects.toThrow('겹칩니다');
@@ -79,13 +89,11 @@ function sampledSelections(
   profiles: StoredProfile[],
   rating: number,
   recentBotIds: readonly string[],
-  options: { includeJev?: boolean } = {},
   draws = 7_000,
 ): Map<string, number> {
   const counts = new Map<string, number>();
   for (let index = 0; index < draws; index += 1) {
     const selected = selectRankedBot(profiles, rating, {
-      includeJev: options.includeJev,
       recentBotIds,
       random: () => (index + 0.5) / draws,
     });
@@ -94,41 +102,28 @@ function sampledSelections(
   return counts;
 }
 
-it.each([800, 1500, 1800, 2400])('JEV는 %i점에서도 우선 배정하고 직전 상대일 때는 기존 봇 추첨을 보존한다', async (rating) => {
+it('상시 로컬 봇은 별도 입장 조건 없이 일반 다양성 추첨에 참여한다', async () => {
   const { repo } = fileRepo();
-  const liveRatings = [1264, 1319, 1242, 1292, 1335, 1298, 1309, 1023, 1150, 1230, 1342, 1450, 1494, 1498, 1582];
-  const profiles = (await ensureRankedBots(repo, true)).map((profile, index) => ({
-    ...profile,
-    rating: profile.playerId === JEV_BOT.id ? 1200 : liveRatings[index]!,
-  }));
-  const ordinary = sampledSelections(profiles, rating, []);
-  const enabled = sampledSelections(profiles, rating, [], { includeJev: true });
-  expect(ordinary.has(JEV_BOT.id)).toBe(false);
-  expect(enabled).toEqual(new Map([[JEV_BOT.id, 7_000]]));
+  const flat = (await ensureRankedBots(repo)).map((profile) => ({ ...profile, rating: 1200 }));
+  const selections = sampledSelections(flat, 1200, []);
+  expect(selections.size).toBe(RANKED_BOTS.length);
+  expect(selections.get(STRONG_LOCAL_BOT.id)).toBeGreaterThan(0);
+  expect(selections.get(STRONG_LOCAL_BOT.id)).toBeLessThan(7_000);
+  const selectionCounts = [...selections.values()];
+  expect(Math.max(...selectionCounts) - Math.min(...selectionCounts)).toBeLessThanOrEqual(1);
 
-  const afterJev = sampledSelections(profiles, rating, [JEV_BOT.id], { includeJev: true });
-  expect(afterJev.has(JEV_BOT.id)).toBe(false);
-  expect(afterJev).toEqual(ordinary);
+  const afterLocalBot = sampledSelections(flat, 1200, [STRONG_LOCAL_BOT.id]);
+  expect(afterLocalBot.has(STRONG_LOCAL_BOT.id)).toBe(false);
 });
 
-it('JEV는 과거 상대 감점과 관계없이 우선 배정하며 사용할 수 없으면 기존 분포로 돌아간다', async () => {
+it('상시 로컬 봇도 실제 Elo가 멀면 가까운 일반 후보보다 우선하지 않는다', async () => {
   const { repo } = fileRepo();
-  const profiles = await ensureRankedBots(repo, true);
-  const separated = profiles.map((profile, index) => ({
+  const profiles = await ensureRankedBots(repo);
+  const separated = profiles.map((profile) => ({
     ...profile,
-    rating: profile.playerId === JEV_BOT.id ? 1200 : index === 0 ? 1800 : 2100,
+    rating: profile.playerId === STRONG_LOCAL_BOT.id ? 1200 : 1800,
   }));
-  const ordinary = sampledSelections(separated, 1800, []);
-  const enabled = sampledSelections(separated, 1800, [], { includeJev: true });
-  expect(ordinary.size).toBe(5);
-  expect(enabled).toEqual(new Map([[JEV_BOT.id, 7_000]]));
-
-  const flat = profiles.map((profile) => ({ ...profile, rating: 1200 }));
-  const recent = [RANKED_BOTS[0].id, JEV_BOT.id, JEV_BOT.id];
-  expect(sampledSelections(flat, 1200, recent, { includeJev: true })).toEqual(new Map([[JEV_BOT.id, 7_000]]));
-  expect(sampledSelections(flat, 1200, recent, { includeJev: false })).toEqual(
-    sampledSelections(flat.filter(profile => profile.playerId !== JEV_BOT.id), 1200, recent),
-  );
+  expect(sampledSelections(separated, 1800, []).has(STRONG_LOCAL_BOT.id)).toBe(false);
 });
 
 it('가까운 후보를 유지하면서 최근 5경기의 반복 상대를 연속 가중치로 낮춘다', async () => {
@@ -184,7 +179,7 @@ it('운영 Elo에 모인 기존 7명과 새 초기 Elo를 함께 쓰면 안전 �
 
   expect(oldSelections.size).toBe(7);
   expect(expandedSelections.size).toBeGreaterThan(oldSelections.size);
-  expect(newSelections).toHaveLength(5);
+  expect(newSelections).toHaveLength(6);
 });
 
 it('정상 기보만 학습하고 3회부터 해당 진영/규칙/수순에만 제한된 보너스를 준다', () => {

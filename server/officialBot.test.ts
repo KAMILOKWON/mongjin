@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { DEFAULT_CONFIG } from '../src/core/config';
 import { initialState, legalMoves } from '../src/core/rules';
-import { createOfficialBot, chooseOfficialBotMove, officialBotMoveDelayMs } from './officialBot';
+import type { StoredProfile } from './profileRepository';
+import { createOfficialBot, createRankedBot, chooseOfficialBotMove, officialBotMoveDelayMs } from './officialBot';
 
 function sequenceRandom(values: number[]): () => number {
   let index = 0;
@@ -102,6 +103,28 @@ describe('서버 공식 봇', () => {
   it('봇 차례에는 서버 규칙에 맞는 합법 수만 고른다', () => {
     const state = initialState(DEFAULT_CONFIG);
     const bot = createOfficialBot(1200, '플레이어', () => 0);
+    const move = chooseOfficialBotMove(bot, state, DEFAULT_CONFIG);
+    expect(move).not.toBeNull();
+    expect(legalMoves(state, DEFAULT_CONFIG)).toContainEqual(move);
+  });
+
+  it('침착맨이할때까지는 실제 Elo가 낮아져도 2400 검색 티어로 로컬 합법 수를 둔다', () => {
+    const profile: StoredProfile = {
+      playerId: 'ranked-bot-jev',
+      token: 'existing-token',
+      name: '침착맨이할때까지',
+      rating: 730,
+      wins: 3,
+      losses: 17,
+      createdAt: '2026-09-01T00:00:00.000Z',
+      updatedAt: '2026-09-22T00:00:00.000Z',
+    };
+    const bot = createRankedBot(profile, () => 0);
+    expect(bot.rating).toBe(730);
+    expect(bot.searchRating).toBe(2400);
+    expect(bot.search).toMatchObject({ maxMs: 950, maxDepth: 10, maxNodes: 57_600, strategyLevel: 3 });
+
+    const state = initialState(DEFAULT_CONFIG);
     const move = chooseOfficialBotMove(bot, state, DEFAULT_CONFIG);
     expect(move).not.toBeNull();
     expect(legalMoves(state, DEFAULT_CONFIG)).toContainEqual(move);

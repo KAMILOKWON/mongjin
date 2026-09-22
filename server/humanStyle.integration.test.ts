@@ -257,8 +257,8 @@ it('실제 서버에서 1등찍고접기와 합법 대국 후 결과를 저장�
   let activeClient: TestClient | undefined;
 
   try {
-    expect(RANKED_BOTS).toHaveLength(15);
-    expect(oldDefinitions).toHaveLength(14);
+    expect(RANKED_BOTS).toHaveLength(16);
+    expect(oldDefinitions).toHaveLength(15);
     expect(targetDefinition).toMatchObject({ name: TARGET_NAME, rating: 1600, personality: 'runner' });
     expect(FIRST_PLACE_STYLE).toMatchObject({ version: 1, games: 120 });
     expect(FIRST_PLACE_STYLE.moves).toBeGreaterThan(0);
@@ -269,7 +269,7 @@ it('실제 서버에서 1등찍고접기와 합법 대국 후 결과를 저장�
 
     running = await startServer(profilePath);
     const initialBoard = await fetchLeaderboard(running);
-    expect(initialBoard.totalPlayers).toBe(16);
+    expect(initialBoard.totalPlayers).toBe(17);
     expect(initialBoard.entries.filter((entry) => entry.name === TARGET_NAME)).toEqual([
       expect.objectContaining({ rating: 1600, wins: 0, losses: 0 }),
     ]);
@@ -358,7 +358,7 @@ it('실제 서버에서 1등찍고접기와 합법 대국 후 결과를 저장�
     expect(afterRestart.find((profile) => profile.playerId === TARGET_ID)).toEqual(targetAfterGame);
     expect(afterRestart.find((profile) => profile.playerId === HUMAN_ID)).toEqual(humanAfterGame);
     expect(afterRestart.filter((profile) => profile.playerId === TARGET_ID)).toHaveLength(1);
-    expect(afterRestart.filter((profile) => RANKED_BOTS.some((bot) => bot.id === profile.playerId))).toHaveLength(15);
+    expect(afterRestart.filter((profile) => RANKED_BOTS.some((bot) => bot.id === profile.playerId))).toHaveLength(16);
   } finally {
     await activeClient?.close();
     await stopServer(running);

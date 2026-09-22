@@ -1,38 +1,12 @@
-import { mkdtemp, rm } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
 import { expect, it, vi } from 'vitest';
 import { DEFAULT_CONFIG } from '../src/core/config';
 import { initialState, legalMoves } from '../src/core/rules';
-import { JEV_BOT, JEV_EXPIRES_AT, JevExperiment } from './jevExperiment';
-import { ensureRankedBots, isRankedBotId, selectRankedBot, RANKED_BOTS } from './rankedBots';
-import { FileProfileRepository } from './profileRepository';
-import { createRankedBot, chooseOfficialBotMove } from './officialBot';
+import { JEV_EXPIRES_AT, JevExperiment } from './jevExperiment';
 
 const state = initialState(DEFAULT_CONFIG);
 const decision = { move: legalMoves(state, DEFAULT_CONFIG)[0]!, elapsedMs: 20, model: 'typesafe-ai/jev', inputTokens: 100, outputTokens: 1, cost: 0 };
 const env = { MONGJIN_JEV_ENABLED: '1', AI_GATEWAY_API_KEY: 'test-key' };
 const beforeExpiry = () => Date.parse('2026-09-20T00:00:00Z');
-
-it('JEV is opt-in, starts at 1200, preserves records, and stays excluded after disabling', async () => {
-  const dir = await mkdtemp(join(tmpdir(), 'mongjin-jev-roster-'));
-  try {
-    const repo = new FileProfileRepository(join(dir, 'profiles.json'));
-    expect(await ensureRankedBots(repo)).toHaveLength(RANKED_BOTS.length);
-    const roster = await ensureRankedBots(repo, true);
-    const jev = roster.find((p) => p.playerId === JEV_BOT.id)!;
-    expect(jev).toMatchObject({ name: '침착맨이할때까지', rating: 1200, wins: 0, losses: 0 });
-    expect(isRankedBotId(jev.playerId)).toBe(true);
-    await repo.saveProfile({ ...jev, rating: 1500, wins: 12, losses: 2 });
-    expect((await ensureRankedBots(repo, true)).find((p) => p.playerId === jev.playerId)).toMatchObject({ rating: 1500, wins: 12, losses: 2 });
-    for (let i = 0; i < 100; i++) {
-      expect(selectRankedBot(roster, 1200, { random: () => i / 100 }).playerId).not.toBe(jev.playerId);
-    }
-    expect(selectRankedBot([jev], 1200, { includeJev: true }).playerId).toBe(jev.playerId);
-    expect(() => chooseOfficialBotMove(createRankedBot(jev), state, DEFAULT_CONFIG)).toThrow('asynchronous');
-    expect((await ensureRankedBots(repo)).find((p) => p.playerId === jev.playerId)?.rating).toBe(1500);
-  } finally { await rm(dir, { recursive: true, force: true }); }
-});
 
 it('never admits disabled, missing-key, or nearly expired experiments; never calls after expiry', async () => {
   const decide = vi.fn().mockResolvedValue(decision);

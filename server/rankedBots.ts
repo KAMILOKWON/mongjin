@@ -1,8 +1,15 @@
 import { randomBytes } from 'node:crypto';
 import type { ProfileRepository, StoredProfile } from './profileRepository';
-import { JEV_BOT } from './jevExperiment';
 
-export const RANKED_BOTS = [
+export interface RankedBotDefinition {
+  id: string;
+  name: string;
+  rating: number;
+  searchRating?: number;
+  personality: 'runner' | 'guardian' | 'tactician' | 'wanderer';
+}
+
+export const RANKED_BOTS: readonly RankedBotDefinition[] = [
   { id: 'ranked-bot-may', name: '연세대MAY', rating: 1000, personality: 'guardian' },
   { id: 'ranked-bot-cinnamon', name: '씹다버린계피', rating: 1100, personality: 'wanderer' },
   { id: 'ranked-bot-furnace', name: '용광로불주먹', rating: 1200, personality: 'runner' },
@@ -18,33 +25,36 @@ export const RANKED_BOTS = [
   { id: 'ranked-bot-dawnstar', name: '영일만사나이', rating: 1550, personality: 'tactician' },
   { id: 'ranked-bot-guide', name: '이겜뭐임', rating: 1600, personality: 'guardian' },
   { id: 'ranked-bot-first-place', name: '1등찍고접기', rating: 1600, personality: 'runner' },
-] as const;
-export const isRankedBotId = (id: string) => id === JEV_BOT.id || RANKED_BOTS.some((bot) => bot.id === id);
+  {
+    id: 'ranked-bot-jev',
+    name: '침착맨이할때까지',
+    rating: 1200,
+    searchRating: 2400,
+    personality: 'tactician',
+  },
+];
+export const isRankedBotId = (id: string) => RANKED_BOTS.some((bot) => bot.id === id);
 
 const RATING_BAND = 250;
 const MIN_CANDIDATES = 5;
 const RATING_WEIGHT_SCALE = 200;
 const RECENT_PENALTIES = [5, 3, 2, 1.5, 1] as const;
-export const JEV_MATCHMAKING_POLICY = 'idle-priority-v1';
 
 export interface RankedBotSelectionOptions {
-  /** Caller verifies experiment availability and that no JEV game is in progress. */
-  includeJev?: boolean;
   /** 최신순. 같은 ID가 반복되면 차단하지 않고 감점만 누적한다. */
   recentBotIds?: readonly string[];
   random?: () => number;
 }
 
-export async function ensureRankedBots(repository: ProfileRepository, includeJev = false): Promise<StoredProfile[]> {
-  const definitions = includeJev ? [...RANKED_BOTS, JEV_BOT] : RANKED_BOTS;
+export async function ensureRankedBots(repository: ProfileRepository): Promise<StoredProfile[]> {
   const profiles = await repository.loadProfiles();
   const now = new Date().toISOString();
-  for (const bot of definitions) {
+  for (const bot of RANKED_BOTS) {
     if (profiles.some((p) => p.playerId !== bot.id && p.name === bot.name)) {
       throw new Error(`고정 봇 이름이 기존 프로필과 겹칩니다: ${bot.name}`);
     }
   }
-  await repository.importProfiles(definitions.map((bot) => ({
+  await repository.importProfiles(RANKED_BOTS.map((bot) => ({
     playerId: bot.id, name: bot.name, token: randomBytes(32).toString('hex'),
     rating: bot.rating, wins: 0, losses: 0, createdAt: now, updatedAt: now,
   })));
@@ -71,17 +81,11 @@ export function selectRankedBot(
   const normalizedRating = Number.isFinite(rating) ? rating : 1200;
   const recentBotIds = (options.recentBotIds ?? []).slice(0, RECENT_PENALTIES.length);
   const ranked = [...profiles]
-    .filter((profile) => isRankedBotId(profile.playerId) && (profile.playerId !== JEV_BOT.id
-      || (options.includeJev && recentBotIds[0] !== JEV_BOT.id)))
+    .filter((profile) => isRankedBotId(profile.playerId))
     .sort((left, right) =>
       Math.abs(left.rating - normalizedRating) - Math.abs(right.rating - normalizedRating) ||
       left.playerId.localeCompare(right.playerId));
   if (!ranked.length) throw new Error('고정 봇 프로필이 없습니다');
-
-  // Use the available experiment slot before the ordinary weighted draw, at any Elo.
-  // A completed JEV game still excludes an immediate rematch for the same player.
-  const jevCandidate = ranked.find((profile) => profile.playerId === JEV_BOT.id);
-  if (jevCandidate) return jevCandidate;
 
   const closestGap = Math.abs(ranked[0]!.rating - normalizedRating);
   const withinBand = ranked.filter(

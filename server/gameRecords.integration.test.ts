@@ -126,17 +126,18 @@ it('친구 대전을 실제 합법 수로 끝내고 전체 기보를 재생한�
   expect(trainingRecord(game, { minElo: 1200, both: true, includeBots: false, includeForfeits: false })).not.toBeNull();
 }, 15000);
 
-it('착수 전 연결 종료는 미완료 기보로 보관한다', async () => {
+it('매칭 후 착수 전 연결 종료도 상대의 기권승으로 저장한다', async () => {
   const a = client(), b = client();
   await a.send({ type: 'HELLO' }); await a.next('IDENTITY');
   await b.send({ type: 'HELLO' }); await b.next('IDENTITY');
   await a.send({ type: 'MATCHMAKE' }); await a.next('PROFILE');
-  await b.send({ type: 'MATCHMAKE' }); await a.next('MATCH_FOUND'); await b.next('MATCH_FOUND');
+  await b.send({ type: 'MATCHMAKE' }); await a.next('MATCH_FOUND'); const found = await b.next('MATCH_FOUND');
   a.ws.close();
-  const game = await until(async () => (await allRecords()).find((r) => r.kind === 'random' && r.status === 'abandoned'));
+  expect(await b.next('MATCH_RESULT')).toMatchObject({ winner: found.side, reason: 'forfeit' });
+  const game = await until(async () => (await allRecords()).find((r) => r.kind === 'random' && r.status === 'completed' && r.reason === 'disconnect'));
   expect(game.moves).toEqual([]);
   expect(game.reason).toBe('disconnect');
-  expect(game.winner).toBeUndefined();
+  expect(game.winner).toBe(found.side);
 });
 
 it('서버 봇 대국은 사람과 봇 진영을 구분하고 착수 후 종료를 저장한다', async () => {

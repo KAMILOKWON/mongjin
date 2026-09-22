@@ -24,17 +24,9 @@ import {
   officialBotMoveDelayMs,
   type OfficialBot,
 } from './officialBot';
-import { ensureRankedBots, selectRankedBot, isRankedBotId, JEV_MATCHMAKING_POLICY } from './rankedBots';
+import { ensureRankedBots, selectRankedBot, isRankedBotId } from './rankedBots';
 import { inferMatchPlatform } from './matchAnalytics';
 import { hasPlayerTakenTurn } from './matchLifecycle';
-import { JEV_BOT, JEV_EXPIRES_AT, JevExperiment } from './jevExperiment';
-import { JevError } from './jev';
-import { ParallelTurnError, type ParallelTurnTrace } from './jevParallel';
-import { JEV_PARALLEL_POLICY, jevStateHash, jevMoveId } from './jevPolicy';
-import { createJevRecordStore, waitForJevRecord } from './jevRecords';
-import { classifyJevFailure } from './jevRecovery';
-import { JEV_MATCH_RECOVERY_POLICY, preserveJevTurn } from './jevMatchRecovery';
-
 import { createGameRecordStore, GameRecorder, RECORD_RULES_VERSION, type GameRecord } from './gameRecords';
 
 const PORT = Number(process.env.PORT ?? 3001);
@@ -70,9 +62,6 @@ interface Room {
   bot?: OfficialBot;
   finished: boolean;
   gameRecord?: GameRecord;
-  botRequest?: AbortController;
-  jevRecoveryStartedAt?: number;
-  recentBotIdsBeforeMatch?: string[];
 }
 
 interface ClientSession {
@@ -89,10 +78,6 @@ const pendingBotMatches = new Map<WebSocket, symbol>();
 const recentBotIdsByPlayer = new Map<string, string[]>();
 const RECENT_BOT_LIMIT = 5;
 const RECENT_BOT_QUERY_TIMEOUT_MS = 500;
-const jev = new JevExperiment();
-const jevRecords = jev.canMatch
-  ? await createJevRecordStore(join(dirname(PROFILE_DATA_FILE), 'jev-decisions'), process.env.DATABASE_URL)
-  : null;
 const profileRepository = await createProfileRepository(PROFILE_DATA_FILE);
 const gameRecordStore = await createGameRecordStore(join(dirname(PROFILE_DATA_FILE), 'game-records'));
 const gameRecorder = new GameRecorder(gameRecordStore, (error) => console.error('[records] 기보 저장 실패:', error));
@@ -107,7 +92,7 @@ if (profileRepository.kind === 'postgres' && loadedProfiles.length === 0) {
     console.error('[profiles] 기존 JSON 프로필을 가져오지 못했습니다:', error);
   }
 }
-loadedProfiles = await ensureRankedBots(profileRepository, jev.canMatch);
+loadedProfiles = await ensureRankedBots(profileRepository);
 const profiles = new Map(loadedProfiles.map((profile) => [profile.playerId, profile]));
 
 function makeId(bytes = 12): string {
@@ -354,7 +339,6 @@ function recordMatchAbandoned(room: Room, side: Player, reason: string) {
 }
 
 function releaseFinishedRoom(room: Room) {
-  room.botRequest?.abort();
   for (const socket of [room.black, room.white]) {
     if (!socket) continue;
     const session = sessions.get(socket);
@@ -424,7 +408,7 @@ async function finishBotMatch(
       playerId,
       playerWon: winner === playerSide,
       botPlayerId: room.bot.playerId,
-      learningGame: room.bot.playerId === JEV_BOT.id ? undefined : { moves: room.state.history, config, side: room.bot.side, winner, reason: analyticsReason },
+      learningGame: { moves: room.state.history, config, side: room.bot.side, winner, reason: analyticsReason },
       botName: room.bot.name,
       botRating: room.bot.rating,
       botSearchRating: room.bot.searchRating,
@@ -450,42 +434,20 @@ async function finishBotMatch(
   }
 }
 
-async function abandonJevMatch(room: Room, reason: string) {
-  if (room.finished || room.bot?.playerId !== JEV_BOT.id) return;
+/** Friend games share the normal result UI without changing ranked records. */
+async function finishFriendMatch(room: Room, winner: Player, reason: MatchReason, recordReason: string = reason) {
+  if (room.kind !== 'friend' || room.finished || !room.blackPlayerId || !room.whitePlayerId) return;
   room.finished = true;
-  room.botRequest?.abort();
-  const recordSaved = saveGameRecord(room, { reason: `jev_${reason}` });
-  recordMatchAbandoned(room, opponent(room.bot.side), `jev_${reason}`);
-  const playerId = room.bot.side === 'BLACK' ? room.whitePlayerId : room.blackPlayerId;
-  // A voided experiment must not block the same player from matching JEV after recovery.
-  // Preserve newer matches started by another session on the same profile.
-  if (playerId && room.recentBotIdsBeforeMatch
-    && recentBotIdsByPlayer.get(playerId)?.[0] === JEV_BOT.id) {
-    recentBotIdsByPlayer.set(playerId, room.recentBotIdsBeforeMatch);
-  }
-  // Existing clients can leave/requeue; an infrastructure failure is never a rated win/loss.
-  broadcastRoom(room, { type: 'OPPONENT_LEFT' });
+  const saved = saveGameRecord(room, { winner, reason: recordReason });
+  if (room.black) send(room.black, { type: 'MATCH_RESULT', winner, reason, profile: publicProfile(room.blackPlayerId) });
+  if (room.white) send(room.white, { type: 'MATCH_RESULT', winner, reason, profile: publicProfile(room.whitePlayerId) });
   releaseFinishedRoom(room);
-  await recordSaved;
-}
-
-function markJevRecovery(room: Room) {
-  if (room.finished || room.jevRecoveryStartedAt !== undefined) return;
-  room.jevRecoveryStartedAt = Date.now();
-  // Recovery is internal. Clients keep the normal opponent-turn screen until
-  // the next STATE; do not add provider-specific notices or status events.
+  await saved;
 }
 
 function scheduleBotMove(room: Room) {
-  if (
-    room.kind !== 'bot' ||
-    room.finished ||
-    !room.bot ||
-    room.bot.thinking ||
-    room.state.turn !== room.bot.side
-  ) return;
+  if (room.kind !== 'bot' || room.finished || !room.bot || room.bot.thinking || room.state.turn !== room.bot.side) return;
   room.bot.thinking = true;
-  const delayMs = room.bot.playerId === JEV_BOT.id ? 0 : officialBotMoveDelayMs(room.bot);
   setTimeout(() => {
     void (async () => {
       if (rooms.get(room.id) !== room || room.finished || !room.bot) return;
@@ -494,100 +456,28 @@ function scheduleBotMove(room: Room) {
         await finishBotMatch(room, terminal.winner, terminal.reason);
         return;
       }
-      const stateAtRequest = room.state;
-      let move: Move | null;
-      let jevTrace: ParallelTurnTrace | undefined;
-      if (room.bot.playerId === JEV_BOT.id) {
-        if (stateAtRequest.history.length >= JEV_PARALLEL_POLICY.maxPlies) { await abandonJevMatch(room, 'ply_limit'); return; }
-        const request = new AbortController();
-        room.botRequest = request;
-        try {
-          const current = () => rooms.get(room.id) === room && !room.finished && room.state === stateAtRequest;
-          const decision = await preserveJevTurn(async () => {
-            jevTrace = undefined;
-            const next = await jev.move(stateAtRequest, config, request.signal, room.matchId, (trace) => {
-              const stage = trace.stages.at(-1);
-              if (current() && !request.signal.aborted && stage?.error
-                && classifyJevFailure(new JevError(stage.error as JevError['code'], stage.error, stage.httpStatus)).retryable) {
-                markJevRecovery(room);
-              }
-            }, (trace) => waitForJevRecord(jevRecords!.save(trace), trace.deadlineMs, request.signal));
-            jevTrace = next.trace;
-            if (!current() || request.signal.aborted) throw new JevError('aborted', 'JEV match ended');
-            await waitForJevRecord(jevRecords!.save(jevTrace), jevTrace.deadlineMs, request.signal);
-            if (Date.now() >= jevTrace.deadlineMs) throw new JevError('timeout', 'JEV recording exceeded turn deadline');
-            if (jevStateHash(room.state) !== jevTrace.stateHash
-              || !isValidMove(room.state, next.move) || jevMoveId(next.move) !== jevTrace.selection?.id) {
-              throw new ParallelTurnError('invalid_response', { ...jevTrace, status: 'error', error: 'state-or-selection-changed' });
-            }
-            return next;
-          }, {
-            signal: request.signal, expiresAt: Date.parse(JEV_EXPIRES_AT), isCurrent: current,
-            unavailableReason: () => jev.unavailableReason, retryAfterMs: () => jev.status.retryAfterMs,
-            onRetry: (error, delayMs, failureCount) => {
-              if (error instanceof ParallelTurnError) {
-                void jevRecords?.save(error.trace).catch(() => console.error('[jev] 복구 대기 판단 기록 저장 실패'));
-              } else if (jevTrace) {
-                void jevRecords?.save({ ...jevTrace, status: 'error', error: 'recording_timeout' })
-                  .catch(() => console.error('[jev] 복구 대기 판단 기록 저장 실패'));
-              }
-              markJevRecovery(room);
-              console.warn('[jev]', JSON.stringify({ event: 'match_recovery_wait', matchId: room.matchId,
-                ply: stateAtRequest.history.length, delayMs, failureCount, ...classifyJevFailure(error) }));
-            },
-          });
-          move = decision.move;
-          jevTrace = decision.trace;
-          if (rooms.get(room.id) !== room || room.finished || request.signal.aborted) return;
-          console.log('[jev]', JSON.stringify({ event: 'move', matchId: room.matchId, ply: stateAtRequest.history.length,
-            elapsedMs: decision.elapsedMs, inputTokens: decision.inputTokens, outputTokens: decision.outputTokens, cost: decision.cost }));
-        } catch (error) {
-          if (error instanceof ParallelTurnError) {
-            void jevRecords?.save(error.trace).catch(() => console.error('[jev] 실패 판단 기록 저장 실패'));
-          } else if (jevTrace) {
-            void jevRecords?.save({ ...jevTrace, status: request.signal.aborted ? 'cancelled' : 'error',
-              error: error instanceof JevError ? error.code : 'recording_failed' }).catch(() => console.error('[jev] 판단 기록 저장 실패'));
-          }
-          if (rooms.get(room.id) !== room || room.finished || request.signal.aborted) return;
-          const code = error instanceof JevError ? error.code : 'unavailable';
-          console.warn('[jev]', JSON.stringify({ event: 'failure', matchId: room.matchId, code,
-            status: error instanceof JevError ? error.status : undefined, recovery: jev.status }));
-          await abandonJevMatch(room, code);
-          return;
-        } finally {
-          if (room.botRequest === request) room.botRequest = undefined;
-        }
-        if (rooms.get(room.id) !== room || room.finished || request.signal.aborted || room.state !== stateAtRequest) return;
-        room.bot.moveCount++;
-      } else {
-        move = chooseOfficialBotMove(room.bot, stateAtRequest, config);
-      }
+      const move = chooseOfficialBotMove(room.bot, room.state, config);
       if (!move) {
         const result = getResult(room.state, config);
         if (result) await finishBotMatch(room, result.winner, result.reason);
         return;
       }
       room.state = applyMove(room.state, move);
-      if (room.jevRecoveryStartedAt !== undefined) {
-        room.jevRecoveryStartedAt = undefined;
-      }
-      if (jevTrace) {
-        jevTrace.status = 'applied'; jevTrace.appliedStateHash = jevStateHash(room.state);
-        jevTrace.appliedElapsedMs = Date.now() - Date.parse(jevTrace.startedAt);
-        void jevRecords?.save(jevTrace).catch(() => console.error('[jev] 적용 판단 기록 저장 실패'));
-      }
       void saveGameRecord(room);
       broadcastRoom(room, { type: 'STATE', state: room.state });
       const result = getResult(room.state, config);
       if (result) await finishBotMatch(room, result.winner, result.reason);
-      else if (room.bot.playerId === JEV_BOT.id && room.state.history.length >= JEV_PARALLEL_POLICY.maxPlies) await abandonJevMatch(room, 'ply_limit');
     })().catch((error) => {
       console.error('[bot] 공식 봇 수 처리에 실패했습니다:', error);
-      broadcastRoom(room, { type: 'ERROR', message: '상대의 수를 처리하지 못했습니다. 다시 시도해 주세요' });
+      // A failed opponent must produce a terminal result, never leave a live
+      // board with no future move scheduled.
+      if (rooms.get(room.id) === room && !room.finished && room.bot) {
+        void finishBotMatch(room, opponent(room.bot.side), 'forfeit', 'bot_error');
+      }
     }).finally(() => {
       if (room.bot) room.bot.thinking = false;
     });
-  }, delayMs);
+  }, officialBotMoveDelayMs(room.bot));
 }
 
 async function startBotMatch(ws: WebSocket) {
@@ -631,9 +521,7 @@ async function startBotMatch(ws: WebSocket) {
     ) return;
     const id = makeRoomId();
     const recentBotIds = recentBotIdsByPlayer.get(initialPlayerId) ?? [];
-    // One JEV game at a time keeps this short experiment within modest free-tier traffic.
-    const jevBusy = [...rooms.values()].some((room) => !room.finished && room.bot?.playerId === JEV_BOT.id);
-    const botProfile = selectRankedBot(profiles.values(), profile.rating, { recentBotIds, includeJev: jev.canMatch && !jevBusy });
+    const botProfile = selectRankedBot(profiles.values(), profile.rating, { recentBotIds });
     const bot = createRankedBot(botProfile);
     recentBotIdsByPlayer.set(initialPlayerId, [botProfile.playerId, ...recentBotIds].slice(0, RECENT_BOT_LIMIT));
     const playerSide = opponent(bot.side);
@@ -649,7 +537,6 @@ async function startBotMatch(ws: WebSocket) {
       blackPlatform: playerSide === 'BLACK' ? session.platform : 'unknown',
       whitePlatform: playerSide === 'WHITE' ? session.platform : 'unknown',
       bot,
-      recentBotIdsBeforeMatch: bot.playerId === JEV_BOT.id ? recentBotIds : undefined,
       finished: false,
     };
     rooms.set(id, room);
@@ -730,36 +617,26 @@ function detachPlayer(ws: WebSocket) {
   const room = session?.roomId ? rooms.get(session.roomId) : undefined;
   if (room) {
     const side: Player | null = room.black === ws ? 'BLACK' : room.white === ws ? 'WHITE' : null;
-    if (side && room.bot?.playerId === JEV_BOT.id && room.jevRecoveryStartedAt !== undefined && !room.finished) {
-      // Leaving an infrastructure wait is not a resignation or a ranked loss.
-      void abandonJevMatch(room, 'recovery_player_left');
-    }
-    if (side && room.kind !== 'friend' && !room.finished) recordMatchAbandoned(room, side, 'disconnect');
-    if (
-      room.kind === 'bot' &&
-      !room.finished &&
-      side &&
-      room.bot &&
-      hasPlayerTakenTurn(room.state.history.length, side)
-    ) {
-      void finishBotMatch(room, room.bot.side, 'forfeit', 'disconnect');
+    if (side && !room.finished) {
+      if (room.kind !== 'friend') recordMatchAbandoned(room, side, 'disconnect');
+      if (room.kind === 'random') {
+        // MATCH_FOUND starts the game; a first move is not required to forfeit.
+        void finishRandomMatch(room, opponent(side), 'forfeit', 'disconnect');
+      } else if (room.kind === 'friend' && room.blackPlayerId && room.whitePlayerId) {
+        void finishFriendMatch(room, opponent(side), 'forfeit', 'disconnect');
+      } else if (room.bot && hasPlayerTakenTurn(room.state.history.length, side)) {
+        void finishBotMatch(room, room.bot.side, 'forfeit', 'disconnect');
+      } else {
+        // A host waiting alone, or an untouched solo bot game, has no human
+        // opponent awaiting a result.
+        void saveGameRecord(room, { reason: 'disconnect' });
+        releaseFinishedRoom(room);
+      }
     }
     if (side === 'BLACK') room.black = null;
     if (side === 'WHITE') room.white = null;
-    const other = room.black ?? room.white;
-    if (other) {
-      let completedByForfeit = false;
-      if (room.kind === 'random' && !room.finished && room.state.history.length > 0 && side) {
-        void finishRandomMatch(room, side === 'BLACK' ? 'WHITE' : 'BLACK', 'forfeit', 'disconnect');
-        completedByForfeit = true;
-      }
-      if (!completedByForfeit && !room.finished) send(other, { type: 'OPPONENT_LEFT' });
-      const otherSession = sessions.get(other);
-      if (otherSession) otherSession.roomId = null;
-    }
-    if (!room.finished) void saveGameRecord(room, { reason: 'disconnect' });
-    room.botRequest?.abort();
-    rooms.delete(room.id);
+    // Finishing functions retain the other player's session until MATCH_RESULT
+    // is delivered and release the room once. Closing again cannot score twice.
   }
   sessions.delete(ws);
 }
@@ -947,9 +824,8 @@ const httpServer = createServer((req, res) => {
       activeSessions: sessions.size,
       profileStore: profileRepository.kind,
       officialBotMatches: true,
-      jev: { ...jev.status, matchmakingPolicy: JEV_MATCHMAKING_POLICY,
-        matchRecoveryPolicy: JEV_MATCH_RECOVERY_POLICY.version,
-        waitingMatches: [...rooms.values()].filter(room => !room.finished && room.jevRecoveryStartedAt !== undefined).length },
+      botEngine: 'local-search-v1',
+      jev: { acceptingMatches: false, reason: 'retired', replacement: 'local-search-v1' },
       gameRecords: { schemaVersion: 1, rulesVersion: RECORD_RULES_VERSION },
     });
     return;
@@ -1160,9 +1036,18 @@ wss.on('connection', (ws, request) => {
       const room = roomId ? rooms.get(roomId) : undefined;
       const side: Player | null = room && room.black === ws ? 'BLACK' : room && room.white === ws ? 'WHITE' : null;
       if (!room || !side) send(ws, { type: 'ERROR', message: '방에 참가한 뒤 항복할 수 있습니다' });
-      else if (room.bot?.playerId === JEV_BOT.id && room.jevRecoveryStartedAt !== undefined && !room.finished) await abandonJevMatch(room, 'recovery_player_left');
       else if (room.kind === 'random' && !room.finished) await finishRandomMatch(room, opponent(side), 'forfeit', 'resign');
       else if (room.kind === 'bot' && !room.finished && room.bot) await finishBotMatch(room, room.bot.side, 'forfeit', 'resign');
+      else if (room.kind === 'friend' && !room.finished) {
+        if (room.blackPlayerId && room.whitePlayerId) await finishFriendMatch(room, opponent(side), 'forfeit', 'resign');
+        else {
+          // Cancelling an unfilled room has no winner, but must release the
+          // host's session so a later matchmaking request can proceed.
+          room.finished = true;
+          releaseFinishedRoom(room);
+          send(ws, { type: 'QUEUE_LEFT' });
+        }
+      }
       return;
     }
 
@@ -1186,12 +1071,7 @@ wss.on('connection', (ws, request) => {
           if (result) {
             if (room.kind === 'bot') await finishBotMatch(room, result.winner, result.reason);
             else if (room.kind === 'random') await finishRandomMatch(room, result.winner, result.reason);
-            else {
-              room.finished = true;
-              await saveGameRecord(room, { winner: result.winner, reason: result.reason });
-            }
-          } else if (room.bot?.playerId === JEV_BOT.id && room.state.history.length >= JEV_PARALLEL_POLICY.maxPlies) {
-            await abandonJevMatch(room, 'ply_limit');
+            else await finishFriendMatch(room, result.winner, result.reason);
           } else if (room.kind === 'bot') {
             scheduleBotMove(room);
           }
