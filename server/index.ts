@@ -28,6 +28,7 @@ import { ensureRankedBots, selectRankedBot, isRankedBotId } from './rankedBots';
 import { inferMatchPlatform } from './matchAnalytics';
 import { hasPlayerTakenTurn } from './matchLifecycle';
 import { createGameRecordStore, GameRecorder, RECORD_RULES_VERSION, type GameRecord } from './gameRecords';
+import { backfillFirstMoves } from './firstMove';
 
 const PORT = Number(process.env.PORT ?? 3001);
 const HOST = process.env.HOST ?? '0.0.0.0';
@@ -46,6 +47,7 @@ interface PublicProfile {
   rank: number;
   totalPlayers: number;
   legacyMigrationComplete: boolean;
+  hasPlayedMove: boolean;
 }
 
 interface Room {
@@ -61,6 +63,7 @@ interface Room {
   whitePlatform: MatchPlatform;
   bot?: OfficialBot;
   finished: boolean;
+  pendingMove?: boolean;
   gameRecord?: GameRecord;
 }
 
@@ -93,7 +96,22 @@ if (profileRepository.kind === 'postgres' && loadedProfiles.length === 0) {
   }
 }
 loadedProfiles = await ensureRankedBots(profileRepository);
+const backfilledFirstMoves = await backfillFirstMoves(profileRepository, gameRecordStore);
+if (backfilledFirstMoves) loadedProfiles = await profileRepository.loadProfiles();
+console.log(`[profiles] 첫 착수 기록 ${backfilledFirstMoves}명 복원`);
 const profiles = new Map(loadedProfiles.map((profile) => [profile.playerId, profile]));
+
+function rememberProfile(profile: StoredProfile) {
+  profiles.set(profile.playerId, { ...profile,
+    hasPlayedMove: Boolean(profile.hasPlayedMove || profiles.get(profile.playerId)?.hasPlayedMove) });
+}
+
+async function markFirstMove(playerId: string) {
+  if (profiles.get(playerId)?.hasPlayedMove) return;
+  await profileRepository.markFirstMove(playerId);
+  profiles.set(playerId, { ...profiles.get(playerId)!, hasPlayedMove: true });
+  sendProfileToPlayer(playerId);
+}
 
 function makeId(bytes = 12): string {
   return randomBytes(bytes).toString('hex');
@@ -134,6 +152,7 @@ function publicProfile(playerId: string): PublicProfile {
     // Current clients never display the population count.
     totalPlayers: profiles.size,
     legacyMigrationComplete: Boolean(profile.legacyMigratedAt),
+    hasPlayedMove: Boolean(profile.hasPlayedMove),
   };
 }
 
@@ -178,7 +197,7 @@ async function authenticate(ws: WebSocket, playerId?: string, token?: string) {
       updatedAt: now,
     };
     const saved = await profileRepository.saveProfileMetadata(profile);
-    profiles.set(saved.playerId, saved);
+    rememberProfile(saved);
   }
   const session = sessions.get(ws)!;
   session.playerId = profile.playerId;
@@ -370,8 +389,8 @@ async function finishRandomMatch(
       completedAt,
     });
     if (result.recorded && result.winner && result.loser) {
-      profiles.set(result.winner.playerId, result.winner);
-      profiles.set(result.loser.playerId, result.loser);
+      rememberProfile(result.winner);
+      rememberProfile(result.loser);
     }
     if (room.black) send(room.black, { type: 'MATCH_RESULT', winner, reason, profile: publicProfile(room.blackPlayerId!) });
     if (room.white) send(room.white, { type: 'MATCH_RESULT', winner, reason, profile: publicProfile(room.whitePlayerId!) });
@@ -416,8 +435,8 @@ async function finishBotMatch(
       reason,
       completedAt,
     });
-    if (result.recorded && result.player) profiles.set(result.player.playerId, result.player);
-    if (result.recorded && result.bot) profiles.set(result.bot.playerId, result.bot);
+    if (result.recorded && result.player) rememberProfile(result.player);
+    if (result.recorded && result.bot) rememberProfile(result.bot);
     if (playerSocket) {
       send(playerSocket, { type: 'MATCH_RESULT', winner, reason, profile: publicProfile(playerId) });
     }
@@ -753,7 +772,7 @@ async function handleTossLogin(req: import('node:http').IncomingMessage, res: im
     profile.tossTokenExpiresAt = new Date(now.getTime() + login.expiresIn * 1000).toISOString();
     profile.updatedAt = now.toISOString();
     const saved = await profileRepository.saveProfileMetadata(profile);
-    profiles.set(saved.playerId, saved);
+    rememberProfile(saved);
     sendJson(res, 200, { playerId: profile.playerId, token: profile.token, profile: publicProfile(profile.playerId) });
   } catch (error) {
     const apiError = error as TossApiError;
@@ -798,7 +817,7 @@ async function handleTossUnlinkCallback(req: import('node:http').IncomingMessage
       delete profile.tossTokenExpiresAt;
       profile.updatedAt = profile.unlinkedAt;
       const saved = await profileRepository.saveProfileMetadata(profile);
-      profiles.set(saved.playerId, saved);
+      rememberProfile(saved);
       sendLoggedOutToPlayer(profile.playerId, '토스 연결이 해제되어 다시 로그인해야 해요');
     }
     // 알 수 없는 userKey도 멱등하게 200으로 응답한다.
@@ -891,6 +910,12 @@ wss.on('connection', (ws, request) => {
       return;
     }
 
+    if (msg.type === 'FIRST_MOVE_PLAYED') {
+      if (profiles.get(playerId)?.hasPlayedMove) send(ws, { type: 'PROFILE', profile: publicProfile(playerId) });
+      else await markFirstMove(playerId);
+      return;
+    }
+
     if (msg.type === 'UPDATE_PROFILE') {
       const name = cleanName(msg.name);
       if (!name) {
@@ -908,7 +933,7 @@ wss.on('connection', (ws, request) => {
         updatedAt: new Date().toISOString(),
       };
       const saved = await profileRepository.saveProfileMetadata(profile);
-      profiles.set(playerId, saved);
+      rememberProfile(saved);
       send(ws, { type: 'PROFILE', profile: publicProfile(playerId) });
       return;
     }
@@ -924,7 +949,7 @@ wss.on('connection', (ws, request) => {
           name: duplicateName ? profiles.get(playerId)!.name : claim.name,
           migratedAt: new Date().toISOString(),
         });
-        profiles.set(playerId, result.profile);
+        rememberProfile(result.profile);
         sendProfileToPlayer(playerId);
       } catch (error) {
         send(ws, {
@@ -1059,21 +1084,29 @@ wss.on('connection', (ws, request) => {
       else {
         const side: Player | null = room.black === ws ? 'BLACK' : room.white === ws ? 'WHITE' : null;
         if (!side) send(ws, { type: 'ERROR', message: '이 방의 플레이어가 아닙니다' });
+        else if (room.pendingMove) send(ws, { type: 'ERROR', message: '이전 수를 처리 중입니다' });
         else if (room.state.turn !== side) send(ws, { type: 'ERROR', message: '내 차례가 아닙니다' });
         else if (room.finished || getResult(room.state, config)) send(ws, { type: 'ERROR', message: '게임이 이미 끝났습니다' });
         else if (room.kind === 'friend' && (!room.black || !room.white)) send(ws, { type: 'ERROR', message: '상대가 입장한 뒤 수를 둘 수 있습니다' });
         else if (!isValidMove(room.state, msg.move)) send(ws, { type: 'ERROR', message: '불법 수입니다' });
         else {
-          room.state = applyMove(room.state, msg.move);
-          void saveGameRecord(room);
-          broadcastRoom(room, { type: 'STATE', state: room.state });
-          const result = getResult(room.state, config);
-          if (result) {
-            if (room.kind === 'bot') await finishBotMatch(room, result.winner, result.reason);
-            else if (room.kind === 'random') await finishRandomMatch(room, result.winner, result.reason);
-            else await finishFriendMatch(room, result.winner, result.reason);
-          } else if (room.kind === 'bot') {
-            scheduleBotMove(room);
+          room.pendingMove = true;
+          try {
+            room.state = applyMove(room.state, msg.move);
+            try { await markFirstMove(playerId); }
+            catch (error) { console.error('[profiles] 첫 착수 저장 실패:', error); }
+            void saveGameRecord(room);
+            broadcastRoom(room, { type: 'STATE', state: room.state });
+            const result = getResult(room.state, config);
+            if (result) {
+              if (room.kind === 'bot') await finishBotMatch(room, result.winner, result.reason);
+              else if (room.kind === 'random') await finishRandomMatch(room, result.winner, result.reason);
+              else await finishFriendMatch(room, result.winner, result.reason);
+            } else if (room.kind === 'bot') {
+              scheduleBotMove(room);
+            }
+          } finally {
+            room.pendingMove = false;
           }
         }
       }
