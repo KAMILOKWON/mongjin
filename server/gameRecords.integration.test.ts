@@ -44,7 +44,7 @@ async function allRecords() {
 beforeAll(async () => {
   dir = await mkdtemp(join(tmpdir(), 'mongjin-record-integration-'));
   child = spawn(process.execPath, ['--import', 'tsx', 'index.ts'], {
-    cwd: serverDir, env: { ...process.env, DATABASE_URL: '', HOST: '127.0.0.1', PORT: '0', MONGJIN_PROFILE_DATA_FILE: join(dir, 'profiles.json') },
+    cwd: serverDir, env: { ...process.env, DATABASE_URL: '', HOST: '127.0.0.1', PORT: '0', MONGJIN_PROFILE_DATA_FILE: join(dir, 'profiles.json'), MONGJIN_RECONNECT_GRACE_MS: '500' },
     stdio: ['ignore', 'pipe', 'pipe'],
   });
   child.stdout!.on('data', (data) => { logs += data; });

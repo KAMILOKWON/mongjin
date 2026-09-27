@@ -35,7 +35,21 @@ const HOST = process.env.HOST ?? '0.0.0.0';
 const PROFILE_DATA_FILE = process.env.MONGJIN_PROFILE_DATA_FILE ?? join(process.cwd(), 'data', 'profiles.json');
 const config = { ...DEFAULT_CONFIG };
 
-type MatchReason = WinReason | 'forfeit';
+type MatchReason = WinReason | 'forfeit' | 'timeout';
+
+function envMs(value: string | undefined, fallback: number): number {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+}
+
+/** 연결이 끊긴 이용자의 자리를 이 시간 동안 유지한다. 돌아오지 않으면 기권으로 끝낸다. */
+const RECONNECT_GRACE_MS = envMs(process.env.MONGJIN_RECONNECT_GRACE_MS, 60_000);
+/** 빠른 대전(사람·봇)의 한 수 제한 시간. 서버가 재고 서버가 판정한다. */
+const MOVE_TIME_MS = envMs(process.env.MONGJIN_MOVE_TIME_MS, 60_000);
+/** 재접속했을 때 이미 끝난 대국의 결과를 알려 주기 위해 보관하는 시간 */
+const RECENT_RESULT_TTL_MS = 10 * 60_000;
+/** 클라이언트가 HELLO로 알리는 기능. 구버전 클라이언트는 아무것도 보내지 않는다. */
+type ClientFeature = 'resume' | 'server-clock';
 
 interface PublicProfile {
   playerId: string;
@@ -65,18 +79,44 @@ interface Room {
   finished: boolean;
   pendingMove?: boolean;
   gameRecord?: GameRecord;
+  /** 연결이 끊겨 재접속을 기다리는 진영별 타이머 */
+  graceTimers?: Partial<Record<Player, ReturnType<typeof setTimeout>>>;
+  /** 현재 차례의 서버 기준 마감 시각(ms). 시계가 없는 차례면 null */
+  moveDeadline?: number | null;
+  moveTimer?: ReturnType<typeof setTimeout>;
 }
 
 interface ClientSession {
   playerId: string | null;
   roomId: string | null;
   platform: MatchPlatform;
+  features: Set<ClientFeature>;
+  lang?: string;
+}
+
+/** 끝난 친구 대전의 재대결 신청. 두 사람이 모두 원하면 흑백을 바꿔 새 판을 연다. */
+interface RematchOffer {
+  roomId: string;
+  sockets: Record<Player, WebSocket>;
+  playerIds: Record<Player, string>;
+  requested: Set<Player>;
+  timer: ReturnType<typeof setTimeout>;
+}
+
+interface RecentResult {
+  roomId: string;
+  winner: Player;
+  reason: MatchReason;
+  at: number;
 }
 
 const rooms = new Map<string, Room>();
 const sessions = new Map<WebSocket, ClientSession>();
 const matchmakingQueue: WebSocket[] = [];
 const pendingBotMatches = new Map<WebSocket, symbol>();
+const recentResults = new Map<string, RecentResult>();
+const rematchOffers = new Map<string, RematchOffer>();
+const REMATCH_OFFER_TTL_MS = 2 * 60_000;
 // 중도 이탈을 포함한 시작 기록은 프로세스 안에서만 유지한다. 재시작 후에는 완료 기록으로 다시 채운다.
 const recentBotIdsByPlayer = new Map<string, string[]>();
 const RECENT_BOT_LIMIT = 5;
@@ -121,12 +161,16 @@ function makeRoomId(): string {
   return randomBytes(3).toString('hex').toUpperCase();
 }
 
-function defaultName(): string {
+/** 새 프로필의 기본 닉네임 접두어. HELLO가 언어를 알리지 않은 구버전 클라이언트는 한국어다. */
+const DEFAULT_NAME_PREFIX: Record<string, string> = { ko: '나그네', en: 'Wanderer', ja: '旅人', zh: '旅人', 'zh-Hant': '旅人' };
+
+function defaultName(lang?: string): string {
+  const prefix = (lang && DEFAULT_NAME_PREFIX[lang]) || DEFAULT_NAME_PREFIX.ko;
   for (let attempt = 0; attempt < 100; attempt += 1) {
-    const candidate = `나그네${Math.floor(1000 + Math.random() * 9000)}`;
+    const candidate = `${prefix}${Math.floor(1000 + Math.random() * 9000)}`;
     if (![...profiles.values()].some((profile) => profile.name === candidate)) return candidate;
   }
-  return `나그네${randomBytes(3).toString('hex')}`;
+  return `${prefix}${randomBytes(3).toString('hex')}`;
 }
 
 function cleanName(value: unknown): string | null {
@@ -170,6 +214,40 @@ function broadcastRoom(room: Room, payload: unknown) {
   if (room.white) send(room.white, payload);
 }
 
+function supports(ws: WebSocket, feature: ClientFeature): boolean {
+  return sessions.get(ws)?.features.has(feature) ?? false;
+}
+
+/** 구버전 클라이언트는 서버 시간패 문구가 없으므로 기권으로 보여 준다. 기록은 그대로 timeout이다. */
+function sendMatchResult(ws: WebSocket, winner: Player, reason: MatchReason, playerId: string) {
+  const wireReason = reason === 'timeout' && !supports(ws, 'server-clock') ? 'forfeit' : reason;
+  send(ws, { type: 'MATCH_RESULT', winner, reason: wireReason, profile: publicProfile(playerId) });
+}
+
+function turnTimeLeftMs(room: Room): number | null {
+  return room.moveDeadline ? Math.max(0, room.moveDeadline - Date.now()) : null;
+}
+
+function broadcastState(room: Room) {
+  broadcastRoom(room, { type: 'STATE', state: room.state, turnTimeLeftMs: turnTimeLeftMs(room) });
+}
+
+function rememberResult(room: Room, winner: Player, reason: MatchReason) {
+  const now = Date.now();
+  for (const [id, entry] of recentResults) if (now - entry.at > RECENT_RESULT_TTL_MS) recentResults.delete(id);
+  for (const playerId of [room.blackPlayerId, room.whitePlayerId]) {
+    if (playerId) recentResults.set(playerId, { roomId: room.id, winner, reason, at: now });
+  }
+}
+
+function clearRoomTimers(room: Room) {
+  if (room.moveTimer) clearTimeout(room.moveTimer);
+  room.moveTimer = undefined;
+  room.moveDeadline = null;
+  for (const timer of Object.values(room.graceTimers ?? {})) clearTimeout(timer);
+  room.graceTimers = {};
+}
+
 function sendProfileToPlayer(playerId: string) {
   const profile = publicProfile(playerId);
   for (const [ws, session] of sessions) {
@@ -189,7 +267,7 @@ async function authenticate(ws: WebSocket, playerId?: string, token?: string) {
     profile = {
       playerId: makeId(),
       token: makeId(24),
-      name: defaultName(),
+      name: defaultName(sessions.get(ws)?.lang),
       wins: 0,
       losses: 0,
       rating: 1200,
@@ -358,6 +436,7 @@ function recordMatchAbandoned(room: Room, side: Player, reason: string) {
 }
 
 function releaseFinishedRoom(room: Room) {
+  clearRoomTimers(room);
   for (const socket of [room.black, room.white]) {
     if (!socket) continue;
     const session = sessions.get(socket);
@@ -377,6 +456,8 @@ async function finishRandomMatch(
   const loserId = winner === 'BLACK' ? room.whitePlayerId : room.blackPlayerId;
   if (!winnerId || !loserId) return;
   room.finished = true;
+  clearRoomTimers(room);
+  rememberResult(room, winner, reason);
   const completedAt = new Date().toISOString();
   const recordSaved = saveGameRecord(room, { winner, reason: analyticsReason });
   try {
@@ -392,8 +473,8 @@ async function finishRandomMatch(
       rememberProfile(result.winner);
       rememberProfile(result.loser);
     }
-    if (room.black) send(room.black, { type: 'MATCH_RESULT', winner, reason, profile: publicProfile(room.blackPlayerId!) });
-    if (room.white) send(room.white, { type: 'MATCH_RESULT', winner, reason, profile: publicProfile(room.whitePlayerId!) });
+    if (room.black) sendMatchResult(room.black, winner, reason, room.blackPlayerId!);
+    if (room.white) sendMatchResult(room.white, winner, reason, room.whitePlayerId!);
     sendProfileToPlayer(winnerId);
     sendProfileToPlayer(loserId);
   } catch (error) {
@@ -415,9 +496,11 @@ async function finishBotMatch(
   if (room.kind !== 'bot' || room.finished || !room.bot) return;
   const playerSide = opponent(room.bot.side);
   const playerId = playerSide === 'BLACK' ? room.blackPlayerId : room.whitePlayerId;
-  const playerSocket = playerSide === 'BLACK' ? room.black : room.white;
+  const currentSocket = () => playerSide === 'BLACK' ? room.black : room.white;
   if (!playerId) return;
   room.finished = true;
+  clearRoomTimers(room);
+  rememberResult(room, winner, reason);
   const completedAt = new Date().toISOString();
   const recordSaved = saveGameRecord(room, { winner, reason: analyticsReason });
   try {
@@ -437,12 +520,12 @@ async function finishBotMatch(
     });
     if (result.recorded && result.player) rememberProfile(result.player);
     if (result.recorded && result.bot) rememberProfile(result.bot);
-    if (playerSocket) {
-      send(playerSocket, { type: 'MATCH_RESULT', winner, reason, profile: publicProfile(playerId) });
-    }
+    const playerSocket = currentSocket();
+    if (playerSocket) sendMatchResult(playerSocket, winner, reason, playerId);
     sendProfileToPlayer(playerId);
   } catch (error) {
     console.error('[profiles] 공식 봇 경기 결과 저장에 실패했습니다:', error);
+    const playerSocket = currentSocket();
     if (playerSocket) {
       send(playerSocket, { type: 'ERROR', message: '경기 결과를 저장하지 못했습니다. 잠시 후 다시 시도해 주세요' });
     }
@@ -457,11 +540,212 @@ async function finishBotMatch(
 async function finishFriendMatch(room: Room, winner: Player, reason: MatchReason, recordReason: string = reason) {
   if (room.kind !== 'friend' || room.finished || !room.blackPlayerId || !room.whitePlayerId) return;
   room.finished = true;
+  clearRoomTimers(room);
+  rememberResult(room, winner, reason);
   const saved = saveGameRecord(room, { winner, reason: recordReason });
-  if (room.black) send(room.black, { type: 'MATCH_RESULT', winner, reason, profile: publicProfile(room.blackPlayerId) });
-  if (room.white) send(room.white, { type: 'MATCH_RESULT', winner, reason, profile: publicProfile(room.whitePlayerId) });
+  if (room.black) sendMatchResult(room.black, winner, reason, room.blackPlayerId);
+  if (room.white) sendMatchResult(room.white, winner, reason, room.whitePlayerId);
+  if (room.black && room.white) openRematchOffer(room, room.black, room.white);
   releaseFinishedRoom(room);
   await saved;
+}
+
+function openRematchOffer(room: Room, black: WebSocket, white: WebSocket) {
+  const offer: RematchOffer = {
+    roomId: room.id,
+    sockets: { BLACK: black, WHITE: white },
+    playerIds: { BLACK: room.blackPlayerId!, WHITE: room.whitePlayerId! },
+    requested: new Set(),
+    timer: setTimeout(() => rematchOffers.delete(room.id), REMATCH_OFFER_TTL_MS),
+  };
+  rematchOffers.set(room.id, offer);
+}
+
+/** 한쪽이 나가거나 다른 대국을 시작하면 남은 사람에게 재대결이 불가능하다고 알린다. */
+function cancelRematchOffers(ws: WebSocket) {
+  for (const [roomId, offer] of rematchOffers) {
+    const side = offer.sockets.BLACK === ws ? 'BLACK' : offer.sockets.WHITE === ws ? 'WHITE' : null;
+    if (!side) continue;
+    clearTimeout(offer.timer);
+    rematchOffers.delete(roomId);
+    send(offer.sockets[opponent(side)], { type: 'REMATCH_UNAVAILABLE', roomId });
+  }
+}
+
+function requestRematch(ws: WebSocket, roomId: string) {
+  const offer = rematchOffers.get(roomId);
+  const side = offer ? (offer.sockets.BLACK === ws ? 'BLACK' : offer.sockets.WHITE === ws ? 'WHITE' : null) : null;
+  const other = offer && side ? offer.sockets[opponent(side)] : null;
+  if (!offer || !side || !other || other.readyState !== other.OPEN || sessions.get(other)?.roomId || sessions.get(ws)?.roomId) {
+    if (offer) { clearTimeout(offer.timer); rematchOffers.delete(roomId); }
+    send(ws, { type: 'REMATCH_UNAVAILABLE', roomId });
+    return;
+  }
+  offer.requested.add(side);
+  if (offer.requested.size < 2) {
+    send(other, { type: 'REMATCH_REQUESTED', roomId });
+    return;
+  }
+  clearTimeout(offer.timer);
+  rematchOffers.delete(roomId);
+  // 재대결은 흑백을 바꿔 새 방에서 시작한다.
+  const black = offer.sockets.WHITE;
+  const white = offer.sockets.BLACK;
+  const id = makeRoomId();
+  const room: Room = {
+    id,
+    matchId: makeId(16),
+    kind: 'friend',
+    state: initialState(config),
+    black,
+    white,
+    blackPlayerId: offer.playerIds.WHITE,
+    whitePlayerId: offer.playerIds.BLACK,
+    blackPlatform: sessions.get(black)?.platform ?? 'unknown',
+    whitePlatform: sessions.get(white)?.platform ?? 'unknown',
+    finished: false,
+  };
+  rooms.set(id, room);
+  sessions.get(black)!.roomId = id;
+  sessions.get(white)!.roomId = id;
+  startGameRecord(room);
+  send(black, { type: 'MATCH_FOUND', roomId: id, side: 'BLACK', matchKind: 'friend', state: room.state, opponent: opponentSummary(room.whitePlayerId!) });
+  send(white, { type: 'MATCH_FOUND', roomId: id, side: 'WHITE', matchKind: 'friend', state: room.state, opponent: opponentSummary(room.blackPlayerId!) });
+}
+
+async function finishRoom(room: Room, winner: Player, reason: MatchReason, analyticsReason: string = reason) {
+  if (room.kind === 'random') await finishRandomMatch(room, winner, reason, analyticsReason);
+  else if (room.kind === 'bot') await finishBotMatch(room, winner, reason, analyticsReason);
+  else await finishFriendMatch(room, winner, reason, analyticsReason);
+}
+
+/** 사람이 둘 차례일 때만 시계를 건다. 친구 대전은 기존처럼 시간 제한이 없다. */
+function clockedSide(room: Room): Player | null {
+  if (room.finished || room.kind === 'friend') return null;
+  if (room.bot && room.state.turn === room.bot.side) return null;
+  return room.state.turn;
+}
+
+function startMoveClock(room: Room) {
+  if (room.moveTimer) clearTimeout(room.moveTimer);
+  room.moveTimer = undefined;
+  room.moveDeadline = null;
+  const side = clockedSide(room);
+  if (!side) return;
+  const ply = room.state.history.length;
+  room.moveDeadline = Date.now() + MOVE_TIME_MS;
+  room.moveTimer = setTimeout(() => {
+    if (rooms.get(room.id) !== room || room.finished) return;
+    if (room.state.turn !== side || room.state.history.length !== ply || room.pendingMove) return;
+    void finishRoom(room, opponent(side), 'timeout', 'timeout');
+  }, MOVE_TIME_MS);
+}
+
+function isLiveGame(room: Room): boolean {
+  if (room.finished) return false;
+  if (room.kind === 'friend') return Boolean(room.blackPlayerId && room.whitePlayerId);
+  return true;
+}
+
+/** 자리를 떠난 쪽을 최종 이탈로 처리한다. 재접속 대기가 끝났거나 이용자가 다른 대국을 시작한 경우다. */
+function abandonSeat(room: Room, side: Player) {
+  const timer = room.graceTimers?.[side];
+  if (timer) clearTimeout(timer);
+  if (room.graceTimers) delete room.graceTimers[side];
+  if (room.finished || rooms.get(room.id) !== room) return;
+  if (room.kind !== 'friend') recordMatchAbandoned(room, side, 'disconnect');
+  if (room.kind === 'random') {
+    // MATCH_FOUND starts the game; a first move is not required to forfeit.
+    void finishRandomMatch(room, opponent(side), 'forfeit', 'disconnect');
+  } else if (room.kind === 'friend' && room.blackPlayerId && room.whitePlayerId) {
+    void finishFriendMatch(room, opponent(side), 'forfeit', 'disconnect');
+  } else if (room.bot && hasPlayerTakenTurn(room.state.history.length, side)) {
+    void finishBotMatch(room, room.bot.side, 'forfeit', 'disconnect');
+  } else {
+    // An untouched solo bot game has no human opponent awaiting a result.
+    room.finished = true;
+    void saveGameRecord(room, { reason: 'disconnect' });
+    releaseFinishedRoom(room);
+  }
+}
+
+function startGrace(room: Room, side: Player) {
+  room.graceTimers ??= {};
+  const previous = room.graceTimers[side];
+  if (previous) clearTimeout(previous);
+  room.graceTimers[side] = setTimeout(() => abandonSeat(room, side), RECONNECT_GRACE_MS);
+}
+
+/** 재접속을 기다리는 자리를 가진 이용자가 새 대국을 시작하면 이전 대국은 바로 이탈로 끝낸다. */
+function abandonWaitingSeats(playerId: string) {
+  for (const room of [...rooms.values()]) {
+    if (room.finished) continue;
+    for (const side of ['BLACK', 'WHITE'] as const) {
+      const seatId = side === 'BLACK' ? room.blackPlayerId : room.whitePlayerId;
+      const socket = side === 'BLACK' ? room.black : room.white;
+      if (seatId === playerId && !socket && room.graceTimers?.[side]) abandonSeat(room, side);
+    }
+  }
+}
+
+function findResumableRoom(playerId: string, roomId?: string): { room: Room; side: Player } | null {
+  const candidates = roomId ? [rooms.get(roomId)].filter((room): room is Room => Boolean(room)) : [...rooms.values()];
+  for (const room of candidates) {
+    if (!isLiveGame(room)) continue;
+    if (room.blackPlayerId === playerId) return { room, side: 'BLACK' };
+    if (room.whitePlayerId === playerId) return { room, side: 'WHITE' };
+  }
+  return null;
+}
+
+function opponentFor(room: Room, side: Player) {
+  if (room.bot) return { name: room.bot.name, rating: room.bot.rating, isBot: true };
+  const opponentId = side === 'BLACK' ? room.whitePlayerId : room.blackPlayerId;
+  return opponentId ? opponentSummary(opponentId) : null;
+}
+
+function resumeSeat(ws: WebSocket, playerId: string, roomId?: string) {
+  const session = sessions.get(ws)!;
+  const found = findResumableRoom(playerId, roomId);
+  if (!found || (session.roomId && session.roomId !== found.room.id)) {
+    const recent = recentResults.get(playerId);
+    const fresh = recent && Date.now() - recent.at <= RECENT_RESULT_TTL_MS && (!roomId || recent.roomId === roomId);
+    send(ws, {
+      type: 'RESUME_FAILED',
+      roomId: roomId ?? null,
+      result: fresh ? { roomId: recent.roomId, winner: recent.winner, reason: recent.reason } : null,
+      profile: publicProfile(playerId),
+    });
+    return;
+  }
+  const { room, side } = found;
+  const previous = side === 'BLACK' ? room.black : room.white;
+  if (previous && previous !== ws) {
+    // 앱이 잠든 사이 서버가 아직 끊김을 모르는 예전 소켓. 새 연결이 자리를 넘겨받는다.
+    const previousSession = sessions.get(previous);
+    if (previousSession?.roomId === room.id) previousSession.roomId = null;
+    previous.terminate();
+  }
+  const timer = room.graceTimers?.[side];
+  if (timer) clearTimeout(timer);
+  if (room.graceTimers) delete room.graceTimers[side];
+  pendingBotMatches.delete(ws);
+  removeFromQueue(ws);
+  if (side === 'BLACK') room.black = ws;
+  else room.white = ws;
+  session.roomId = room.id;
+  send(ws, {
+    type: 'RESUMED',
+    roomId: room.id,
+    side,
+    // 봇 대국도 이용자에게는 빠른 대전으로 보인다.
+    matchKind: room.kind === 'friend' ? 'friend' : 'random',
+    state: room.state,
+    opponent: opponentFor(room, side),
+    turnTimeLeftMs: turnTimeLeftMs(room),
+  });
+  const other = side === 'BLACK' ? room.white : room.black;
+  if (other) send(other, { type: 'OPPONENT_RECONNECTED', turnTimeLeftMs: turnTimeLeftMs(room) });
 }
 
 function scheduleBotMove(room: Room) {
@@ -483,8 +767,9 @@ function scheduleBotMove(room: Room) {
       }
       room.state = applyMove(room.state, move);
       void saveGameRecord(room);
-      broadcastRoom(room, { type: 'STATE', state: room.state });
       const result = getResult(room.state, config);
+      if (!result) startMoveClock(room);
+      broadcastState(room);
       if (result) await finishBotMatch(room, result.winner, result.reason);
     })().catch((error) => {
       console.error('[bot] 공식 봇 수 처리에 실패했습니다:', error);
@@ -561,12 +846,15 @@ async function startBotMatch(ws: WebSocket) {
     rooms.set(id, room);
     session.roomId = id;
     recordMatchStarted(room);
+    startMoveClock(room);
     send(ws, {
       type: 'MATCH_FOUND',
       roomId: id,
       side: playerSide,
+      matchKind: 'random',
       state: room.state,
       opponent: { name: bot.name, rating: bot.rating, isBot: true },
+      turnTimeLeftMs: turnTimeLeftMs(room),
     });
     scheduleBotMove(room);
   } finally {
@@ -597,19 +885,24 @@ function startRandomMatch(first: WebSocket, second: WebSocket) {
   sessions.get(first)!.roomId = id;
   sessions.get(second)!.roomId = id;
   recordMatchStarted(room);
+  startMoveClock(room);
   send(first, {
     type: 'MATCH_FOUND',
     roomId: id,
     side: firstIsBlack ? 'BLACK' : 'WHITE',
+    matchKind: 'random',
     state: room.state,
     opponent: opponentSummary(secondId),
+    turnTimeLeftMs: turnTimeLeftMs(room),
   });
   send(second, {
     type: 'MATCH_FOUND',
     roomId: id,
     side: firstIsBlack ? 'WHITE' : 'BLACK',
+    matchKind: 'random',
     state: room.state,
     opponent: opponentSummary(firstId),
+    turnTimeLeftMs: turnTimeLeftMs(room),
   });
 }
 
@@ -630,30 +923,28 @@ function findOpponent(ws: WebSocket): WebSocket | null {
 }
 
 function detachPlayer(ws: WebSocket) {
+  cancelRematchOffers(ws);
   pendingBotMatches.delete(ws);
   removeFromQueue(ws);
   const session = sessions.get(ws);
   const room = session?.roomId ? rooms.get(session.roomId) : undefined;
   if (room) {
     const side: Player | null = room.black === ws ? 'BLACK' : room.white === ws ? 'WHITE' : null;
-    if (side && !room.finished) {
-      if (room.kind !== 'friend') recordMatchAbandoned(room, side, 'disconnect');
-      if (room.kind === 'random') {
-        // MATCH_FOUND starts the game; a first move is not required to forfeit.
-        void finishRandomMatch(room, opponent(side), 'forfeit', 'disconnect');
-      } else if (room.kind === 'friend' && room.blackPlayerId && room.whitePlayerId) {
-        void finishFriendMatch(room, opponent(side), 'forfeit', 'disconnect');
-      } else if (room.bot && hasPlayerTakenTurn(room.state.history.length, side)) {
-        void finishBotMatch(room, room.bot.side, 'forfeit', 'disconnect');
-      } else {
-        // A host waiting alone, or an untouched solo bot game, has no human
-        // opponent awaiting a result.
-        void saveGameRecord(room, { reason: 'disconnect' });
-        releaseFinishedRoom(room);
-      }
+    if (side && isLiveGame(room)) {
+      // 모바일은 전화·알림·화면 잠금으로 연결이 자주 끊긴다. 바로 기권시키지 않고 자리를 남긴다.
+      if (side === 'BLACK') room.black = null;
+      else room.white = null;
+      startGrace(room, side);
+      const other = side === 'BLACK' ? room.white : room.black;
+      if (other) send(other, { type: 'OPPONENT_DISCONNECTED', graceMs: RECONNECT_GRACE_MS });
+    } else if (side && !room.finished) {
+      // A host waiting alone in a friend room has no opponent awaiting a result.
+      room.finished = true;
+      void saveGameRecord(room, { reason: 'disconnect' });
+      releaseFinishedRoom(room);
     }
-    if (side === 'BLACK') room.black = null;
-    if (side === 'WHITE') room.white = null;
+    if (room.black === ws) room.black = null;
+    if (room.white === ws) room.white = null;
     // Finishing functions retain the other player's session until MATCH_RESULT
     // is delivered and release the room once. Closing again cannot score twice.
   }
@@ -877,6 +1168,7 @@ wss.on('connection', (ws, request) => {
     playerId: null,
     roomId: null,
     platform: inferMatchPlatform(request.headers.origin, request.headers['user-agent']),
+    features: new Set(),
   });
 
   ws.on('message', (raw) => {
@@ -889,6 +1181,8 @@ wss.on('connection', (ws, request) => {
       roomId?: string;
       move?: Move;
       legacyProfile?: unknown;
+      features?: unknown;
+      lang?: unknown;
     };
     try {
       msg = JSON.parse(String(raw));
@@ -898,12 +1192,34 @@ wss.on('connection', (ws, request) => {
     }
 
     if (msg.type === 'HELLO') {
+      const session = sessions.get(ws);
+      if (session && Array.isArray(msg.features)) {
+        for (const feature of msg.features) {
+          if (feature === 'resume' || feature === 'server-clock') session.features.add(feature);
+        }
+      }
+      if (session && typeof msg.lang === 'string' && msg.lang in DEFAULT_NAME_PREFIX) session.lang = msg.lang;
       await authenticate(ws, msg.playerId, msg.token);
       return;
     }
 
     const playerId = requirePlayer(ws);
     if (!playerId) return;
+
+    if (msg.type === 'RESUME') {
+      resumeSeat(ws, playerId, typeof msg.roomId === 'string' ? msg.roomId.trim().toUpperCase() : undefined);
+      return;
+    }
+
+    if (msg.type === 'REMATCH') {
+      requestRematch(ws, typeof msg.roomId === 'string' ? msg.roomId.trim().toUpperCase() : '');
+      return;
+    }
+
+    if (msg.type === 'MATCHMAKE' || msg.type === 'MATCHMAKE_BOT' || msg.type === 'CREATE' || msg.type === 'JOIN') {
+      abandonWaitingSeats(playerId);
+      cancelRematchOffers(ws);
+    }
 
     if (msg.type === 'GET_PROFILE') {
       send(ws, { type: 'PROFILE', profile: publicProfile(playerId) });
@@ -1040,6 +1356,7 @@ wss.on('connection', (ws, request) => {
               type: 'MATCH_FOUND',
               roomId: id,
               side: 'BLACK',
+              matchKind: 'friend',
               state: room.state,
               opponent: opponentSummary(room.whitePlayerId),
             });
@@ -1047,6 +1364,7 @@ wss.on('connection', (ws, request) => {
               type: 'MATCH_FOUND',
               roomId: id,
               side: 'WHITE',
+              matchKind: 'friend',
               state: room.state,
               opponent: opponentSummary(room.blackPlayerId),
             });
@@ -1096,8 +1414,9 @@ wss.on('connection', (ws, request) => {
             try { await markFirstMove(playerId); }
             catch (error) { console.error('[profiles] 첫 착수 저장 실패:', error); }
             void saveGameRecord(room);
-            broadcastRoom(room, { type: 'STATE', state: room.state });
             const result = getResult(room.state, config);
+            if (!result) startMoveClock(room);
+            broadcastState(room);
             if (result) {
               if (room.kind === 'bot') await finishBotMatch(room, result.winner, result.reason);
               else if (room.kind === 'random') await finishRandomMatch(room, result.winner, result.reason);

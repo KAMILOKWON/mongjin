@@ -48,6 +48,23 @@ DATABASE_URL='postgresql://...' npm run migrate:profiles
 정상 종료 사유가 있는 승자는 실제 착수를 한 것으로 복원하지만 항복만으로는 추정하지 않는다.
 계정 ID가 전혀 연결되지 않은 오래된 기보는 특정 프로필에 귀속하지 않는다.
 
+## 재접속과 서버 시계 (1.1.1)
+
+- 진행 중인 대국(빠른 대전·봇·양쪽이 입장한 친구 대전)에서 연결이 끊기면 바로 기권시키지 않고
+  `MONGJIN_RECONNECT_GRACE_MS`(기본 60초) 동안 자리를 유지한다. 남은 상대에게
+  `OPPONENT_DISCONNECTED { graceMs }`를 보낸다. 시간이 지나면 기존과 같은 이탈 기권으로 끝낸다.
+- 클라이언트는 `HELLO`에 `features: ["resume", "server-clock"]`를 보내 기능을 알린다.
+  같은 프로필로 다시 연결해 `RESUME { roomId? }`를 보내면 `RESUMED { roomId, side, matchKind, state,
+  opponent, turnTimeLeftMs }`를 받고, 상대는 `OPPONENT_RECONNECTED`를 받는다. 서버가 끊김을 아직 모르는
+  예전 소켓이 있으면 새 소켓이 자리를 넘겨받는다. 돌아갈 대국이 없으면 `RESUME_FAILED`에 최근 10분 안에
+  끝난 그 판의 결과(`result`)를 담아 보낸다.
+- 재접속을 기다리는 동안 같은 이용자가 `MATCHMAKE`·`MATCHMAKE_BOT`·`CREATE`·`JOIN`을 보내면
+  이전 판은 즉시 이탈 기권으로 끝낸다. 구버전 클라이언트는 `RESUME`를 보내지 않으므로 유예 시간 뒤 기권된다.
+- 빠른 대전·봇 대국의 사람 차례에는 서버가 `MONGJIN_MOVE_TIME_MS`(기본 60초) 시계를 건다.
+  `MATCH_FOUND`·`STATE`·`RESUMED`에 `turnTimeLeftMs`를 싣고, 시간이 지나면 `timeout` 결과로 끝낸다.
+  연결이 끊긴 동안에도 시계는 흐른다. 친구 대전에는 시계가 없다.
+  `server-clock`을 알리지 않은 구버전 클라이언트에는 같은 결과를 `forfeit` 사유로 보낸다(기록은 `timeout`).
+
 ## Device Elo handoff
 
 기존 iOS·Android·앱인토스 설치본의 기기 누적 Elo는 업데이트된 클라이언트가 첫 연결 때

@@ -12,6 +12,8 @@ import type { GameRecord } from './gameRecords';
 import type { RecordedMatchEvent, StoredProfile } from './profileRepository';
 
 const serverDir = dirname(fileURLToPath(import.meta.url));
+const GRACE_MS = 1_500;
+const MOVE_MS = 3_000;
 const pause = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 interface WireMessage {
@@ -24,6 +26,11 @@ interface WireMessage {
   winner?: Player;
   reason?: string;
   profile?: StoredProfile;
+  turnTimeLeftMs?: number | null;
+  graceMs?: number;
+  matchKind?: string;
+  opponent?: { name: string; rating: number; isBot?: boolean } | null;
+  result?: { roomId: string; winner: Player; reason: string } | null;
 }
 
 interface TestClient {
@@ -152,11 +159,22 @@ function createClient(label: string): TestClient {
   return client;
 }
 
-async function authenticate(client: TestClient): Promise<void> {
-  await client.send({ type: 'HELLO' });
+const tokens = new Map<string, string>();
+
+async function authenticate(client: TestClient, hello: object = {}): Promise<void> {
+  await client.send({ type: 'HELLO', ...hello });
   const identity = await client.next('IDENTITY');
   expect(identity.playerId).toMatch(/^[a-f0-9]{24}$/);
   client.id = identity.playerId!;
+  tokens.set(identity.playerId!, identity.token!);
+}
+
+/** 같은 프로필로 새 소켓을 열어 재접속하는 앱을 흉내 낸다. */
+async function reconnectAs(previous: TestClient, label: string): Promise<TestClient> {
+  const client = createClient(label);
+  await authenticate(client, { playerId: previous.id, token: tokens.get(previous.id), features: ['resume', 'server-clock'] });
+  expect(client.id).toBe(previous.id);
+  return client;
 }
 
 async function startRandom(label: string) {
@@ -259,6 +277,9 @@ beforeAll(async () => {
       HOST: '127.0.0.1',
       MONGJIN_JEV_ENABLED: '0',
       MONGJIN_PROFILE_DATA_FILE: profilePath,
+      // 실제 기본값은 재접속 60초·한 수 60초다. 테스트는 같은 순서(유예 < 시계)로 줄여 돌린다.
+      MONGJIN_RECONNECT_GRACE_MS: String(GRACE_MS),
+      MONGJIN_MOVE_TIME_MS: String(MOVE_MS),
       PORT: '0',
     },
     stdio: ['ignore', 'pipe', 'pipe'],
@@ -497,4 +518,176 @@ it('RESIGN 직후 연결이 닫혀도 빠른 대전 결과와 Elo를 중복 기�
   expect(persisted.find((profile) => profile.playerId === departing.id)).toMatchObject({ wins: 0, losses: 1 });
   expect((await matchIds()).filter((id) => !beforeMatchIds.includes(id))).toHaveLength(1);
   expect(resultMessages(remaining)).toHaveLength(1);
+}, 15_000);
+
+it('빠른 대전은 유예 시간 안에 같은 프로필로 돌아오면 같은 판을 이어 두고 결과를 만들지 않는다', async () => {
+  const match = await startRandom('resume');
+  const black = match.firstFound.side === 'BLACK' ? match.first : match.second;
+  const white = black === match.first ? match.second : match.first;
+  const blackFound = black === match.first ? match.firstFound : match.secondFound;
+  expect(blackFound.turnTimeLeftMs).toBeGreaterThan(MOVE_MS - 1_000);
+
+  const move = legalMoves(blackFound.state ?? initialState(DEFAULT_CONFIG), DEFAULT_CONFIG)[0]!;
+  await black.send({ type: 'MOVE', move });
+  await Promise.all([black.next('STATE'), white.next('STATE')]);
+
+  await white.terminate();
+  expect(await black.next('OPPONENT_DISCONNECTED')).toMatchObject({ graceMs: GRACE_MS });
+
+  const returned = await reconnectAs(white, 'resume-returned');
+  await returned.send({ type: 'RESUME', roomId: blackFound.roomId });
+  const resumed = await returned.next('RESUMED');
+  expect(resumed).toMatchObject({ roomId: blackFound.roomId, side: 'WHITE', matchKind: 'random' });
+  expect(resumed.state?.history).toHaveLength(1);
+  expect(resumed.turnTimeLeftMs).toBeGreaterThan(0);
+  await black.next('OPPONENT_RECONNECTED');
+
+  const reply = legalMoves(resumed.state!, DEFAULT_CONFIG)[0]!;
+  await returned.send({ type: 'MOVE', move: reply });
+  const [blackState, whiteState] = await Promise.all([black.next('STATE'), returned.next('STATE')]);
+  expect(blackState.state?.history).toHaveLength(2);
+  expect(whiteState.turnTimeLeftMs).toBeGreaterThan(MOVE_MS - 1_000);
+
+  // 유예 시간이 지나도 이미 돌아왔으므로 기권 결과가 오지 않는다.
+  await pause(GRACE_MS + 200);
+  expect(resultMessages(black)).toHaveLength(0);
+  expect(resultMessages(returned)).toHaveLength(0);
+}, 15_000);
+
+it('앱이 잠든 사이 남은 예전 소켓이 있어도 새 연결이 자리를 넘겨받는다', async () => {
+  const match = await startRandom('takeover');
+  const stale = match.first;
+  const fresh = await reconnectAs(stale, 'takeover-fresh');
+  await fresh.send({ type: 'RESUME' });
+  expect(await fresh.next('RESUMED')).toMatchObject({ roomId: match.firstFound.roomId, side: match.firstFound.side });
+  await until(() => stale.ws.readyState === WebSocket.CLOSED, 3_000, () => '예전 소켓이 닫히지 않음');
+  await pause(GRACE_MS + 200);
+  expect(resultMessages(match.second)).toHaveLength(0);
+  expect(resultMessages(fresh)).toHaveLength(0);
+}, 15_000);
+
+it('서버 시계가 끝나면 양쪽에 시간패를 보내고, 구버전 앱에는 기권으로 보여 준다', async () => {
+  const beforeRecords = await gameRecords();
+  const modern = createClient('clock-modern');
+  const legacy = createClient('clock-legacy');
+  await Promise.all([authenticate(modern, { features: ['resume', 'server-clock'] }), authenticate(legacy)]);
+  await modern.send({ type: 'MATCHMAKE' });
+  await legacy.send({ type: 'MATCHMAKE' });
+  const [modernFound] = await Promise.all([modern.next('MATCH_FOUND'), legacy.next('MATCH_FOUND')]);
+
+  // 흑이 한 수도 두지 않으면 흑의 시간패다.
+  const [modernResult, legacyResult] = await Promise.all([
+    modern.next('MATCH_RESULT', MOVE_MS + 3_000),
+    legacy.next('MATCH_RESULT', MOVE_MS + 3_000),
+  ]);
+  expect(modernResult).toMatchObject({ winner: 'WHITE', reason: 'timeout' });
+  expect(legacyResult).toMatchObject({ winner: 'WHITE', reason: 'forfeit' });
+
+  const whiteId = modernFound.side === 'WHITE' ? modern.id : legacy.id;
+  const blackId = whiteId === modern.id ? legacy.id : modern.id;
+  const persisted = await until(async () => {
+    const current = await profiles();
+    const winner = current.find((profile) => profile.playerId === whiteId);
+    const loser = current.find((profile) => profile.playerId === blackId);
+    return winner?.wins === 1 && loser?.losses === 1 ? { winner, loser } : undefined;
+  });
+  expect(persisted.winner.rating).toBe(1212);
+  const records = await until(async () => {
+    const added = (await gameRecords()).filter((record) =>
+      !beforeRecords.some((before) => before.matchId === record.matchId));
+    return added.length === 1 && added[0]?.status === 'completed' ? added : undefined;
+  });
+  expect(records[0]).toMatchObject({ kind: 'random', winner: 'WHITE', reason: 'timeout' });
+}, 15_000);
+
+it('대국이 끝난 뒤 돌아오면 이어 둘 판 대신 그 판의 결과를 알려 준다', async () => {
+  const match = await startRandom('resume-late');
+  const departing = match.first;
+  await departing.terminate();
+  await match.second.next('MATCH_RESULT', GRACE_MS + 3_000);
+
+  const returned = await reconnectAs(departing, 'resume-late-returned');
+  await returned.send({ type: 'RESUME', roomId: match.firstFound.roomId });
+  const failed = await returned.next('RESUME_FAILED');
+  expect(failed.result).toMatchObject({
+    roomId: match.firstFound.roomId,
+    winner: match.secondFound.side,
+    reason: 'forfeit',
+  });
+}, 15_000);
+
+it('재접속을 기다리는 중 새 빠른 대전을 시작하면 이전 판은 바로 이탈패로 끝난다', async () => {
+  const match = await startRandom('supersede');
+  const departing = match.first;
+  await departing.terminate();
+  await match.second.next('OPPONENT_DISCONNECTED');
+
+  const returned = await reconnectAs(departing, 'supersede-returned');
+  const startedAt = Date.now();
+  await returned.send({ type: 'MATCHMAKE' });
+  expect(await match.second.next('MATCH_RESULT')).toMatchObject({ winner: match.secondFound.side, reason: 'forfeit' });
+  expect(Date.now() - startedAt).toBeLessThan(GRACE_MS);
+  await returned.send({ type: 'CANCEL_MATCHMAKING' });
+}, 15_000);
+
+it('봇 대국도 유예 시간 안에 돌아오면 이어서 두고, 봇 상대 정보를 다시 받는다', async () => {
+  const player = createClient('bot-resume');
+  await authenticate(player, { features: ['resume', 'server-clock'] });
+  await player.send({ type: 'MATCHMAKE_BOT' });
+  const found = await player.next('MATCH_FOUND');
+  await player.terminate();
+
+  const returned = await reconnectAs(player, 'bot-resume-returned');
+  await returned.send({ type: 'RESUME', roomId: found.roomId });
+  const resumed = await returned.next('RESUMED');
+  expect(resumed).toMatchObject({ roomId: found.roomId, side: found.side, matchKind: 'random' });
+  expect(resumed.opponent).toMatchObject({ isBot: true });
+}, 15_000);
+
+it('친구 대전이 끝난 뒤 두 사람이 모두 재대결을 누르면 흑백을 바꿔 새 판을 연다', async () => {
+  const match = await startFriend('rematch');
+  expect(match.hostFound.matchKind).toBe('friend');
+  await match.guest.send({ type: 'RESIGN' });
+  await Promise.all([match.host.next('MATCH_RESULT'), match.guest.next('MATCH_RESULT')]);
+
+  await match.host.send({ type: 'REMATCH', roomId: match.created.roomId });
+  expect(await match.guest.next('REMATCH_REQUESTED')).toMatchObject({ roomId: match.created.roomId });
+  await match.guest.send({ type: 'REMATCH', roomId: match.created.roomId });
+  const [hostFound, guestFound] = await Promise.all([match.host.next('MATCH_FOUND'), match.guest.next('MATCH_FOUND')]);
+  expect(hostFound).toMatchObject({ side: 'WHITE', matchKind: 'friend' });
+  expect(guestFound).toMatchObject({ side: 'BLACK', matchKind: 'friend', roomId: hostFound.roomId });
+  expect(hostFound.roomId).not.toBe(match.created.roomId);
+  expect(hostFound.state?.history).toHaveLength(0);
+
+  // 새 판도 평소처럼 둘 수 있다.
+  const move = legalMoves(guestFound.state!, DEFAULT_CONFIG)[0]!;
+  await match.guest.send({ type: 'MOVE', move });
+  await Promise.all([match.host.next('STATE'), match.guest.next('STATE')]);
+}, 15_000);
+
+it('재대결을 기다리는 중 상대가 나가면 재대결할 수 없다고 알린다', async () => {
+  const match = await startFriend('rematch-left');
+  await match.guest.send({ type: 'RESIGN' });
+  await Promise.all([match.host.next('MATCH_RESULT'), match.guest.next('MATCH_RESULT')]);
+  await match.host.send({ type: 'REMATCH', roomId: match.created.roomId });
+  await match.guest.next('REMATCH_REQUESTED');
+  await match.guest.terminate();
+  expect(await match.host.next('REMATCH_UNAVAILABLE')).toMatchObject({ roomId: match.created.roomId });
+}, 15_000);
+
+it('빠른 대전 결과에는 재대결을 열지 않는다', async () => {
+  const match = await startRandom('no-rematch');
+  await match.first.send({ type: 'RESIGN' });
+  await Promise.all([match.first.next('MATCH_RESULT'), match.second.next('MATCH_RESULT')]);
+  await match.second.send({ type: 'REMATCH', roomId: match.firstFound.roomId });
+  expect(await match.second.next('REMATCH_UNAVAILABLE')).toMatchObject({ roomId: match.firstFound.roomId });
+}, 15_000);
+
+it('새 프로필의 기본 닉네임은 HELLO가 알린 언어를 따르고, 알리지 않으면 한국어다', async () => {
+  const english = createClient('lang-en');
+  await english.send({ type: 'HELLO', lang: 'en' });
+  expect((await english.next('IDENTITY')).profile?.name).toMatch(/^Wanderer\d{4}$/);
+  const legacy = createClient('lang-none');
+  await legacy.send({ type: 'HELLO' });
+  expect((await legacy.next('IDENTITY')).profile?.name).toMatch(/^나그네\d{4}$/);
 }, 15_000);
