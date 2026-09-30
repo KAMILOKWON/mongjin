@@ -124,12 +124,43 @@ export class GameRecorder {
 
 export interface ExportOptions { minElo: number; both: boolean; includeBots: boolean; includeForfeits: boolean }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function hasOnlyKeys(value: Record<string, unknown>, keys: readonly string[]): boolean {
+  const actual = Object.keys(value);
+  return actual.length === keys.length && actual.every((key) => keys.includes(key));
+}
+
+function sameCoord(value: unknown, expected: { r: number; c: number }): boolean {
+  return isRecord(value)
+    && hasOnlyKeys(value, ['r', 'c'])
+    && typeof value.r === 'number'
+    && typeof value.c === 'number'
+    && Number.isInteger(value.r)
+    && Number.isInteger(value.c)
+    && value.r === expected.r
+    && value.c === expected.c;
+}
+
+/** Compare the strict Move schema without depending on JSON/JSONB object key order. */
+function sameMove(value: unknown, expected: Move): boolean {
+  if (!isRecord(value) || value.kind !== expected.kind) return false;
+  if (expected.kind === 'PLACE') {
+    return hasOnlyKeys(value, ['kind', 'to']) && sameCoord(value.to, expected.to);
+  }
+  return hasOnlyKeys(value, ['kind', 'from', 'to'])
+    && sameCoord(value.from, expected.from)
+    && sameCoord(value.to, expected.to);
+}
+
 /** Rebuild from the canonical rules; never trust imported moves as legal by default. */
 export function replayRecord(record: GameRecord) {
   if (record.schemaVersion !== 1 || record.rulesVersion !== RECORD_RULES_VERSION) throw new Error('Unsupported record/rules version');
   let state = initialState(record.config);
   for (const move of record.moves) {
-    if (getResult(state, record.config) || !legalMoves(state, record.config).some((m) => JSON.stringify(m) === JSON.stringify(move))) {
+    if (getResult(state, record.config) || !legalMoves(state, record.config).some((legal) => sameMove(move, legal))) {
       throw new Error(`Illegal move at ply ${state.history.length + 1}`);
     }
     state = applyMove(state, move);

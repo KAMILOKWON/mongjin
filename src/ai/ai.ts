@@ -1,8 +1,8 @@
 import type { Coord, GameState, Move, Player } from '../core/types';
 import type { RuleConfig } from '../core/config';
-import type { BotHints } from '../bot/brain';
 import { applyMove } from '../core/apply';
 import { getResult } from '../core/result';
+import type { BotHints } from '../bot/brain';
 import {
   findWinningMove,
   pickObviousMove,
@@ -57,11 +57,7 @@ export interface AiOptions {
   elite?: boolean;
   /** 진단·벤치용 탐색 통계 콜백. */
   onSearchComplete?: (stats: AiSearchStats) => void;
-  /**
-   * 선택된 root부터 시작하는 진단용 조건부 수열. 이후 수는 기존 TT를
-   * 따라가므로 bound나 뒤이은 미완료 iteration의 항목을 포함할 수 있으며,
-   * 검증된 PV나 승패 증명이 아니다. 각 수의 canonical 합법성은 재확인한다.
-   */
+  /** 선택된 root에서 시작하는 조건부 합법 수열. 승패 증명은 아니다. */
   onContinuation?: (line: Move[]) => void;
 }
 
@@ -96,6 +92,13 @@ interface SearchCtx {
   quiescenceMax: number;
   /** 난이도별 전략 평가 수준 */
   strategyLevel: 1 | 2 | 3;
+  /** 실제 대국 이력은 읽기 전용, 탐색 경로는 별도로 관리한다. */
+  playedPositions: Record<string, number>;
+  path: Map<string, number>;
+  pathHash: number;
+  pathHash2: number;
+  rootSide: Player;
+  repetitionScore: number;
 }
 
 function moveSig(m: Move): string {
@@ -173,7 +176,65 @@ function createSearchCtx(
     // 오히려 얕아진다. 난이도 차이는 본 탐색·평가 수준으로 만든다.
     quiescenceMax: QUIESCENCE_MAX,
     strategyLevel,
+    playedPositions: {},
+    path: new Map(),
+    pathHash: 0,
+    pathHash2: 0,
+    rootSide: 'BLACK',
+    repetitionScore: 0,
   };
+}
+
+/** 반복 여부가 다른 경로의 탐색 점수를 전치 테이블에서 섞지 않는다. */
+function pathHashes(key: string): [number, number] {
+  let a = 2166136261;
+  let b = 5381;
+  for (let i = 0; i < key.length; i++) {
+    const ch = key.charCodeAt(i);
+    a = Math.imul(a ^ ch, 16777619);
+    b = Math.imul(b, 33) ^ ch;
+  }
+  return [a, b];
+}
+
+function searchPosition(
+  state: GameState,
+  ctx: SearchCtx,
+  depth: number,
+  alpha: number,
+  beta: number,
+  hints?: BotHints,
+  botSide?: Player,
+  quiet = false,
+): number {
+  const key = positionKey(state);
+  const visits = ctx.path.get(key) ?? 0;
+  const repeats = visits + (ctx.playedPositions[key] ?? 0);
+  const previousScore = ctx.repetitionScore;
+  // 반복은 무승부도 가지치기 조건도 아니다. 필수 방어의 후속 수를 끝까지
+  // 읽되, 반복을 만든 쪽의 비종료 평가에만 비용을 누적한다.
+  ctx.repetitionScore += (state.turn === ctx.rootSide ? 1 : -1) * 80 * Math.min(2, repeats);
+  const [a, b] = pathHashes(key);
+  ctx.path.set(key, visits + 1);
+  ctx.pathHash = (ctx.pathHash + a) | 0;
+  ctx.pathHash2 = (ctx.pathHash2 + b) | 0;
+  try {
+    return quiet
+      ? quiescence(state, ctx, alpha, beta, depth, hints, botSide)
+      : negamax(state, ctx, depth, alpha, beta, hints, botSide);
+  } finally {
+    if (visits) ctx.path.set(key, visits);
+    else ctx.path.delete(key);
+    ctx.pathHash = (ctx.pathHash - a) | 0;
+    ctx.pathHash2 = (ctx.pathHash2 - b) | 0;
+    ctx.repetitionScore = previousScore;
+  }
+}
+
+function evaluateSearch(state: GameState, ctx: SearchCtx, hints?: BotHints, botSide?: Player): number {
+  const base = evaluate(state, ctx.config, hints, botSide, ctx.elite, ctx.strategyLevel);
+  const repetition = state.turn === ctx.rootSide ? ctx.repetitionScore : -ctx.repetitionScore;
+  return Math.max(-WIN + 100, Math.min(WIN - 100, base + repetition));
 }
 
 function child(state: GameState, move: Move): GameState {
@@ -388,6 +449,28 @@ function safeKingMoveCount(
   return count;
 }
 
+/** 왕 앞의 안전한 빈 칸을 지원하는 호위. 왕 옆을 막는 배치 자체는 보상이 아니다. */
+function supportedKingExits(
+  state: GameState,
+  player: Player,
+  scan: EvaluationScan,
+): number {
+  const king = scan.kings[player];
+  if (!king) return 0;
+  const n = state.board.length;
+  const forward = player === 'BLACK' ? -1 : 1;
+  let count = 0;
+  for (const dc of [-1, 0, 1]) {
+    const r = king.r + forward;
+    const c = king.c + dc;
+    if (!inBoard(n, r, c) || state.board[r][c] || scan.dangers[player][r * n + c]) continue;
+    if (scan.guards[player].some((guard) => Math.abs(guard.r - r) + Math.abs(guard.c - c) === 1)) {
+      count++;
+    }
+  }
+  return count;
+}
+
 /** 가까운 호위만 세어 무모한 장거리 추격 없이 실제 포위 압력을 평가한다. */
 function localHuntPressure(guards: Coord[], king: Coord | null): number {
   if (!king) return 0;
@@ -441,16 +524,29 @@ function escortCount(state: GameState, p: Player): number {
 }
 
 function interceptGapAt(
-  n: number,
+  config: RuleConfig,
   invader: Player,
   dK: Coord | null,
   iK: Coord | null,
+  guards: Coord[] = [],
 ): number {
   if (!dK || !iK) return 0;
-  const gR = goalRow(invader, n);
+  const gR = goalRow(invader, config.boardSize);
   const step = Math.sign(gR - iK.r);
   const tr = Math.min(Math.max(iK.r + 2 * step, Math.min(iK.r, gR)), Math.max(iK.r, gR));
-  return Math.max(Math.abs(dK.r - tr), Math.abs(dK.c - iK.c));
+  // 측면의 왕은 중앙 목적지로 대각 접근한다. 행만 투영하면 실제 진로
+  // 밖의 호위를 차단 자원으로 오인하므로 가장 가까운 목표 열도 반영한다.
+  const goal = goalCellsFor(invader, config).reduce((best, cell) =>
+    Math.abs(cell.c - iK.c) < Math.abs(best.c - iK.c) ? cell : best,
+  );
+  const tc = iK.c + Math.sign(goal.c - iK.c) * Math.min(2, Math.abs(goal.c - iK.c));
+  let gap = Math.max(Math.abs(dK.r - tr), Math.abs(dK.c - tc));
+  // 왕이 전진해도 뒤에 남긴 호위가 길목을 지키면 방어는 유지된다.
+  // 왕만 기준으로 삼으면 뒤처진 봇이 영원히 왕으로 상대를 쫓는다.
+  for (const guard of guards) {
+    gap = Math.min(gap, Math.max(0, Math.abs(guard.r - tr) + Math.abs(guard.c - tc) - 1));
+  }
+  return gap;
 }
 
 /** 시작 행에서 목표 행 쪽으로 실제 전진한 칸 수. */
@@ -516,14 +612,16 @@ function evaluate(
     );
   }
 
-  if (strategyLevel >= 2) {
-    const safetyWeight = strategyLevel >= 3 ? 18 : 12;
+  {
+    // 쉬움도 왕의 탈출로와 기본 호위를 읽는다. 상위 난이도는 압박과
+    // 수읽기의 정밀도로 차이를 내며, 기본 방어를 생략하지 않는다.
+    const safetyWeight = strategyLevel >= 3 ? 18 : strategyLevel === 2 ? 12 : 8;
     score += safetyWeight * (
       safeKingMoveCount(state, myKing, scan.dangers[me]) -
       safeKingMoveCount(state, oppKing, scan.dangers[opp])
     );
     if (config.kingCapture) {
-      const huntWeight = strategyLevel >= 3 ? 1 : 0.45;
+      const huntWeight = strategyLevel >= 3 ? 1 : strategyLevel === 2 ? 0.45 : 0.25;
       score += huntWeight * (
         localHuntPressure(scan.guards[me], oppKing) -
         localHuntPressure(scan.guards[opp], myKing)
@@ -561,10 +659,17 @@ function evaluate(
   if (raceLead >= 1) {
     // 앞설 때는 차단만 반복하지 않고 실제 목표행 도달로 전환한다.
     score += 18 * (routeCap - myRoute);
-  } else if (config.kingCapture) {
-    // 뒤처졌을 때는 상대의 진로를 가로막되, 이 항은 왕 전진 점수보다
-    // 작아서 방어 후 반드시 자기 승리 계획으로 돌아온다.
-    score -= 8 * interceptGapAt(state.board.length, opp, myKing, oppKing);
+  }
+
+  if (config.kingCapture) {
+    // 왕끼리 지나쳐 달리면 후공은 늦는다. 상대가 접근할수록 빈 길목을
+    // 방치하는 비용을 높인다. 길목에 호위를 남기면 왕은 다시 전진할 수 있다.
+    const defender = myRoute > oppRoute ? me : opp;
+    const invader = opponent(defender);
+    const invadingKing = scan.kings[invader];
+    const urgency = Math.min(1, Math.max(0, forwardProgress(invader, invadingKing, state.board.length) - 1) / 3);
+    const gap = interceptGapAt(config, invader, scan.kings[defender], invadingKing, scan.guards[defender]);
+    score += (defender === me ? -1 : 1) * 70 * urgency * Math.min(5, gap);
   }
 
   if (hints && botSide) {
@@ -696,12 +801,7 @@ function copyMove(move: Move): Move {
   return { kind: 'MOVE', from: { ...move.from }, to: { ...move.to } };
 }
 
-/**
- * 선택을 바꾸지 않는 진단 추출이다. Root는 항상 포함하고, 그 뒤는 마지막
- * 완료 깊이를 상한으로 현재 TT의 수를 따른다. TT 자체는 이후 미완료
- * iteration이나 alpha-beta bound에서 온 항목일 수 있으므로 이 line은
- * 조건부 예시일 뿐 완료 깊이까지 검증된 root PV가 아니다.
- */
+/** Follow legal TT moves using the repetition-aware path key used by searchPosition. */
 function extractContinuation(
   state: GameState,
   config: RuleConfig,
@@ -715,22 +815,27 @@ function extractContinuation(
   let key = positionKey(current);
   if (seen.has(key) || getResult(current, config)) return line;
   seen.add(key);
+  const [rootHash, rootHash2] = pathHashes(positionKey(state));
+  const [childHash, childHash2] = pathHashes(key);
+  let pathHash = (rootHash + childHash) | 0;
+  let pathHash2 = (rootHash2 + childHash2) | 0;
 
   let remaining = Math.max(0, completedDepth - 1);
   while (remaining > 0) {
-    const entry = tt.get(key);
+    const entry = tt.get(`${key}|${pathHash}:${pathHash2}`);
     if (!entry?.move || entry.depth < remaining) break;
-    const move = legalMoves(current, config).find((candidate) => movesEqual(candidate, entry.move!));
+    const move = legalMoves(current, config).find(candidate => movesEqual(candidate, entry.move!));
     if (!move) break;
-
     const next = applyMove(current, move);
     const nextKey = positionKey(next);
     if (seen.has(nextKey)) break;
-
     line.push(copyMove(move));
     current = next;
     key = nextKey;
     seen.add(key);
+    const [a, b] = pathHashes(key);
+    pathHash = (pathHash + a) | 0;
+    pathHash2 = (pathHash2 + b) | 0;
     remaining--;
     if (getResult(current, config)) break;
   }
@@ -747,27 +852,13 @@ function quiescence(
   botSide?: Player,
 ): number {
   if (tick(ctx)) {
-    return evaluate(
-      state,
-      ctx.config,
-      hints,
-      botSide,
-      ctx.elite,
-      ctx.strategyLevel,
-    );
+    return evaluateSearch(state, ctx, hints, botSide);
   }
 
   const winner = getTerminalWinner(state, ctx.config);
   if (winner) return winner === state.turn ? WIN : -WIN;
 
-  const standPat = evaluate(
-    state,
-    ctx.config,
-    hints,
-    botSide,
-    ctx.elite,
-    ctx.strategyLevel,
-  );
+  const standPat = evaluateSearch(state, ctx, hints, botSide);
   const inCheck = kingThreatened(state, state.turn);
   if (qDepth <= 0) return standPat;
 
@@ -798,7 +889,7 @@ function quiescence(
 
   const ordered = orderMoves(state, tactical, ctx.config, ctx, 0, hints, botSide, null);
   for (const m of ordered) {
-    const v = -quiescence(child(state, m), ctx, -beta, -alpha, qDepth - 1, hints, botSide);
+    const v = -searchPosition(child(state, m), ctx, qDepth - 1, -beta, -alpha, hints, botSide, true);
     if (ctx.aborted) break;
     if (v >= beta) return beta;
     if (v > alpha) alpha = v;
@@ -817,17 +908,10 @@ function negamax(
   botSide?: Player,
 ): number {
   if (tick(ctx)) {
-    return evaluate(
-      state,
-      ctx.config,
-      hints,
-      botSide,
-      ctx.elite,
-      ctx.strategyLevel,
-    );
+    return evaluateSearch(state, ctx, hints, botSide);
   }
 
-  const key = positionKey(state);
+  const key = `${positionKey(state)}|${ctx.pathHash}:${ctx.pathHash2}`;
 
   const tt = ttProbe(ctx, key, depth, alpha, beta);
   if (tt.cutoff !== null) return tt.cutoff;
@@ -878,11 +962,11 @@ function negamax(
 
     let v: number;
     if (i === 0) {
-      v = -negamax(childState, ctx, depth - 1, -beta, -alpha, hints, botSide);
+      v = -searchPosition(childState, ctx, depth - 1, -beta, -alpha, hints, botSide);
     } else {
-      v = -negamax(childState, ctx, depth - 1 - reduction, -alpha - 1, -alpha, hints, botSide);
+      v = -searchPosition(childState, ctx, depth - 1 - reduction, -alpha - 1, -alpha, hints, botSide);
       if (!ctx.aborted && v > alpha) {
-        v = -negamax(childState, ctx, depth - 1, -beta, -alpha, hints, botSide);
+        v = -searchPosition(childState, ctx, depth - 1, -beta, -alpha, hints, botSide);
       }
     }
 
@@ -927,6 +1011,9 @@ interface RootPlanContext {
   /** 지금부터 왕만 움직였을 때 상대보다 늦게 도착하는 반수(plies). */
   raceDeficit: number;
   opponentRoute: number;
+  ownRoute: number;
+  safeExits: number;
+  supportedExits: number;
 }
 
 function directGoalDistance(
@@ -953,10 +1040,14 @@ function createRootPlanContext(
   const safeRoute = bfsKingDist(state, state.turn, config);
   const opponentRoute = bfsKingDist(state, opponent(state.turn), config);
   const directRoute = directGoalDistance(king, state.turn, config);
+  const scan = scanForEvaluation(state, config);
   return {
     strength,
     strategyLevel,
     opponentRoute,
+    ownRoute: safeRoute,
+    safeExits: safeKingMoveCount(state, king, scan.dangers[state.turn]),
+    supportedExits: supportedKingExits(state, state.turn, scan),
     // 현재 플레이어가 먼저 두므로 내 도착은 2d-1, 상대는 2d 반수 뒤다.
     raceDeficit: Math.max(0, 2 * safeRoute - 1 - 2 * opponentRoute),
     blocked:
@@ -982,6 +1073,8 @@ function rootPlanBonus(
   const opp = opponent(me);
   const myKing = findKing(state, me);
   const oppKing = findKing(state, opp);
+  const next = child(state, move);
+  const nextScan = scanForEvaluation(next, config);
   let score = 0;
 
   if (move.kind === 'MOVE') {
@@ -1005,7 +1098,7 @@ function rootPlanBonus(
         const after = Math.abs(move.to.r - oppKing.r) + Math.abs(move.to.c - oppKing.c);
         // 실제 한 수 위협을 만드는 추격만 계획에 포함한다.
         if (after === 1 && before > after) score += 70;
-        if (raceDeficit > 0 && strategyLevel >= 2 && after < before) {
+        if (raceDeficit > 0 && after < before) {
           // 후공 레이스를 그대로 따라가면 한 수 차로 진다. 상위 난이도는
           // 목적지 쪽에 먼저 전개한 호위를 상대 왕 쪽으로 당겨 템포를 번다.
           const opponentGoalR = goalRow(opp, state.board.length);
@@ -1013,21 +1106,10 @@ function rootPlanBonus(
             Math.abs(move.to.r - opponentGoalR) <=
             Math.abs(oppKing.r - opponentGoalR) + 1;
           if (guardAhead) {
-            const interceptWeight = strategyLevel >= 3 ? 150 : 45;
+            const interceptWeight = strategyLevel >= 3 ? 150 : strategyLevel === 2 ? 45 : 30;
             score += interceptWeight * (before - after) * Math.min(raceDeficit, 3);
           }
         }
-      }
-      if (blocked && myKing) {
-        const beforeSupport = Math.max(
-          Math.abs(move.from.r - myKing.r),
-          Math.abs(move.from.c - myKing.c),
-        );
-        const afterSupport = Math.max(
-          Math.abs(move.to.r - myKing.r),
-          Math.abs(move.to.c - myKing.c),
-        );
-        score += 70 + Math.max(0, beforeSupport - afterSupport) * 50;
       }
     }
   } else if (myKing) {
@@ -1036,15 +1118,24 @@ function rootPlanBonus(
     const escorts = escortCountAt(state, me, myKing);
     if (adjacent && escorts < 2) score += 45 * (2 - escorts);
     else score -= 8;
-    if (blocked) score += adjacent ? 180 : 35;
+    if (blocked && adjacent) score += 60;
   }
 
-  if (raceDeficit > 0 && strategyLevel >= 2) {
+  // 호위 이동·배치의 목적은 진로 개척과 안전 확보다. 막힌 상태라는
+  // 이유만으로 모든 호위 수에 보너스를 주면 쓸모없는 왕복을 장려한다.
+  const ownRoute = bfsKingDistPrepared(next, me, config, nextScan.kings[me], nextScan.dangers[me]);
+  const safeExits = safeKingMoveCount(next, nextScan.kings[me], nextScan.dangers[me]);
+  const support = supportedKingExits(next, me, nextScan);
+  score += 35 * (plan.ownRoute - ownRoute);
+  score += 18 * (safeExits - plan.safeExits);
+  if (config.kingCapture) score += 25 * (support - plan.supportedExits);
+  score -= 140 * Math.min(2, state.positionCounts[positionKey(next)] ?? 0);
+
+  if (raceDeficit > 0) {
     // 눈앞의 왕만 쫓지 않고 실제 안전 경로를 늘리는 차단수를 최우선한다.
-    const next = child(state, move);
     const delayedBy = bfsKingDist(next, opp, config) - plan.opponentRoute;
     if (delayedBy > 0) {
-      const delayWeight = strategyLevel >= 3 ? 170 : 60;
+      const delayWeight = strategyLevel >= 3 ? 170 : strategyLevel === 2 ? 60 : 45;
       score += delayWeight * delayedBy * Math.min(raceDeficit, 3);
     }
   }
@@ -1083,21 +1174,29 @@ export function chooseMove(
       elapsedMs: performance.now() - startedAt,
       aborted: ctx.aborted,
     });
-    if (opts.onContinuation) {
-      opts.onContinuation(move ? extractContinuation(state, config, move, completedDepth, ctx.tt) : []);
-    }
+    opts.onContinuation?.(move ? extractContinuation(state, config, move, completedDepth, ctx.tt) : []);
     return move;
   };
   const legal = legalMoves(state, config);
-  // 모든 난이도는 세 번째 동일 국면만 피한다. 최고 난이도의 과도한
-  // 2회 반복 금지는 필요한 템포 수까지 제거해 오히려 약해졌다.
-  const repetitionLimit = 2;
-  const repetitionSafe = legal.filter((move) => {
-    const key = positionKey(child(state, move));
-    return (state.positionCounts[key] ?? 0) < repetitionLimit;
-  });
-  // 가능한 경우 AI가 동일 국면의 반복 등장을 만드는 수를 두지 않는다.
-  const candidates = repetitionSafe.length > 0 ? repetitionSafe : legal;
+  if (!legal.length) return finish(null, 0);
+  // 승리와 필수 방어는 반복 회피보다 우선한다. 유일한 방어가 반복일 때
+  // 비반복 패배 수만 남기는 일이 없어야 한다.
+  const immediate = instantWinMove(state, legal, config);
+  if (immediate) return finish(immediate, 0);
+  const safeMoves = legal.filter((move) => !allowsImmediateReplyWin(state, move, config));
+  const safeCandidates = safeMoves.length > 0 ? safeMoves : legal;
+  const repetitionSafe = safeCandidates.filter((move) =>
+    (state.positionCounts[positionKey(child(state, move))] ?? 0) < 2,
+  );
+  const candidates = repetitionSafe.length > 0 ? repetitionSafe : safeCandidates;
+  const rootKey = positionKey(state);
+  ctx.playedPositions = {
+    ...state.positionCounts,
+    [rootKey]: Math.max(0, (state.positionCounts[rootKey] ?? 1) - 1),
+  };
+  ctx.rootSide = state.turn;
+  ctx.path.set(rootKey, 1);
+  [ctx.pathHash, ctx.pathHash2] = pathHashes(rootKey);
   let moves = orderMoves(
     state,
     candidates,
@@ -1109,14 +1208,6 @@ export function chooseMove(
     null,
   );
   if (!moves.length) return finish(null, 0);
-
-  const immediate = instantWinMove(state, moves, config);
-  if (immediate) return finish(immediate, 0);
-
-  // 시간 제한으로 1수 탐색만 끝난 경우에도 즉시 패배하는 블런더는 두지 않는다.
-  const safeMoves = moves.filter((move) => !allowsImmediateReplyWin(state, move, config));
-  const safetyRestricted = safeMoves.length > 0 && safeMoves.length < moves.length;
-  if (safetyRestricted) moves = safeMoves;
 
   const rootPlan = createRootPlanContext(state, config, planStrength, strategyLevel);
   const planBonuses = new Map(
@@ -1145,13 +1236,13 @@ export function chooseMove(
       let exact = i === 0;
       let v: number;
       if (i === 0) {
-        v = -negamax(childState, ctx, depth - 1, -beta, -alpha, hints, botSide);
+        v = -searchPosition(childState, ctx, depth - 1, -beta, -alpha, hints, botSide);
       } else {
         // PVS: 먼저 최선점수를 넘는지만 좁은 창으로 확인하고, 넘는 수만
         // 다시 정확히 읽는다. 계획 보너스는 이 순수 탐색 창에 섞지 않는다.
-        v = -negamax(childState, ctx, depth - 1, -alpha - 1, -alpha, hints, botSide);
+        v = -searchPosition(childState, ctx, depth - 1, -alpha - 1, -alpha, hints, botSide);
         if (!ctx.aborted && v > alpha) {
-          v = -negamax(childState, ctx, depth - 1, -beta, -alpha, hints, botSide);
+          v = -searchPosition(childState, ctx, depth - 1, -beta, -alpha, hints, botSide);
           exact = true;
         }
       }
@@ -1178,7 +1269,7 @@ export function chooseMove(
           iterCandidates.push(candidate);
           continue;
         }
-        const verified = -negamax(
+        const verified = -searchPosition(
           child(state, candidate.move),
           ctx,
           depth - 1,
@@ -1206,13 +1297,6 @@ export function chooseMove(
     if (bestSearchScore >= WIN) break;
   }
 
-  const safeMoveKeys = safetyRestricted ? new Set(moves.map(moveSig)) : null;
-  const allLegal = candidates.filter(
-    (move) => safeMoveKeys === null || safeMoveKeys.has(moveSig(move)),
-  );
-  const finalWin = findWinningMove(state, allLegal, config);
-  if (finalWin) return finish(finalWin, completedDepth);
-
   const preferences = opts.movePreference ? new Map(lastCompleted.map(({ move }) => {
     const value = opts.movePreference!(state, move);
     return [moveSig(move), Number.isFinite(value) ? Math.max(0, Math.min(1, value)) : 0];
@@ -1220,7 +1304,7 @@ export function chooseMove(
   const chosen = pickRootCandidate(lastCompleted, planBonuses, rng, preferences);
 
   if (completedDepth <= 1) {
-    const fallback = pickObviousMove(state, allLegal, config);
+    const fallback = pickObviousMove(state, candidates, config);
     if (fallback) return finish(fallback, completedDepth);
   }
 

@@ -29,6 +29,22 @@ import { inferMatchPlatform } from './matchAnalytics';
 import { hasPlayerTakenTurn } from './matchLifecycle';
 import { createGameRecordStore, GameRecorder, RECORD_RULES_VERSION, type GameRecord } from './gameRecords';
 import { backfillFirstMoves } from './firstMove';
+import type { TournamentClient } from './tournament';
+import { TournamentRegistry } from './tournamentRegistry';
+import { CommunityService } from './community';
+import { createCommunityStore } from './communityStore';
+import { createCommunityHandler } from './communityHttp';
+import { NotificationDelivery } from './notificationDelivery';
+import { WaitingNotifications, parseWaitingDestination } from './waitingNotifications';
+import { createWaitingHandler } from './waitingHttp';
+import { TournamentTelemetry } from './tournamentTelemetry';
+import { createTournamentAdminHandler } from './tournamentAdminHttp';
+import { TournamentScheduler } from './tournamentScheduler';
+import { createMandakoHandler } from './mandako';
+import { PRACTICE_BOT_VERSION } from './practiceBot';
+import { createLazyFeedbackHandler } from './feedback';
+import { createFeedbackStore } from './feedbackStore';
+import { isTournamentMessageType, TOURNAMENT_PRACTICE_MOVE_PATH, TOURNAMENT_STATUS_PATH } from '../src/net/tournamentProtocol';
 
 const PORT = Number(process.env.PORT ?? 3001);
 const HOST = process.env.HOST ?? '0.0.0.0';
@@ -88,6 +104,7 @@ interface Room {
 
 interface ClientSession {
   playerId: string | null;
+  credentialToken: string | null;
   roomId: string | null;
   platform: MatchPlatform;
   features: Set<ClientFeature>;
@@ -123,6 +140,7 @@ const RECENT_BOT_LIMIT = 5;
 const RECENT_BOT_QUERY_TIMEOUT_MS = 500;
 const profileRepository = await createProfileRepository(PROFILE_DATA_FILE);
 const gameRecordStore = await createGameRecordStore(join(dirname(PROFILE_DATA_FILE), 'game-records'));
+const handleFeedback = createLazyFeedbackHandler({ createStore: createFeedbackStore });
 const gameRecorder = new GameRecorder(gameRecordStore, (error) => console.error('[records] 기보 저장 실패:', error));
 let loadedProfiles = await profileRepository.loadProfiles();
 if (profileRepository.kind === 'postgres' && loadedProfiles.length === 0) {
@@ -140,6 +158,73 @@ const backfilledFirstMoves = await backfillFirstMoves(profileRepository, gameRec
 if (backfilledFirstMoves) loadedProfiles = await profileRepository.loadProfiles();
 console.log(`[profiles] 첫 착수 기록 ${backfilledFirstMoves}명 복원`);
 const profiles = new Map(loadedProfiles.map((profile) => [profile.playerId, profile]));
+
+const community = new CommunityService(await createCommunityStore(
+  process.env.MONGJIN_COMMUNITY_DATA_FILE ?? join(dirname(PROFILE_DATA_FILE), 'community.json'),
+));
+const waitingNotifications = new WaitingNotifications(community.store);
+await waitingNotifications.recover();
+const tournament = new TournamentRegistry(community, join(dirname(PROFILE_DATA_FILE), 'tournaments'), isPlayerInNormalPlay, process.env, {
+  canBackgroundWait: (playerId, tournamentId, destination) => {
+    const parsed = parseWaitingDestination(destination);
+    return parsed ? waitingNotifications.canBackgroundWait(playerId, tournamentId, parsed) : false;
+  },
+  onBackgroundChange: change => waitingNotifications.update(change),
+});
+await tournament.initialize();
+const authorizeCommunity = (playerId: string, token: string): boolean => {
+  const profile = profiles.get(playerId);
+  return Boolean(profile && !profile.unlinkedAt && !isRankedBotId(playerId) && profile.token === token);
+};
+const handleCommunity = createCommunityHandler(community, authorizeCommunity);
+const handleWaiting = createWaitingHandler(waitingNotifications, tournament, authorizeCommunity);
+const telemetry = new TournamentTelemetry(community);
+const tournamentScheduler = new TournamentScheduler(community, tournament, telemetry,
+  async () => (await profileRepository.firstMoveHistory()).events);
+await tournamentScheduler.initialize();
+const handleTournamentAdmin = createTournamentAdminHandler(
+  tournament, community, telemetry, authorizeCommunity,
+  async () => (await profileRepository.firstMoveHistory()).events,
+  tournamentScheduler,
+);
+const notificationDelivery = new NotificationDelivery(community, id => {
+  const profile = profiles.get(id);
+  return profile?.unlinkedAt ? undefined : profile?.tossUserKey;
+});
+const tournamentClients = new WeakMap<WebSocket, TournamentClient>();
+const loopbackSockets = new WeakSet<WebSocket>();
+const handleMandako = createMandakoHandler({
+  authorize: (playerId: string, token: string) => {
+    const profile = profiles.get(playerId);
+    return Boolean(profile && !isRankedBotId(profile.playerId) && !profile.unlinkedAt &&
+      profile.token === token && tournament.canPractice(profile.playerId));
+  },
+  beforePractice: (playerId, practiceId, moves) => community.beforePractice(playerId, practiceId, moves),
+  savePracticeMove: (playerId, practiceId, moves, move) => community.savePracticeMove(
+    playerId, practiceId, moves, move, PRACTICE_BOT_VERSION,
+  ),
+});
+
+function tournamentClientFor(ws: WebSocket): TournamentClient {
+  let client = tournamentClients.get(ws);
+  if (!client) {
+    client = { send: message => send(ws, message) };
+    tournamentClients.set(ws, client);
+  }
+  return client;
+}
+
+function isPlayerInNormalPlay(playerId: string): boolean {
+  for (const [socket, session] of sessions) {
+    if (session.playerId !== playerId) continue;
+    if (session.roomId || matchmakingQueue.includes(socket) || pendingBotMatches.has(socket)) return true;
+  }
+  // A seat held for reconnect must remain exclusive until its grace period ends.
+  for (const room of rooms.values()) {
+    if (!room.finished && (room.blackPlayerId === playerId || room.whitePlayerId === playerId)) return true;
+  }
+  return false;
+}
 
 function rememberProfile(profile: StoredProfile) {
   profiles.set(profile.playerId, { ...profile,
@@ -256,6 +341,12 @@ function sendProfileToPlayer(playerId: string) {
 }
 
 async function authenticate(ws: WebSocket, playerId?: string, token?: string) {
+  const prior = sessions.get(ws);
+  if (!prior) return;
+  if (prior.playerId && (playerId !== prior.playerId || token !== prior.credentialToken)) {
+    send(ws, { type: 'ERROR', message: '계정을 바꾸려면 다시 연결해 주세요' });
+    return;
+  }
   let profile = playerId && !isRankedBotId(playerId) ? profiles.get(playerId) : undefined;
   if (profile && token && profile.token === token && profile.unlinkedAt) {
     // 토스 연결이 해제된 프로필. 재로그인 전까지 세션을 만들지 않는다.
@@ -279,7 +370,9 @@ async function authenticate(ws: WebSocket, playerId?: string, token?: string) {
   }
   const session = sessions.get(ws)!;
   session.playerId = profile.playerId;
+  session.credentialToken = profile.token;
   if (profile.tossUserKey !== undefined) session.platform = 'toss';
+  telemetry.connect(ws, profile.playerId, session.platform);
   send(ws, {
     type: 'IDENTITY',
     playerId: profile.playerId,
@@ -289,9 +382,13 @@ async function authenticate(ws: WebSocket, playerId?: string, token?: string) {
 }
 
 function requirePlayer(ws: WebSocket): string | null {
-  const playerId = sessions.get(ws)?.playerId ?? null;
-  if (!playerId) send(ws, { type: 'ERROR', message: '프로필 연결을 먼저 완료해 주세요' });
-  return playerId;
+  const session = sessions.get(ws);
+  const profile = session?.playerId ? profiles.get(session.playerId) : undefined;
+  if (!session?.playerId || !profile || profile.unlinkedAt || profile.token !== session.credentialToken) {
+    send(ws, { type: 'ERROR', message: '프로필 연결을 먼저 완료해 주세요' });
+    return null;
+  }
+  return session.playerId;
 }
 
 function isValidMove(state: GameState, move: Move): boolean {
@@ -923,6 +1020,9 @@ function findOpponent(ws: WebSocket): WebSocket | null {
 }
 
 function detachPlayer(ws: WebSocket) {
+  telemetry.disconnect(ws);
+  const tournamentClient = tournamentClients.get(ws);
+  if (tournamentClient) tournament.detach(tournamentClient);
   cancelRematchOffers(ws);
   pendingBotMatches.delete(ws);
   removeFromQueue(ws);
@@ -1116,7 +1216,7 @@ async function handleTossUnlinkCallback(req: import('node:http').IncomingMessage
   sendJson(res, 200, { ok: true });
 }
 
-const httpServer = createServer((req, res) => {
+const httpServer = createServer(async (req, res) => {
   setCorsHeaders(res);
   if (req.method === 'OPTIONS') {
     res.writeHead(204);
@@ -1124,6 +1224,28 @@ const httpServer = createServer((req, res) => {
     return;
   }
   const url = new URL(req.url ?? '/', `http://${req.headers.host ?? 'localhost'}`);
+  if (await handleCommunity(req, res)) return;
+  if (await handleWaiting(req, res)) return;
+  if (await handleTournamentAdmin(req, res)) return;
+  if (url.pathname === '/feedback') {
+    await handleFeedback(req, res);
+    return;
+  }
+  if (url.pathname === TOURNAMENT_PRACTICE_MOVE_PATH) {
+    try {
+      if (await handleMandako(req, res)) return;
+    } catch (error) {
+      console.error('[tournament] 연습 요청 처리 실패:', error);
+      if (!res.headersSent) sendJson(res, 500, { error: 'INTERNAL_ERROR' });
+      else res.end();
+      return;
+    }
+  }
+  if (url.pathname === TOURNAMENT_STATUS_PATH && req.method === 'GET') {
+    res.setHeader('Cache-Control', 'no-store');
+    sendJson(res, 200, tournament.publicStatus(url.searchParams.get('tournamentId') ?? undefined));
+    return;
+  }
   if (url.pathname === '/health') {
     sendJson(res, 200, {
       ok: true,
@@ -1161,15 +1283,39 @@ const httpServer = createServer((req, res) => {
   res.end('몽진 온라인 서버 — WebSocket');
 });
 
-const wss = new WebSocketServer({ server: httpServer });
+const wss = new WebSocketServer({ server: httpServer, maxPayload: 64 * 1024 });
+const alive = new WeakSet<WebSocket>();
+const heartbeat = setInterval(() => {
+  for (const ws of wss.clients) {
+    if (!alive.has(ws)) { ws.terminate(); continue; }
+    alive.delete(ws);
+    ws.ping();
+  }
+  telemetry.sample();
+}, 30_000).unref();
+const notificationTimer = setInterval(() => {
+  void notificationDelivery.flush().catch(() => console.error('[notifications] 발송 작업 저장 실패'));
+}, 30_000).unref();
+const waitingNotificationTimer = setInterval(() => {
+  void waitingNotifications.flush().catch(() => console.error('[waiting-notifications] 발송 작업 저장 실패'));
+}, 5_000).unref();
+tournamentScheduler.start();
 
 wss.on('connection', (ws, request) => {
+  alive.add(ws);
+  ws.on('error', () => undefined);
+  ws.on('pong', () => alive.add(ws));
   sessions.set(ws, {
     playerId: null,
+    credentialToken: null,
     roomId: null,
     platform: inferMatchPlatform(request.headers.origin, request.headers['user-agent']),
     features: new Set(),
   });
+  const remoteAddress = request.socket.remoteAddress ?? '';
+  if (remoteAddress === '127.0.0.1' || remoteAddress === '::1' || remoteAddress === '::ffff:127.0.0.1') {
+    loopbackSockets.add(ws);
+  }
 
   ws.on('message', (raw) => {
     void (async () => {
@@ -1203,6 +1349,20 @@ wss.on('connection', (ws, request) => {
       return;
     }
 
+    if (isTournamentMessageType(msg.type)) {
+      const session = sessions.get(ws);
+      const tournamentPlayerId = session?.playerId ?? null;
+      const profile = tournamentPlayerId ? profiles.get(tournamentPlayerId) : undefined;
+      await tournament.handle(
+        tournamentClientFor(ws),
+        tournamentPlayerId && profile && !profile.unlinkedAt && !isRankedBotId(tournamentPlayerId) && session && session.credentialToken === profile.token
+          ? { playerId: tournamentPlayerId, name: profile.name, platform: session.platform, loopback: loopbackSockets.has(ws) }
+          : null,
+        msg,
+      );
+      return;
+    }
+
     const playerId = requirePlayer(ws);
     if (!playerId) return;
 
@@ -1217,6 +1377,10 @@ wss.on('connection', (ws, request) => {
     }
 
     if (msg.type === 'MATCHMAKE' || msg.type === 'MATCHMAKE_BOT' || msg.type === 'CREATE' || msg.type === 'JOIN') {
+      if (tournament.isPlayerBusy(playerId)) {
+        send(ws, { type: 'ERROR', message: '대회 경기를 마치거나 대기를 멈춘 뒤 이용해 주세요' });
+        return;
+      }
       abandonWaitingSeats(playerId);
       cancelRematchOffers(ws);
     }
@@ -1250,6 +1414,7 @@ wss.on('connection', (ws, request) => {
       };
       const saved = await profileRepository.saveProfileMetadata(profile);
       rememberProfile(saved);
+      tournament.updateName(playerId, saved.name);
       send(ws, { type: 'PROFILE', profile: publicProfile(playerId) });
       return;
     }
@@ -1440,6 +1605,26 @@ wss.on('connection', (ws, request) => {
   });
 
   ws.on('close', () => detachPlayer(ws));
+});
+
+let shuttingDown = false;
+async function shutdown() {
+  if (shuttingDown) return;
+  shuttingDown = true;
+  clearInterval(heartbeat);
+  clearInterval(notificationTimer);
+  clearInterval(waitingNotificationTimer);
+  httpServer.close();
+  for (const ws of wss.clients) ws.close(1001, 'Server restarting');
+  await tournamentScheduler.close();
+  await tournament.shutdown();
+  await waitingNotifications.close();
+  await telemetry.close();
+  await Promise.all([community.store.close(), gameRecordStore.close(), profileRepository.close()]);
+  for (const ws of wss.clients) ws.terminate();
+}
+for (const signal of ['SIGINT', 'SIGTERM'] as const) process.once(signal, () => {
+  void shutdown().then(() => process.exit(0), () => process.exit(1));
 });
 
 httpServer.listen(PORT, HOST, () => {

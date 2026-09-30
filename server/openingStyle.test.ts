@@ -46,9 +46,9 @@ describe('랭크 봇의 초반 계획', () => {
     }
   });
 
-  it('운영 기보의 호위 전개 국면에서 호위형은 호위를, 진출형은 왕 전진을 선택한다', () => {
+  describe('운영 기보의 호위 전개 국면에서 호위형은 호위를, 진출형은 왕 전진을 선택한다', () => {
     // 익명화한 합법 초반 수순. 한 사람의 선택을 정답으로 학습시키는 픽스처는 아니다.
-    const state = replay([
+    const escortOpening = (): GameState => replay([
       { kind: 'MOVE', from: { r: 8, c: 4 }, to: { r: 7, c: 4 } },
       { kind: 'PLACE', to: { r: 1, c: 4 } },
       { kind: 'MOVE', from: { r: 7, c: 4 }, to: { r: 6, c: 3 } },
@@ -56,14 +56,19 @@ describe('랭크 봇의 초반 계획', () => {
       { kind: 'MOVE', from: { r: 6, c: 3 }, to: { r: 5, c: 2 } },
       { kind: 'PLACE', to: { r: 3, c: 4 } },
     ]);
-    expect(choose(state, 'guardian')).toEqual({ kind: 'PLACE', to: { r: 4, c: 2 } });
-    expect(choose(state, 'runner').kind).toBe('MOVE');
-    for (const style of styles) {
+    const styleChecks: Partial<Record<OpeningStyle, (move: Move) => void>> = {
+      guardian: (move) => expect(move).toEqual({ kind: 'PLACE', to: { r: 4, c: 2 } }),
+      runner: (move) => expect(move.kind).toBe('MOVE'),
+    };
+    // 탐색 한 번(노드 4000 한도)이 테스트 하나다. 여러 성향을 한 테스트에 묶으면 기본 5초 제한을 구조적으로 넘는다.
+    it.each(styles)('%s: 합법 수이고 바로 지는 수가 아니다', (style) => {
+      const state = escortOpening();
       const move = choose(state, style);
+      styleChecks[style]?.(move);
       expect(legalMoves(state, config)).toContainEqual(move);
       const next = applyMove(state, move);
       expect(legalMoves(next, config).some((reply) => getResult(applyMove(next, reply), config)?.winner === 'WHITE')).toBe(false);
-    }
+    });
   });
 
   it('초반이 끝나면 성향 설정 없이 탐색한 선택으로 돌아온다', () => {

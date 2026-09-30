@@ -36,18 +36,18 @@ export interface AiDifficultyPreset {
 export const AI_DIFFICULTY_PRESETS: Record<AiDifficulty, AiDifficultyPreset> = {
   easy: {
     label: '쉬움',
-    description: '규칙에 맞는 기본 수를 차분히 둔다',
+    description: '기본 차단과 호위로 왕을 지키며 전진한다',
     maxMs: 300,
     maxDepth: 4,
     maxNodes: 1_500,
-    rootNoise: 80,
-    choiceWindow: 80,
+    rootNoise: 45,
+    choiceWindow: 45,
     planStrength: 0.85,
     strategyLevel: 1,
   },
   normal: {
     label: '보통',
-    description: '전술과 기본 수비를 읽고 계획적으로 둔다',
+    description: '호위와 우회를 연결하고 수비 뒤 공격으로 전환한다',
     maxMs: 1_400,
     maxDepth: 5,
     maxNodes: 10_000,
@@ -58,7 +58,7 @@ export const AI_DIFFICULTY_PRESETS: Record<AiDifficulty, AiDifficultyPreset> = {
   },
   hard: {
     label: '어려움',
-    description: '최선 수를 깊게 읽어 빈틈을 놓치지 않는다',
+    description: '차단과 협공을 깊게 읽고 유리한 국면을 마무리한다',
     maxMs: 4300,
     maxDepth: 14,
     maxNodes: 100_000,

@@ -5,6 +5,7 @@ import { describe, expect, it } from 'vitest';
 import { DEFAULT_CONFIG } from '../src/core/config';
 import { initialState, legalMoves } from '../src/core/rules';
 import { applyMove } from '../src/core/apply';
+import type { Move } from '../src/core/types';
 import { FileGameRecordStore, GameRecorder, RECORD_RULES_VERSION, replayRecord, trainingRecord, type GameRecord } from './gameRecords';
 
 function record(): GameRecord {
@@ -17,6 +18,18 @@ function record(): GameRecord {
   };
 }
 const options = { minElo: 1500, both: false, includeBots: false, includeForfeits: true };
+
+function completedGoalRecord(): GameRecord {
+  const config = { ...DEFAULT_CONFIG, boardSize: 3, guardCount: 0 };
+  const moves: Move[] = [
+    { kind: 'MOVE', from: { r: 2, c: 1 }, to: { r: 1, c: 0 } },
+    { kind: 'MOVE', from: { r: 0, c: 1 }, to: { r: 0, c: 0 } },
+    { kind: 'MOVE', from: { r: 1, c: 0 }, to: { r: 0, c: 1 } },
+  ];
+  return {
+    ...record(), config, moves, winner: 'BLACK', reason: 'goal',
+  };
+}
 
 describe('기보 저장과 학습 내보내기', () => {
   it('Elo 경계와 진영, 봇/항복/이탈/미완료를 구분한다', () => {
@@ -40,6 +53,29 @@ describe('기보 저장과 학습 내보내기', () => {
     expect(() => replayRecord({ ...game, moves: [{ kind: 'PLACE', to: { r: 99, c: 99 } }] })).toThrow('Illegal');
     expect(() => replayRecord({ ...game, reason: 'goal' })).toThrow('Result mismatch');
     expect(() => replayRecord({ ...game, rulesVersion: 'future' })).toThrow('Unsupported');
+  });
+  it('PLACE와 MOVE의 객체·좌표 키 순서가 달라도 엄격하게 재생하고 내보낸다', () => {
+    const initial = initialState(DEFAULT_CONFIG);
+    const place = legalMoves(initial, DEFAULT_CONFIG).find((move) => move.kind === 'PLACE')!;
+    const reorderedPlace = { to: { c: place.to.c, r: place.to.r }, kind: 'PLACE' } as Move;
+    expect(replayRecord({ ...record(), moves: [reorderedPlace] }).history).toEqual([place]);
+
+    const completed = completedGoalRecord();
+    completed.moves = completed.moves.map((move) => move.kind === 'MOVE'
+      ? { to: { c: move.to.c, r: move.to.r }, from: { c: move.from.c, r: move.from.r }, kind: 'MOVE' } as Move
+      : move);
+    const replayed = replayRecord(completed);
+    expect(replayed.history).toEqual(completed.moves);
+    expect(trainingRecord(completed, options)).toMatchObject({ winner: 'BLACK', reason: 'goal', moves: completed.moves });
+  });
+  it('불법 좌표와 malformed 좌표·kind를 계속 거부한다', () => {
+    const game = record();
+    const malformed = (move: unknown) => ({ ...game, moves: [move as Move] });
+    const legalMove = legalMoves(initialState(game.config), game.config).find((move) => move.kind === 'MOVE')!;
+    expect(() => replayRecord(malformed({ kind: 'PLACE', to: { r: 99, c: 99 } }))).toThrow('Illegal move at ply 1');
+    expect(() => replayRecord(malformed({ kind: 'PLACE', to: { r: '7', c: 4 } }))).toThrow('Illegal move at ply 1');
+    expect(() => replayRecord(malformed({ ...legalMove, kind: 'JUMP' }))).toThrow('Illegal move at ply 1');
+    expect(() => replayRecord(malformed({ kind: 'PLACE', to: { r: 7, c: 4 }, extra: true }))).toThrow('Illegal move at ply 1');
   });
   it('내보내기에 계정 정보가 들어가지 않는다', () => {
     const game = record();

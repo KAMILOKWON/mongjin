@@ -535,6 +535,10 @@ it('빠른 대전은 유예 시간 안에 같은 프로필로 돌아오면 같�
   expect(await black.next('OPPONENT_DISCONNECTED')).toMatchObject({ graceMs: GRACE_MS });
 
   const returned = await reconnectAs(white, 'resume-returned');
+  // The new tournament message router may bind this socket, but must not
+  // consume or replace its normal quick-match seat.
+  await returned.send({ type: 'TOURNAMENT_STATUS', protocolVersion: 2 });
+  expect(await returned.next('TOURNAMENT_SNAPSHOT')).toMatchObject({ type: 'TOURNAMENT_SNAPSHOT' });
   await returned.send({ type: 'RESUME', roomId: blackFound.roomId });
   const resumed = await returned.next('RESUMED');
   expect(resumed).toMatchObject({ roomId: blackFound.roomId, side: 'WHITE', matchKind: 'random' });

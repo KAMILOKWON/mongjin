@@ -2,8 +2,8 @@
   "schemaVersion": 1,
   "id": "mongjin",
   "displayName": "몽진",
-  "version": "1.0.8",
-  "build": 64,
+  "version": "1.2.0",
+  "build": 73,
   "protocolVersion": 1,
   "submittedBaseline": "ios-1.0.0+5",
   "sharedSource": [
