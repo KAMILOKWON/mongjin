@@ -71,7 +71,7 @@ export interface TournamentMatchView {
   id: string;
   side: Player;
   opponentName: string;
-  /** Additive compatibility hint; the display name also carries the legacy '(봇)' suffix. */
+  /** Additive server classification; opponents use their existing profile nicknames. */
   opponentIsBot?: boolean;
   status: 'preparing' | 'countdown' | 'playing' | 'finished';
   state: GameState;

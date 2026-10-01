@@ -462,7 +462,7 @@ describe('tournament matching and start countdown', () => {
     await botEventService.service.settle();
     const match = lone.client.snapshot.match!;
     expect(match).toMatchObject({ status: 'preparing', opponentIsBot: true, opponentReady: true, opponentConnected: true });
-    expect(match.opponentName).toBe(`${profiles[0]!.name} (봇)`);
+    expect(match.opponentName).toBe(profiles[0]!.name);
     expect(botEventService.service.snapshotFor(botId)).toMatchObject({ status: 'preparing', activeHumans: 1 });
     expect(events.find((event) => event.kind === 'match_found' && event.data.matchId === match.id)).toMatchObject({
       playerIds: [lone.id.playerId], data: { blackKind: 'human', whiteKind: 'bot' },
@@ -488,7 +488,7 @@ describe('tournament matching and start countdown', () => {
 
     await send(service, a, { type: 'TOURNAMENT_JOIN' });
     expect(a.client.snapshot.match?.id).not.toBe(firstId);
-    expect(a.client.snapshot.match).toMatchObject({ opponentIsBot: true, opponentName: `${botProfiles([botId])[0]!.name} (봇)` });
+    expect(a.client.snapshot.match).toMatchObject({ opponentIsBot: true, opponentName: botProfiles([botId])[0]!.name });
     await service.cancelWaiting(a.id.playerId);
     expect(service.snapshotFor(botId).status).toBe('idle');
     await service.shutdown();
@@ -523,7 +523,7 @@ describe('tournament matching and start countdown', () => {
     await send(service, a, { type: 'TOURNAMENT_RESIGN', matchId });
     await flush();
     const completed = (await store.load()).matches.find((record) => record.matchId === matchId)!;
-    expect(completed).toMatchObject({ status: 'completed', blackKind: 'human', whiteKind: 'bot', whiteName: `${profiles[0]!.name} (봇)` });
+    expect(completed).toMatchObject({ status: 'completed', blackKind: 'human', whiteKind: 'bot', whiteName: profiles[0]!.name });
     expect(a.client.snapshot.myStanding).toMatchObject({ games: 1, losses: 1 });
     expect(service.snapshotFor(botId).myStanding).toBeNull();
     expect(service.publicStatus()).toMatchObject({ entrantCount: 1, registrationCount: 2 });
@@ -576,7 +576,7 @@ describe('tournament bot recovery and reuse', () => {
       await send(second.service, a, { type: 'TOURNAMENT_NEXT' });
       const secondId = a.client.snapshot.match!.id;
       expect(secondId).not.toBe(firstId);
-      expect(a.client.snapshot.match).toMatchObject({ opponentIsBot: true, opponentName: `${profiles[0]!.name} (봇)` });
+      expect(a.client.snapshot.match).toMatchObject({ opponentIsBot: true, opponentName: profiles[0]!.name });
       await send(second.service, a, { type: 'TOURNAMENT_READY', matchId: secondId });
       await vi.advanceTimersByTimeAsync(5_000);
       await flush();
@@ -607,7 +607,7 @@ describe('tournament bot recovery and reuse', () => {
       await send(recovered.service, a, { type: 'TOURNAMENT_NEXT' });
       const afterRecoveryId = a.client.snapshot.match!.id;
       expect(afterRecoveryId).not.toBe(interruptedId);
-      expect(a.client.snapshot.match).toMatchObject({ opponentIsBot: true, opponentName: `${profiles[0]!.name} (봇)` });
+      expect(a.client.snapshot.match).toMatchObject({ opponentIsBot: true, opponentName: profiles[0]!.name });
       expect(recovered.service.cancelWaiting(a.id.playerId)).toBe(true);
       expect(recovered.service.snapshotFor(botId).status).toBe('idle');
       vi.setSystemTime(GAME_END + 1);

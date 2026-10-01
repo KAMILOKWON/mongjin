@@ -1077,7 +1077,7 @@ export class TournamentService {
     const now = Date.now();
     const side = (entrant: Entrant): Side => ({
       playerId: entrant.playerId,
-      name: entrant.isBot ? `${entrant.name} (봇)` : entrant.name,
+      name: entrant.name,
       platform: entrant.platform,
       isBot: entrant.isBot,
       queuedAt: entrant.queuedAt ?? now,
