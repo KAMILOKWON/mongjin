@@ -34,6 +34,8 @@ export interface TournamentNextEvent {
   endsAt: number;
 }
 export interface TournamentConfigView extends TournamentNextEvent {
+  /** Configured real official bot profiles in this event; absent for legacy/human-only events. */
+  botCount?: number;
   registrationStartsAt: number;
   registrationEndsAt: number;
   minimumParticipants: number;
@@ -52,7 +54,7 @@ export interface TournamentConfigView extends TournamentNextEvent {
   rewardDescription: string;
   /** Retained for old rendering code during migration; no automatic requeue. */
   resultCountdownMs: number;
-  /** Retained compatibility field; waiting never results in a bot opponent. */
+  /** Human wait before this event may offer an idle configured bot opponent. */
   waitMs: number;
   /** 앱 밖 대기 유효 기간(ms). 클라이언트 신호로 연장되지 않는다 */
   backgroundLeaseMs?: number;
@@ -69,6 +71,8 @@ export interface TournamentMatchView {
   id: string;
   side: Player;
   opponentName: string;
+  /** Additive compatibility hint; the display name also carries the legacy '(봇)' suffix. */
+  opponentIsBot?: boolean;
   status: 'preparing' | 'countdown' | 'playing' | 'finished';
   state: GameState;
   /** Server timestamp. Null until both players acknowledge readiness. */

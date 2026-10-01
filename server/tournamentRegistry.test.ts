@@ -141,6 +141,23 @@ describe('operator tournament settings', () => {
     expect(validateTournamentSettings(s as unknown as Record<string, unknown>)).toEqual(s);
     expect([s.startingScore, s.eloK, s.eloScale, s.minimumRankedMatches]).toEqual([0, 32, 400, 3]);
   });
+
+  it('preserves legacy human-only settings and accepts only unique known bot IDs', () => {
+    const legacy = validateTournamentSettings(input());
+    expect(legacy).not.toHaveProperty('rankedBotIds');
+    expect(validateTournamentSettings({ ...input(), rankedBotIds: '' })).toEqual(legacy);
+    const ids = ['ranked-bot-first-place', 'ranked-bot-uzumaki', 'ranked-bot-dawnstar', 'ranked-bot-guide'];
+    expect(validateTournamentSettings({ ...input(), rankedBotIds: ids.join(',') }).rankedBotIds).toBe(ids.join(','));
+    for (const rankedBotIds of [
+      ` ${ids[0]},${ids[0]}`,
+      'ranked-bot-not-real',
+      ',ranked-bot-guide',
+      [...ids, 'ranked-bot-may'].join(','),
+      ['ranked-bot-guide', 1].join(','),
+    ]) {
+      expect(() => validateTournamentSettings({ ...input(), rankedBotIds })).toThrow('INVALID_SETTINGS');
+    }
+  });
 });
 describe('multi-event registry with real stores/services', () => {
   it('serializes overlap checks and preserves published IDs even on reordered retry', async () => {

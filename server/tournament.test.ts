@@ -1,10 +1,15 @@
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
+import { performance } from 'node:perf_hooks';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { TournamentServerMessage, TournamentSnapshot } from '../src/net/tournamentProtocol';
+import { DEFAULT_CONFIG } from '../src/core/config';
+import { initialState, legalMoves } from '../src/core/rules';
+import { chooseOfficialBotMove, createRankedBot } from './officialBot';
 import {
   DEFAULT_INAUGURAL_CHAMPION_TITLE,
+  parseTournamentRankedBotIds,
   TournamentService,
   tournamentSettingsFromEnv,
   type TournamentClient,
@@ -14,11 +19,27 @@ import {
 } from './tournament';
 import { FileTournamentStore, type TournamentStore } from './tournamentStore';
 import { RANKED_BOTS } from './rankedBots';
+import type { StoredProfile } from './profileRepository';
 
 const START = Date.parse('2026-10-10T12:00:00Z');
 const REG_END = START + 60_000;
 const GAME_START = START + 120_000;
 const GAME_END = GAME_START + 3_600_000;
+const TOP_TOURNAMENT_BOT_IDS = [
+  'ranked-bot-first-place', 'ranked-bot-uzumaki', 'ranked-bot-dawnstar', 'ranked-bot-guide',
+];
+
+function botProfiles(ids: readonly string[] = TOP_TOURNAMENT_BOT_IDS): StoredProfile[] {
+  return ids.map((id) => {
+    const definition = RANKED_BOTS.find((bot) => bot.id === id);
+    if (!definition) throw new Error(`unknown fixture bot ${id}`);
+    return {
+      playerId: definition.id, token: `test-token-${id}`, name: definition.name,
+      rating: definition.rating, wins: 0, losses: 0,
+      createdAt: new Date(START).toISOString(), updatedAt: new Date(START).toISOString(),
+    };
+  });
+}
 
 function settings(overrides: Partial<TournamentSettings> = {}): TournamentSettings {
   return {
@@ -52,6 +73,7 @@ function human(n: number, platform = PLATFORMS[n % PLATFORMS.length]!): Player {
 interface MakeOptions {
   store?: TournamentStore;
   settings?: TournamentSettings;
+  getBotProfiles?: () => Iterable<StoredProfile>;
   busy?: (id: string) => boolean;
   onEvent?: (event: TournamentServiceEvent) => Promise<void> | void;
 }
@@ -61,6 +83,7 @@ async function makeService(opts: MakeOptions = {}) {
   const service = new TournamentService({
     settings: opts.settings ?? settings(),
     store,
+    getBotProfiles: opts.getBotProfiles,
     isPlayerBusyElsewhere: opts.busy,
     onEvent: opts.onEvent,
     random: () => 0.1, // 먼저 대기한 사람이 흑
@@ -68,6 +91,27 @@ async function makeService(opts: MakeOptions = {}) {
   });
   await service.init();
   return { service, store };
+}
+
+function botSettings(overrides: Partial<TournamentSettings> = {}, ids: readonly string[] = TOP_TOURNAMENT_BOT_IDS): TournamentSettings {
+  return settings({ rankedBotIds: ids.join(','), ...overrides });
+}
+
+async function startBotGame(service: TournamentService, player: Player, waitMs: number): Promise<string> {
+  await send(service, player, { type: 'TOURNAMENT_JOIN' });
+  if (waitMs) {
+    await vi.advanceTimersByTimeAsync(waitMs);
+    await flush();
+    service.tick();
+  }
+  const matchId = player.client.snapshot.match?.id;
+  if (!matchId) throw new Error('human did not receive an idle tournament bot');
+  await send(service, player, { type: 'TOURNAMENT_READY', matchId });
+  await vi.advanceTimersByTimeAsync(5_000);
+  await flush();
+  await service.settle();
+  expect(player.client.snapshot.match).toMatchObject({ id: matchId, status: 'playing', opponentIsBot: true });
+  return matchId;
 }
 
 const send = (service: TournamentService, player: Player, message: Record<string, unknown>) =>
@@ -228,6 +272,59 @@ describe('tournament lifecycle and registration', () => {
     await send(service, bot, { type: 'TOURNAMENT_REGISTER' });
     expect(bot.client.errors()).toContain('NOT_ELIGIBLE');
   });
+
+  it('counts only validated configured bots at the cutoff and excludes late humans from the decision', async () => {
+    const events: TournamentServiceEvent[] = [];
+    const players = Array.from({ length: 6 }, (_, index) => human(20 + index));
+    const profiles = botProfiles();
+    const { service, store } = await makeService({
+      settings: botSettings({ minimumParticipants: 10 }),
+      getBotProfiles: () => profiles,
+      onEvent: (event) => { events.push(event); },
+    });
+    await registerAll(service, players);
+    expect(service.registrationCount()).toBe(10);
+    expect(service.publicStatus().config).toMatchObject({ botCount: 4 });
+    await advanceTo(REG_END);
+    await service.settle();
+    expect(service.phase()).toBe('confirmed');
+    expect(events.find((event) => event.kind === 'confirmed')).toMatchObject({
+      playerIds: players.map((player) => player.id.playerId).sort(),
+      data: { registrationCount: 10, humanRegistrationCount: 6, botCount: 4 },
+    });
+    expect((await store.load()).registrations.map((registration) => registration.playerId).sort())
+      .toEqual(players.map((player) => player.id.playerId).sort());
+
+    const late = human(29);
+    await send(service, late, { type: 'TOURNAMENT_REGISTER' });
+    await service.settle();
+    expect(late.client.snapshot.registered).toBe(true);
+    expect(late.client.snapshot.registrationCount).toBe(11);
+    expect(events.filter((event) => event.kind === 'confirmed')).toHaveLength(1);
+    expect(events.find((event) => event.kind === 'confirmed')!.data.registrationCount).toBe(10);
+    await service.shutdown();
+  });
+
+  it('cancels below the minimum when five humans and four configured bots total only nine entrants', async () => {
+    const events: TournamentServiceEvent[] = [];
+    const players = Array.from({ length: 5 }, (_, index) => human(40 + index));
+    const { service, store } = await makeService({
+      settings: botSettings({ minimumParticipants: 10 }),
+      getBotProfiles: () => botProfiles(),
+      onEvent: (event) => { events.push(event); },
+    });
+    await registerAll(service, players);
+    expect(service.registrationCount()).toBe(9);
+    await advanceTo(REG_END);
+    await service.settle();
+    expect(service.phase()).toBe('cancelled');
+    expect(events.find((event) => event.kind === 'cancelled')).toMatchObject({
+      playerIds: players.map((player) => player.id.playerId).sort(),
+      data: { registrationCount: 9, humanRegistrationCount: 5, botCount: 4, minimumParticipants: 10 },
+    });
+    expect((await store.load()).registrations.every((registration) => !TOP_TOURNAMENT_BOT_IDS.includes(registration.playerId))).toBe(true);
+    await service.shutdown();
+  });
 });
 
 describe('tournament matching and start countdown', () => {
@@ -331,6 +428,217 @@ describe('tournament matching and start countdown', () => {
     expect(a.client.snapshot.match!.result).toMatchObject({ outcome: 'win', pointsAwarded: 16 });
     await send(service, a, { type: 'TOURNAMENT_NEXT' });
     expect(a.client.snapshot.status).toBe('queued');
+  });
+
+  it('keeps human-human matches ahead of bots, then pairs a lone human after waitMs with a ready connected idle bot', async () => {
+    const botId = TOP_TOURNAMENT_BOT_IDS[0]!;
+    const profiles = botProfiles([botId]);
+    const events: TournamentServiceEvent[] = [];
+    const [a, b] = [human(61), human(62)];
+    const humanPair = await openWith([a, b], {
+      settings: botSettings({}, [botId]), getBotProfiles: () => profiles,
+      onEvent: (event) => { events.push(event); },
+    });
+    await send(humanPair.service, a, { type: 'TOURNAMENT_JOIN' });
+    await send(humanPair.service, b, { type: 'TOURNAMENT_JOIN' });
+    expect(a.client.snapshot.match?.id).toBe(b.client.snapshot.match?.id);
+    expect(a.client.snapshot.match?.opponentIsBot).toBeUndefined();
+    expect(humanPair.service.snapshotFor(botId).status).toBe('idle');
+    await humanPair.service.shutdown();
+
+    vi.setSystemTime(START);
+    const lone = human(63);
+    const botEventService = await openWith([lone], {
+      settings: botSettings({}, [botId]), getBotProfiles: () => profiles,
+      onEvent: (event) => { events.push(event); },
+    });
+    await send(botEventService.service, lone, { type: 'TOURNAMENT_JOIN' });
+    await vi.advanceTimersByTimeAsync(14_999);
+    await flush();
+    expect(lone.client.snapshot).toMatchObject({ status: 'queued', match: null });
+    await vi.advanceTimersByTimeAsync(1);
+    await flush();
+    botEventService.service.tick();
+    await botEventService.service.settle();
+    const match = lone.client.snapshot.match!;
+    expect(match).toMatchObject({ status: 'preparing', opponentIsBot: true, opponentReady: true, opponentConnected: true });
+    expect(match.opponentName).toBe(`${profiles[0]!.name} (봇)`);
+    expect(botEventService.service.snapshotFor(botId)).toMatchObject({ status: 'preparing', activeHumans: 1 });
+    expect(events.find((event) => event.kind === 'match_found' && event.data.matchId === match.id)).toMatchObject({
+      playerIds: [lone.id.playerId], data: { blackKind: 'human', whiteKind: 'bot' },
+    });
+    expect(events.some((event) => event.playerIds.includes(botId))).toBe(false);
+    await botEventService.service.shutdown();
+  });
+
+  it('releases an idle bot when a human cancels a prepared bot match without creating a game record', async () => {
+    const botId = TOP_TOURNAMENT_BOT_IDS[0]!;
+    const a = human(64);
+    const { service, store } = await openWith([a], {
+      settings: botSettings({ waitMs: 0 }, [botId]), getBotProfiles: () => botProfiles([botId]),
+    });
+    await send(service, a, { type: 'TOURNAMENT_JOIN' });
+    const firstId = a.client.snapshot.match!.id;
+    expect(service.snapshotFor(botId).status).toBe('preparing');
+    expect(service.cancelWaiting(a.id.playerId)).toBe(true);
+    await service.settle();
+    expect(a.client.snapshot).toMatchObject({ status: 'idle', match: null, myStanding: { games: 0, points: 0 } });
+    expect(service.snapshotFor(botId)).toMatchObject({ status: 'idle', match: null });
+    expect((await store.load()).matches).toHaveLength(0);
+
+    await send(service, a, { type: 'TOURNAMENT_JOIN' });
+    expect(a.client.snapshot.match?.id).not.toBe(firstId);
+    expect(a.client.snapshot.match).toMatchObject({ opponentIsBot: true, opponentName: `${botProfiles([botId])[0]!.name} (봇)` });
+    await service.cancelWaiting(a.id.playerId);
+    expect(service.snapshotFor(botId).status).toBe('idle');
+    await service.shutdown();
+  });
+
+  it('applies a real official bot move legally after the automatic ready and countdown flow', async () => {
+    const botId = TOP_TOURNAMENT_BOT_IDS[0]!;
+    const profiles = botProfiles([botId]);
+    const profilesBefore = structuredClone(profiles);
+    const events: TournamentServiceEvent[] = [];
+    const a = human(65);
+    const { service, store } = await openWith([a], {
+      settings: botSettings({ minimumRankedMatches: 1 }, [botId]), getBotProfiles: () => profiles,
+      onEvent: (event) => { events.push(event); },
+    });
+    const matchId = await startBotGame(service, a, 15_000);
+    const match = a.client.snapshot.match!;
+    expect(match.side).toBe(match.state.turn);
+    const humanMove = legalMoves(match.state, DEFAULT_CONFIG)[0]!;
+    await send(service, a, { type: 'TOURNAMENT_MOVE', matchId, move: humanMove, ply: 0 });
+    const beforeBotMove = a.client.snapshot.match!.state;
+    expect(beforeBotMove.history).toHaveLength(1);
+    await vi.advanceTimersByTimeAsync(649);
+    expect(a.client.snapshot.match!.state.history).toHaveLength(1);
+    await vi.advanceTimersByTimeAsync(1);
+    await flush();
+    const afterBotMove = a.client.snapshot.match!.state;
+    expect(afterBotMove.history).toHaveLength(2);
+    expect(legalMoves(beforeBotMove, DEFAULT_CONFIG)).toContainEqual(afterBotMove.history.at(-1));
+    expect(afterBotMove.turn).toBe(a.client.snapshot.match!.side);
+
+    await send(service, a, { type: 'TOURNAMENT_RESIGN', matchId });
+    await flush();
+    const completed = (await store.load()).matches.find((record) => record.matchId === matchId)!;
+    expect(completed).toMatchObject({ status: 'completed', blackKind: 'human', whiteKind: 'bot', whiteName: `${profiles[0]!.name} (봇)` });
+    expect(a.client.snapshot.myStanding).toMatchObject({ games: 1, losses: 1 });
+    expect(service.snapshotFor(botId).myStanding).toBeNull();
+    expect(service.publicStatus()).toMatchObject({ entrantCount: 1, registrationCount: 2 });
+    expect(service.publicStatus().config).toMatchObject({ botCount: 1 });
+    expect(events.filter((event) => ['match_found', 'match_started', 'match_complete'].includes(event.kind))
+      .every((event) => event.playerIds.includes(a.id.playerId) && !event.playerIds.includes(botId))).toBe(true);
+    expect(profiles).toEqual(profilesBefore);
+    expect(service.snapshotFor(botId).status).toBe('idle');
+    vi.setSystemTime(GAME_END + 1);
+    service.tick();
+    await service.settle();
+    expect(service.phase()).toBe('finished');
+    expect(events.find((event) => event.kind === 'finished')?.playerIds).toEqual([a.id.playerId]);
+    expect(events.filter((event) => event.kind === 'champion').map((event) => event.playerIds[0])).toEqual([a.id.playerId]);
+    expect(service.snapshotFor(botId).standings).toHaveLength(1);
+    expect(service.snapshotFor(botId).myStanding).toBeNull();
+    await service.shutdown();
+  });
+});
+
+describe('tournament bot recovery and reuse', () => {
+  beforeEach(() => { vi.useFakeTimers({ now: START }); });
+  afterEach(() => { vi.useRealTimers(); });
+
+  it('reuses the same bot after a completed match and restart, and abandons/reuses an interrupted match after another restart', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'mongjin-tournament-bot-reuse-'));
+    const botId = TOP_TOURNAMENT_BOT_IDS[0]!;
+    const profiles = botProfiles([botId]);
+    const profilesBefore = structuredClone(profiles);
+    const eventRecipients: TournamentServiceEvent[] = [];
+    const a = human(71);
+    const s = botSettings({ waitMs: 0, minimumRankedMatches: 1 }, [botId]);
+    const options: Pick<MakeOptions, 'settings' | 'getBotProfiles' | 'onEvent'> = {
+      settings: s, getBotProfiles: () => profiles, onEvent: (event) => { eventRecipients.push(event); },
+    };
+    const file = join(dir, 'cup.json');
+    try {
+      const first = await openWith([a], { ...options, store: new FileTournamentStore('cup-2', file) });
+      const firstId = await startBotGame(first.service, a, 0);
+      await send(first.service, a, { type: 'TOURNAMENT_RESIGN', matchId: firstId });
+      await flush();
+      expect((await first.store.load()).matches).toMatchObject([expect.objectContaining({ matchId: firstId, status: 'completed', whiteId: botId })]);
+      expect(first.service.snapshotFor(botId).status).toBe('idle');
+      await first.service.shutdown();
+
+      vi.setSystemTime(GAME_START + 2_000);
+      const second = await makeService({ ...options, store: new FileTournamentStore('cup-2', file) });
+      expect(second.service.snapshotFor(a.id.playerId).myStanding).toMatchObject({ games: 1, losses: 1 });
+      expect(second.service.snapshotFor(botId).status).toBe('idle');
+      await send(second.service, a, { type: 'TOURNAMENT_NEXT' });
+      const secondId = a.client.snapshot.match!.id;
+      expect(secondId).not.toBe(firstId);
+      expect(a.client.snapshot.match).toMatchObject({ opponentIsBot: true, opponentName: `${profiles[0]!.name} (봇)` });
+      await send(second.service, a, { type: 'TOURNAMENT_READY', matchId: secondId });
+      await vi.advanceTimersByTimeAsync(5_000);
+      await flush();
+      await send(second.service, a, { type: 'TOURNAMENT_RESIGN', matchId: secondId });
+      await flush();
+      const completedRecords = (await second.store.load()).matches.filter((record) => record.status === 'completed');
+      expect(completedRecords).toHaveLength(2);
+      expect(completedRecords.map((record) => record.whiteId)).toEqual([botId, botId]);
+      expect(completedRecords.reduce((sum, record) => sum + (record.whiteDelta ?? 0), 0)).toBeGreaterThan(0);
+      expect(second.service.snapshotFor(a.id.playerId).myStanding).toMatchObject({ games: 2, losses: 2 });
+      await second.service.shutdown();
+
+      vi.setSystemTime(GAME_START + 10_000);
+      const third = await makeService({ ...options, store: new FileTournamentStore('cup-2', file) });
+      await send(third.service, a, { type: 'TOURNAMENT_NEXT' });
+      const interruptedId = a.client.snapshot.match!.id;
+      await send(third.service, a, { type: 'TOURNAMENT_READY', matchId: interruptedId });
+      await vi.advanceTimersByTimeAsync(5_000);
+      await flush();
+      await third.service.shutdown();
+
+      vi.setSystemTime(GAME_START + 20_000);
+      const recovered = await makeService({ ...options, store: new FileTournamentStore('cup-2', file) });
+      const interrupted = (await recovered.store.load()).matches.find((record) => record.matchId === interruptedId)!;
+      expect(interrupted).toMatchObject({ status: 'abandoned', reason: 'abandoned', blackKind: 'human', whiteKind: 'bot', whiteId: botId });
+      expect(recovered.service.snapshotFor(a.id.playerId).myStanding).toMatchObject({ games: 2, losses: 2 });
+      expect(recovered.service.snapshotFor(botId).status).toBe('idle');
+      await send(recovered.service, a, { type: 'TOURNAMENT_NEXT' });
+      const afterRecoveryId = a.client.snapshot.match!.id;
+      expect(afterRecoveryId).not.toBe(interruptedId);
+      expect(a.client.snapshot.match).toMatchObject({ opponentIsBot: true, opponentName: `${profiles[0]!.name} (봇)` });
+      expect(recovered.service.cancelWaiting(a.id.playerId)).toBe(true);
+      expect(recovered.service.snapshotFor(botId).status).toBe('idle');
+      vi.setSystemTime(GAME_END + 1);
+      recovered.service.tick();
+      await recovered.service.settle();
+      const finalData = await recovered.store.load();
+      const finalRecord = finalData.lifecycle.finalized!;
+      expect(finalRecord.standings).toEqual([expect.objectContaining({ playerId: a.id.playerId, rank: 1 })]);
+      expect(finalRecord.standings[0]!.points).toBeLessThan(0);
+      expect(finalRecord.champions).toEqual([expect.objectContaining({
+        playerId: a.id.playerId, points: finalRecord.standings[0]!.points, title: s.championTitle,
+      })]);
+      expect(recovered.service.snapshotFor(a.id.playerId).myStanding).toMatchObject({ championTitle: s.championTitle });
+      expect(recovered.service.snapshotFor(botId).standings).toHaveLength(1);
+      expect(recovered.service.snapshotFor(botId).myStanding).toBeNull();
+      const finalEvents = eventRecipients.filter((event) => event.kind === 'finished' || event.kind === 'champion');
+      expect(finalEvents).toHaveLength(2);
+      expect(finalEvents.every((event) => !event.playerIds.includes(botId))).toBe(true);
+      expect(finalEvents.find((event) => event.kind === 'finished')).toMatchObject({
+        playerIds: [a.id.playerId], data: { championPlayerIds: [a.id.playerId], standingsTotal: 1 },
+      });
+      expect(finalEvents.find((event) => event.kind === 'champion')).toMatchObject({
+        playerIds: [a.id.playerId], data: { championTitle: s.championTitle },
+      });
+      expect(finalData.registrations.map((registration) => registration.playerId)).toEqual([a.id.playerId]);
+      expect(eventRecipients.some((event) => event.playerIds.includes(botId))).toBe(false);
+      expect(profiles).toEqual(profilesBefore);
+      await recovered.service.shutdown();
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
   });
 });
 
@@ -489,7 +797,7 @@ describe('tournament persistence and event journal', () => {
 });
 
 describe('tournament settings from env', () => {
-  it('is disabled without configuration and defaults to zero-start K32/400 Elo with min 3 ranked games', () => {
+  it('is disabled without configuration and defaults to zero-start K32/400 Elo with min 3 ranked games', async () => {
     expect(tournamentSettingsFromEnv({})).toBeNull();
     expect(tournamentSettingsFromEnv({ MONGJIN_TOURNAMENT_ID: 'x' }, { warn: () => undefined })).toBeNull();
     const env = {
@@ -506,11 +814,44 @@ describe('tournament settings from env', () => {
       .toMatchObject({ startingScore: -50, minimumRankedMatches: 5, championTitle: DEFAULT_INAUGURAL_CHAMPION_TITLE });
     expect(tournamentSettingsFromEnv({ ...env, MONGJIN_TOURNAMENT_REGISTRATION_ENDS_AT: '2026-10-10T21:30:00+09:00' }, { warn: () => undefined })).toBeNull();
     expect(tournamentSettingsFromEnv({ ...env, MONGJIN_TOURNAMENT_REGISTRATION_ENDS_AT: 'nope' }, { warn: () => undefined })).toBeNull();
+    expect(parsed.rankedBotIds).toBeUndefined();
+    expect(parseTournamentRankedBotIds(undefined)).toEqual([]);
+    expect(parseTournamentRankedBotIds(` ${TOP_TOURNAMENT_BOT_IDS.join(' , ')} `)).toEqual(TOP_TOURNAMENT_BOT_IDS);
+    for (const ids of [
+      `${TOP_TOURNAMENT_BOT_IDS[0]},${TOP_TOURNAMENT_BOT_IDS[0]}`,
+      'ranked-bot-unknown',
+      ',ranked-bot-guide',
+      [...TOP_TOURNAMENT_BOT_IDS, 'ranked-bot-may'].join(','),
+    ]) {
+      expect(parseTournamentRankedBotIds(ids)).toBeNull();
+      expect(tournamentSettingsFromEnv({ ...env, MONGJIN_TOURNAMENT_RANKED_BOT_IDS: ids }, { warn: () => undefined })).toBeNull();
+    }
+    await expect(makeService({ settings: botSettings({}, [TOP_TOURNAMENT_BOT_IDS[0]!]), getBotProfiles: () => [] }))
+      .rejects.toThrow('RANKED_BOT_PROFILE_UNAVAILABLE');
   });
 
   it('reports disabled status when not configured', async () => {
     const service = new TournamentService({ settings: null, store: null });
     await service.init();
     expect(service.publicStatus()).toMatchObject({ phase: 'disabled', config: null, entrantCount: 0, registrationCount: 0 });
+  });
+});
+
+describe('real official tournament bot search samples', () => {
+  it('measures one bounded legal opening search for each configured top-four profile', { timeout: 20_000 }, () => {
+    const state = initialState(DEFAULT_CONFIG);
+    const legal = legalMoves(state, DEFAULT_CONFIG);
+    const samples = botProfiles().map((profile) => {
+      const bot = createRankedBot(profile, () => 0.2);
+      const started = performance.now();
+      const move = chooseOfficialBotMove(bot, state, DEFAULT_CONFIG);
+      const elapsedMs = Number((performance.now() - started).toFixed(1));
+      expect(move).not.toBeNull();
+      expect(legal).toContainEqual(move);
+      expect(elapsedMs).toBeLessThan(bot.search.maxMs + 2_000);
+      return { playerId: profile.playerId, elapsedMs, maxMs: bot.search.maxMs, move };
+    });
+    expect(samples.map((sample) => sample.playerId)).toEqual(TOP_TOURNAMENT_BOT_IDS);
+    console.info(`[tournament-bot-search-sample] ${JSON.stringify(samples)}`);
   });
 });

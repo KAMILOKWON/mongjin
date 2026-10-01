@@ -22,7 +22,8 @@ import {
   type TournamentStandingView,
 } from '../src/net/tournamentProtocol';
 import type { MatchPlatform, StoredProfile } from './profileRepository';
-import { isRankedBotId } from './rankedBots';
+import { isRankedBotId, selectRankedBot } from './rankedBots';
+import { chooseOfficialBotMove, createRankedBot, officialBotMoveDelayMs, type OfficialBot } from './officialBot';
 import {
   DEFAULT_BACKGROUND_LEASE_MS,
   DEFAULT_BACKGROUND_READY_TIMEOUT_MS,
@@ -96,9 +97,11 @@ export interface TournamentSettings {
   rewardDescription: string;
   /** 운영자가 설정한 다음 대회. 없으면 null (날짜를 만들어내지 않는다) */
   nextTournament: TournamentNextEvent | null;
+  /** 운영자가 고른 고정 공식 봇 ID 목록. 비어 있으면 기존 인간 전용 대회다. */
+  rankedBotIds?: string;
   /** 이전 클라이언트 표시용. 자동 다음 대기에는 쓰지 않는다 */
   resultCountdownMs: number;
-  /** 이전 클라이언트 표시용. 대기해도 봇 상대는 없다 */
+  /** 봇 대회에서 혼자 기다린 사람에게 봇을 붙이기까지의 대기 시간 */
   waitMs: number;
   standingsLimit: number;
   eventRetryMs: number;
@@ -119,7 +122,7 @@ export interface TournamentClient {
 export interface TournamentServiceOptions {
   settings: TournamentSettings | null;
   store: TournamentStore | null;
-  /** @deprecated 공식 봇은 더 이상 배정하지 않는다. 넘겨도 무시한다 */
+  /** 읽기 전용 실제 프로필. 봇 참가에는 프로필이 모두 있어야 한다. */
   getBotProfiles?: () => Iterable<StoredProfile>;
   /** 같은 플레이어가 일반 대국/대기열에 있는지 (다른 소켓 포함) */
   isPlayerBusyElsewhere?: (playerId: string) => boolean;
@@ -162,6 +165,14 @@ function flag(value: string | undefined): boolean {
 
 const ID_PATTERN = /^[A-Za-z0-9_-]{1,64}$/;
 
+/** Optional CSV input: trim IDs, preserve the chosen order, and reject every ambiguous entry. */
+export function parseTournamentRankedBotIds(value: string | undefined): string[] | null {
+  if (value === undefined || value.trim() === '') return [];
+  const ids = value.split(',').map((id) => id.trim());
+  if (ids.length > 4 || ids.some((id) => !id || !isRankedBotId(id)) || new Set(ids).size !== ids.length) return null;
+  return ids;
+}
+
 function nextTournamentFromEnv(env: Record<string, string | undefined>): TournamentNextEvent | null {
   const id = env.MONGJIN_TOURNAMENT_NEXT_ID?.trim();
   const startsAt = parseTime(env.MONGJIN_TOURNAMENT_NEXT_STARTS_AT);
@@ -198,6 +209,8 @@ export function tournamentSettingsFromEnv(
   ) return invalid();
   const title = env.MONGJIN_TOURNAMENT_TITLE?.trim() || DEFAULT_TOURNAMENT_TITLE;
   const isInaugural = flag(env.MONGJIN_TOURNAMENT_INAUGURAL);
+  const rankedBotIds = parseTournamentRankedBotIds(env.MONGJIN_TOURNAMENT_RANKED_BOT_IDS);
+  if (!rankedBotIds) return invalid();
   return {
     id,
     title,
@@ -227,6 +240,7 @@ export function tournamentSettingsFromEnv(
       || (isInaugural ? DEFAULT_INAUGURAL_CHAMPION_TITLE : title + ' 우승자'),
     rewardDescription: env.MONGJIN_TOURNAMENT_REWARD_DESCRIPTION?.trim() ?? '',
     nextTournament: nextTournamentFromEnv(env),
+    ...(rankedBotIds.length ? { rankedBotIds: rankedBotIds.join(',') } : {}),
     resultCountdownMs: parseNumber(env.MONGJIN_TOURNAMENT_RESULT_COUNTDOWN_MS, 5_000, 0, 60_000),
     waitMs: parseNumber(env.MONGJIN_TOURNAMENT_WAIT_MS, 15_000, 0, 600_000),
     standingsLimit: 100,
@@ -240,6 +254,7 @@ interface Entrant {
   playerId: string;
   name: string;
   key: string;
+  isBot: boolean;
   registration: TournamentRegistrationRecord | null;
   platform: string;
   points: number;
@@ -267,6 +282,7 @@ interface Side {
   playerId: string;
   name: string;
   platform: string;
+  isBot: boolean;
   /** 매칭 전 대기 시작 시각. 시작 전 취소 시 순서를 되돌린다 */
   queuedAt: number;
   /** 이 경기가 본인의 몇 번째 점수 반영 경기인지 */
@@ -281,6 +297,7 @@ interface LiveMatch {
   status: 'preparing' | 'countdown' | 'playing' | 'finished';
   ready: Set<Player>;
   readyTimer: ReturnType<typeof setTimeout> | null;
+  botTimer: ReturnType<typeof setTimeout> | null;
   readyDeadline: number | null;
   preparedAt: number;
   startsAt: number | null;
@@ -293,6 +310,7 @@ interface LiveMatch {
   startPersist: Promise<void>;
   ratingsBefore: Record<Player, number> | null;
   deltas: Record<Player, number> | null;
+  botEngine: OfficialBot | null;
   winner: Player | null;
   reason: TournamentEndReason | null;
   finishedAt: number | null;
@@ -379,6 +397,8 @@ export class TournamentService {
   private readonly logger: Pick<Console, 'error' | 'warn' | 'log'>;
   private readonly entrants = new Map<string, Entrant>();
   private readonly matches = new Map<string, LiveMatch>();
+  private readonly botProfiles = new Map<string, StoredProfile>();
+  private readonly reservedBotIds = new Set<string>();
   private readonly clientsByPlayer = new Map<string, TournamentClient>();
   private readonly playerByClient = new Map<TournamentClient, string>();
   private readonly identities = new Map<string, TournamentIdentity>();
@@ -416,18 +436,19 @@ export class TournamentService {
     const settings = this.settings;
     const store = this.store;
     if (settings && store) {
+      this.loadConfiguredBotProfiles();
       const data = await store.load();
       this.lockScoring(data.settings);
       await store.saveSettings({ ...settings });
       this.lifecycle = data.lifecycle ?? {};
       for (const registration of data.registrations) {
+        if (isRankedBotId(registration.playerId)) continue;
         const entrant = this.ensureEntrant(registration.playerId, registration.name);
         entrant.registration = { ...registration };
       }
       const matches = [...data.matches].sort((a, b) => a.startedAt.localeCompare(b.startedAt));
       for (const record of matches) {
-        // 이전 버전 대회(봇 포함, 누적 점수) 기록은 새 Elo로 재해석하지 않는다.
-        if (record.scoring !== TOURNAMENT_SCORING_VERSION || record.blackKind !== 'human' || record.whiteKind !== 'human') continue;
+        if (record.scoring !== TOURNAMENT_SCORING_VERSION || !this.isRecoverableRecord(record)) continue;
         if (record.status === 'playing') {
           const closed: TournamentMatchRecord = { ...record, status: 'abandoned', winner: undefined, reason: 'abandoned', endedAt: iso(Date.now()) };
           try {
@@ -456,6 +477,46 @@ export class TournamentService {
       this.tickTimer.unref?.();
     }
     this.ready = true;
+  }
+
+  private loadConfiguredBotProfiles(): void {
+    const ids = parseTournamentRankedBotIds(this.settings?.rankedBotIds);
+    if (!ids) throw new Error('INVALID_SETTINGS');
+    if (!ids.length) return;
+    const source = this.options.getBotProfiles?.();
+    if (!source) throw new Error('RANKED_BOT_PROFILES_UNAVAILABLE');
+    const profiles = [...source];
+    for (const id of ids) {
+      const matches = profiles.filter((profile) => profile.playerId === id);
+      const profile = matches[0];
+      if (matches.length !== 1 || !profile || !isRankedBotId(profile.playerId) ||
+        typeof profile.name !== 'string' || !profile.name.trim() || typeof profile.token !== 'string' ||
+        !profile.token || profile.unlinkedAt || !Number.isFinite(profile.rating)) {
+        throw new Error('RANKED_BOT_PROFILE_UNAVAILABLE');
+      }
+      this.botProfiles.set(id, structuredClone(profile));
+      const entrant = this.ensureEntrant(id, profile.name);
+      entrant.isBot = true;
+      entrant.registration = null;
+      entrant.points = 0;
+      entrant.platform = 'unknown';
+    }
+  }
+
+  /** Keep human-only history intact; restore bot Elo only for a configured, profile-backed human-bot record. */
+  private isRecoverableRecord(record: TournamentMatchRecord): boolean {
+    const blackBot = record.blackKind === 'bot';
+    const whiteBot = record.whiteKind === 'bot';
+    if (blackBot && whiteBot) return false;
+    if (blackBot) {
+      return this.botProfiles.has(record.blackId) && record.whiteKind === 'human' && !isRankedBotId(record.whiteId);
+    }
+    if (whiteBot) {
+      return this.botProfiles.has(record.whiteId) && record.blackKind === 'human' && !isRankedBotId(record.blackId);
+    }
+    if (record.blackKind !== 'human' || record.whiteKind !== 'human' ||
+      isRankedBotId(record.blackId) || isRankedBotId(record.whiteId)) return false;
+    return true;
   }
 
   async shutdown(): Promise<void> {
@@ -511,6 +572,7 @@ export class TournamentService {
   activeHumans(): number {
     let count = 0;
     for (const entrant of this.entrants.values()) {
+      if (entrant.isBot) continue;
       if (entrant.status === 'queued' || PRE_START.has(entrant.status)) count += 1;
       else if (entrant.status === 'playing' && entrant.matchId && this.matches.get(entrant.matchId)?.status === 'playing') count += 1;
       else if (entrant.status === 'result' && this.clientsByPlayer.has(entrant.playerId)) count += 1;
@@ -519,14 +581,14 @@ export class TournamentService {
   }
 
   registrationCount(): number {
-    let count = 0;
-    for (const entrant of this.entrants.values()) if (this.isRegistered(entrant)) count += 1;
-    return count;
+    let humans = 0;
+    for (const entrant of this.entrants.values()) if (!entrant.isBot && this.isRegistered(entrant)) humans += 1;
+    return humans + this.botProfiles.size;
   }
 
   publicStatus(): TournamentPublicStatus {
     let entrantCount = 0;
-    for (const entrant of this.entrants.values()) if (entrant.registration?.firstEnteredAt) entrantCount += 1;
+    for (const entrant of this.entrants.values()) if (!entrant.isBot && entrant.registration?.firstEnteredAt) entrantCount += 1;
     return {
       protocolVersion: TOURNAMENT_PROTOCOL_VERSION,
       config: this.configView(),
@@ -588,6 +650,7 @@ export class TournamentService {
     if (!identity) return this.error(client, 'NOT_AUTHENTICATED');
     if (this.closed) return this.error(client, 'SERVER_ERROR');
     if (this.supersededClients.has(client)) return this.error(client, 'SUPERSEDED');
+    if (!this.isEligible(identity)) return this.error(client, 'NOT_ELIGIBLE');
     this.expireLeases(Date.now());
     this.bind(client, identity);
     const playerId = identity.playerId;
@@ -699,7 +762,7 @@ export class TournamentService {
   }
 
   private canQueue(entrant: Entrant): boolean {
-    return (entrant.presence === 'foreground' && this.clientsByPlayer.has(entrant.playerId)) || this.hasLease(entrant);
+    return !entrant.isBot && ((entrant.presence === 'foreground' && this.clientsByPlayer.has(entrant.playerId)) || this.hasLease(entrant));
   }
 
   private backgroundView(entrant: Entrant): TournamentBackgroundView | null {
@@ -966,7 +1029,7 @@ export class TournamentService {
     void this.advanceLifecycle();
   }
 
-  /** 사람끼리만, 대기 순서대로. 직전 상대는 다른 대기자가 있을 때만 피한다 */
+  /** 사람끼리 우선 매칭하고, 혼자 waitMs 이상 기다린 사람에게만 유휴 공식 봇을 붙인다. */
   private tryPair(): boolean {
     if (!this.settings || this.phase() !== 'active') return false;
     this.expireLeases(Date.now());
@@ -983,18 +1046,40 @@ export class TournamentService {
       changed = true;
       waiting = queued();
     }
+    const loneHuman = waiting[0];
+    if (loneHuman && Date.now() - (loneHuman.queuedAt ?? Date.now()) >= this.settings.waitMs) {
+      const profile = this.selectAvailableBot(loneHuman);
+      const botEntrant = profile ? this.entrants.get(profile.playerId) : undefined;
+      if (profile && botEntrant?.status === 'idle' && !botEntrant.matchId) {
+        this.createMatch(loneHuman, botEntrant, createRankedBot(profile, this.random));
+        changed = true;
+      }
+    }
     return changed;
   }
 
-  private createMatch(first: Entrant, second: Entrant): void {
+  private selectAvailableBot(human: Entrant): StoredProfile | null {
+    let available = [...this.botProfiles.values()].filter((profile) =>
+      !this.reservedBotIds.has(profile.playerId),
+    );
+    if (!available.length) return null;
+    if (human.lastOpponentId) {
+      const alternatives = available.filter((profile) => profile.playerId !== human.lastOpponentId);
+      if (alternatives.length) available = alternatives;
+    }
+    return selectRankedBot(available, 1200, { random: this.random });
+  }
+
+  private createMatch(first: Entrant, second: Entrant, botEngine: OfficialBot | null = null): void {
     const firstIsBlack = this.random() < 0.5;
     const blackEntrant = firstIsBlack ? first : second;
     const whiteEntrant = firstIsBlack ? second : first;
     const now = Date.now();
     const side = (entrant: Entrant): Side => ({
       playerId: entrant.playerId,
-      name: entrant.name,
+      name: entrant.isBot ? `${entrant.name} (봇)` : entrant.name,
       platform: entrant.platform,
+      isBot: entrant.isBot,
       queuedAt: entrant.queuedAt ?? now,
       matchNumber: null,
     });
@@ -1006,6 +1091,7 @@ export class TournamentService {
       status: 'preparing',
       ready: new Set(),
       readyTimer: null,
+      botTimer: null,
       readyDeadline: null,
       preparedAt: now,
       startsAt: null,
@@ -1018,6 +1104,7 @@ export class TournamentService {
       startPersist: Promise.resolve(),
       ratingsBefore: null,
       deltas: null,
+      botEngine,
       winner: null,
       reason: null,
       finishedAt: null,
@@ -1028,26 +1115,34 @@ export class TournamentService {
       entrant.queuedAt = null;
       entrant.matchId = match.id;
     }
+    if (botEngine) {
+      const botEntrant = first.isBot ? first : second;
+      const botSide = botEntrant.playerId === match.black.playerId ? 'BLACK' : 'WHITE';
+      botEngine.side = botSide;
+      match.ready.add(botSide);
+      this.reservedBotIds.add(botEntrant.playerId);
+    }
     first.lastOpponentId = second.playerId;
     second.lastOpponentId = first.playerId;
-    const background = [first, second].some(e => e.presence === 'background');
+    const background = [first, second].some(e => !e.isBot && e.presence === 'background');
     this.armReadyTimer(match, now + (background ? this.backgroundReadyTimeout() : this.settings!.readyTimeoutMs));
     for (const entrant of [first, second]) {
-      this.notifyBackground(entrant, { state: 'matched', queuedAt: entrant.lease?.queuedAt ??
+      if (!entrant.isBot) this.notifyBackground(entrant, { state: 'matched', queuedAt: entrant.lease?.queuedAt ??
         (entrant.playerId === match.black.playerId ? match.black.queuedAt : match.white.queuedAt), expiresAt: match.readyDeadline, matchId: match.id });
     }
-    this.emit([this.event('match_found', [match.black.playerId, match.white.playerId], {
+    const waitedMs = Object.fromEntries([match.black, match.white].filter((participant) => !participant.isBot)
+      .map((participant) => [participant.playerId, now - participant.queuedAt]));
+    this.emit([this.event('match_found', this.humanPlayerIds(match), {
       matchId: match.id,
       blackId: match.black.playerId,
       whiteId: match.white.playerId,
-      waitedMs: {
-        [match.black.playerId]: now - match.black.queuedAt,
-        [match.white.playerId]: now - match.white.queuedAt,
-      },
+      blackKind: match.black.isBot ? 'bot' : 'human',
+      whiteKind: match.white.isBot ? 'bot' : 'human',
+      waitedMs,
       blackPlatform: match.black.platform,
       whitePlatform: match.white.platform,
-      blackWaitMs: now - match.black.queuedAt,
-      whiteWaitMs: now - match.white.queuedAt,
+      blackWaitMs: match.black.isBot ? null : now - match.black.queuedAt,
+      whiteWaitMs: match.white.isBot ? null : now - match.white.queuedAt,
     }, 'match_found:' + match.id)]);
   }
 
@@ -1069,6 +1164,7 @@ export class TournamentService {
     const absent = new Set<string>();
     for (const side of ['BLACK', 'WHITE'] as const) {
       const entrant = this.entrants.get(this.participant(match, side).playerId)!;
+      if (entrant.isBot) continue;
       if (match.ready.has(side) && entrant.presence === 'foreground' && this.clientsByPlayer.has(entrant.playerId)) continue;
       absent.add(entrant.playerId);
       this.markLeft(entrant, 'not_ready');
@@ -1116,7 +1212,10 @@ export class TournamentService {
     if (this.phase(now) !== 'active' || now >= settings.endsAt) {
       return this.cancelBeforeStart(match, new Set([match.black.playerId, match.white.playerId]));
     }
-    const absent = new Set([match.black, match.white].filter((side) => !this.clientsByPlayer.has(side.playerId) || this.entrants.get(side.playerId)?.presence !== 'foreground').map((side) => side.playerId));
+    const absent = new Set([match.black, match.white].filter((side) => {
+      const entrant = this.entrants.get(side.playerId);
+      return !entrant || (!entrant.isBot && (!this.clientsByPlayer.has(side.playerId) || entrant.presence !== 'foreground'));
+    }).map((side) => side.playerId));
     if (absent.size) return this.cancelBeforeStart(match, absent);
     const black = this.entrants.get(match.black.playerId)!;
     const white = this.entrants.get(match.white.playerId)!;
@@ -1130,10 +1229,12 @@ export class TournamentService {
     this.endLease(black);
     this.endLease(white);
     this.resetTurnTimer(match);
-    const events = [this.event('match_started', [black.playerId, white.playerId], {
+    const events = [this.event('match_started', this.humanPlayerIds(match), {
       matchId: match.id,
       blackId: black.playerId,
       whiteId: white.playerId,
+      blackKind: match.black.isBot ? 'bot' : 'human',
+      whiteKind: match.white.isBot ? 'bot' : 'human',
       blackPlatform: match.black.platform,
       whitePlatform: match.white.platform,
     }, 'match_started:' + match.id)];
@@ -1141,6 +1242,7 @@ export class TournamentService {
       .then(() => this.dispatcher?.enqueue(events))
       .catch((error) => this.logger.error('[tournament] 경기 시작 기록 실패:', error)));
     this.sendMatchSnapshots(match);
+    this.scheduleBotMove(match);
   }
 
   /**
@@ -1155,6 +1257,7 @@ export class TournamentService {
     match.startTimer = null;
     match.readyDeadline = null;
     match.status = 'finished';
+    if (match.botEngine?.playerId) this.reservedBotIds.delete(match.botEngine.playerId);
     this.matches.delete(match.id);
     const active = this.phase() === 'active';
     for (const side of [match.black, match.white]) {
@@ -1163,7 +1266,7 @@ export class TournamentService {
       entrant.matchId = null;
       // A preparation deadline ends every background lease. Only an actually ready,
       // connected foreground participant is returned by expirePreparation.
-      if (active && !absent.has(side.playerId) && this.canQueue(entrant)) {
+      if (!entrant.isBot && active && !absent.has(side.playerId) && this.canQueue(entrant)) {
         entrant.status = 'queued';
         entrant.queuedAt = side.queuedAt;
         entrant.lastOpponentId = null;
@@ -1237,6 +1340,7 @@ export class TournamentService {
     }
     this.resetTurnTimer(match);
     this.sendMatchSnapshots(match);
+    this.scheduleBotMove(match);
   }
 
   private resetTurnTimer(match: LiveMatch): void {
@@ -1246,8 +1350,45 @@ export class TournamentService {
     const ply = match.state.history.length;
     match.turnTimer = setTimeout(() => {
       if (match.status !== 'playing' || match.finishing || match.state.history.length !== ply) return;
-      void this.finishMatch(match, opponent(match.state.turn), 'timeout');
+      const current = this.entrants.get(this.participant(match, match.state.turn).playerId);
+      if (current?.isBot) void this.finishMatch(match, null, 'abandoned');
+      else void this.finishMatch(match, opponent(match.state.turn), 'timeout');
     }, moveTimeMs);
+  }
+
+  private scheduleBotMove(match: LiveMatch): void {
+    const bot = match.botEngine;
+    if (!bot || match.status !== 'playing' || match.finishing || match.state.turn !== bot.side) return;
+    if (match.botTimer) clearTimeout(match.botTimer);
+    const ply = match.state.history.length;
+    const turn = match.state.turn;
+    match.botTimer = setTimeout(() => {
+      match.botTimer = null;
+      if (this.matches.get(match.id) !== match || match.status !== 'playing' || match.finishing ||
+        match.state.history.length !== ply || match.state.turn !== turn || turn !== bot.side) return;
+      if (match.turnDeadline !== null && Date.now() >= match.turnDeadline) {
+        void this.finishMatch(match, null, 'abandoned');
+        return;
+      }
+      try {
+        const move = chooseOfficialBotMove(bot, match.state, this.ruleConfig);
+        if (!move || this.matches.get(match.id) !== match || match.status !== 'playing' || match.finishing ||
+          match.state.history.length !== ply || match.state.turn !== turn) {
+          if (!move) void this.finishMatch(match, null, 'abandoned');
+          return;
+        }
+        const legal = legalMoves(match.state, this.ruleConfig).find((candidate) => sameMove(candidate, move));
+        if (!legal) {
+          void this.finishMatch(match, null, 'abandoned');
+          return;
+        }
+        this.applyMatchMove(match, legal);
+      } catch (error) {
+        this.logger.error('[tournament] 공식 봇 착수 실패:', error);
+        void this.finishMatch(match, null, 'abandoned');
+      }
+    }, officialBotMoveDelayMs(bot));
+    match.botTimer.unref?.();
   }
 
   private startGrace(match: LiveMatch, side: Player): void {
@@ -1262,11 +1403,12 @@ export class TournamentService {
   }
 
   private clearMatchTimers(match: LiveMatch): void {
-    for (const timer of [match.turnTimer, match.readyTimer, match.startTimer]) if (timer) clearTimeout(timer);
+    for (const timer of [match.turnTimer, match.readyTimer, match.startTimer, match.botTimer]) if (timer) clearTimeout(timer);
     for (const timer of match.graceTimers.values()) clearTimeout(timer);
     match.turnTimer = null;
     match.readyTimer = null;
     match.startTimer = null;
+    match.botTimer = null;
     match.graceTimers.clear();
   }
 
@@ -1293,10 +1435,12 @@ export class TournamentService {
     }
     const status = winner && deltas ? 'completed' : 'abandoned';
     const record = this.record(match, status, winner, reason, endedAt, deltas);
-    const events = [this.event('match_complete', [match.black.playerId, match.white.playerId], {
+    const events = [this.event('match_complete', this.humanPlayerIds(match), {
       matchId: match.id,
       blackId: match.black.playerId,
       whiteId: match.white.playerId,
+      blackKind: match.black.isBot ? 'bot' : 'human',
+      whiteKind: match.white.isBot ? 'bot' : 'human',
       status,
       reason,
       winnerId: winner ? this.participant(match, winner).playerId : null,
@@ -1332,8 +1476,14 @@ export class TournamentService {
     }
     for (const participant of [match.black, match.white]) {
       const entrant = this.entrants.get(participant.playerId);
-      if (entrant?.matchId === match.id) entrant.status = 'result';
+      if (entrant?.matchId === match.id) {
+        if (entrant.isBot) {
+          entrant.status = 'idle';
+          entrant.matchId = null;
+        } else entrant.status = 'result';
+      }
     }
+    if (match.botEngine?.playerId) this.reservedBotIds.delete(match.botEngine.playerId);
     this.pruneMatch(match);
     const phase = this.phase();
     if (phase !== this.lastPhase) this.onPhaseChange(phase);
@@ -1355,7 +1505,7 @@ export class TournamentService {
     lost.losses += 1;
     black.games += 1;
     white.games += 1;
-    this.headToHead.push({ winnerId: won.playerId, loserId: lost.playerId });
+    if (!black.isBot && !white.isBot) this.headToHead.push({ winnerId: won.playerId, loserId: lost.playerId });
     this.standingsCache = null;
   }
 
@@ -1372,8 +1522,8 @@ export class TournamentService {
       matchId: match.id,
       blackId: match.black.playerId,
       whiteId: match.white.playerId,
-      blackKind: 'human',
-      whiteKind: 'human',
+      blackKind: match.black.isBot ? 'bot' : 'human',
+      whiteKind: match.white.isBot ? 'bot' : 'human',
       blackName: match.black.name,
       whiteName: match.white.name,
       status,
@@ -1417,17 +1567,21 @@ export class TournamentService {
   // ─── 생명주기 ────────────────────────────────────────────────────────────
 
   private isRegistered(entrant: Entrant): boolean {
-    return Boolean(entrant.registration && !entrant.registration.withdrawnAt);
+    return !entrant.isBot && Boolean(entrant.registration && !entrant.registration.withdrawnAt);
   }
 
   /** 모집 마감 전에 신청하고 철회하지 않은 사람 수. 마감 뒤 늦은 신청은 개최 판단에 넣지 않는다 */
   private decisionCount(): number {
     const deadline = this.settings!.registrationEndsAt;
-    let count = 0;
+    let count = this.botProfiles.size;
     for (const entrant of this.entrants.values()) {
-      if (this.isRegistered(entrant) && Date.parse(entrant.registration!.registeredAt) < deadline) count += 1;
+      if (!entrant.isBot && this.isRegistered(entrant) && Date.parse(entrant.registration!.registeredAt) < deadline) count += 1;
     }
     return count;
+  }
+
+  private humanPlayerIds(match: LiveMatch): string[] {
+    return [match.black, match.white].filter((side) => !side.isBot).map((side) => side.playerId);
   }
 
   private decisionStatus(): 'confirmed' | 'cancelled' | null {
@@ -1437,7 +1591,7 @@ export class TournamentService {
   }
 
   private registrantIds(): string[] {
-    return [...this.entrants.values()].filter((entrant) => this.isRegistered(entrant)).map((entrant) => entrant.playerId).sort();
+    return [...this.entrants.values()].filter((entrant) => !entrant.isBot && this.isRegistered(entrant)).map((entrant) => entrant.playerId).sort();
   }
 
   private advanceLifecycle(): Promise<void> {
@@ -1456,8 +1610,11 @@ export class TournamentService {
       const registrationCount = this.decisionCount();
       const status = registrationCount >= settings.minimumParticipants ? 'confirmed' : 'cancelled';
       const decision = { status, decidedAt: iso(now), registrationCount } as const;
+      const humanRegistrationCount = registrationCount - this.botProfiles.size;
       const data: Record<string, unknown> = {
         registrationCount,
+        humanRegistrationCount,
+        botCount: this.botProfiles.size,
         minimumParticipants: settings.minimumParticipants,
         startsAt: settings.startsAt,
         endsAt: settings.endsAt,
@@ -1517,7 +1674,7 @@ export class TournamentService {
       })),
       champions,
     };
-    const participants = rows.map((row) => row.entrant.playerId).sort();
+    const participants = rows.filter((row) => !row.entrant.isBot).map((row) => row.entrant.playerId).sort();
     const events = [
       this.event('finished', participants, {
         championPlayerIds: champions.map((champion) => champion.playerId),
@@ -1639,6 +1796,7 @@ export class TournamentService {
       waitMs: s.waitMs,
       backgroundLeaseMs: s.backgroundLeaseMs,
       backgroundReadyTimeoutMs: s.backgroundReadyTimeoutMs,
+      ...(this.botProfiles.size ? { botCount: this.botProfiles.size } : {}),
     };
   }
 
@@ -1647,7 +1805,7 @@ export class TournamentService {
     if (this.standingsCache) return this.standingsCache;
     const settings = this.settings;
     if (!settings) return (this.standingsCache = []);
-    const pool = [...this.entrants.values()].filter((entrant) => this.isRegistered(entrant) || entrant.games > 0);
+    const pool = [...this.entrants.values()].filter((entrant) => !entrant.isBot && (this.isRegistered(entrant) || entrant.games > 0));
     const ranks = rankEntrants(
       pool.map((entrant) => ({ id: entrant.playerId, points: entrant.points, wins: entrant.wins, games: entrant.games })),
       this.headToHead,
@@ -1711,11 +1869,12 @@ export class TournamentService {
       opponentReady: match.ready.has(opponent(side)),
       readyDeadline: match.status === 'preparing' ? match.readyDeadline : null,
       opponentPresence: this.entrants.get(rival.playerId)?.presence ?? 'foreground',
+      ...(rival.isBot ? { opponentIsBot: true } : {}),
       countsForScore: scored,
       opponentCountsForScore: scored,
       scoredMatchNumber: finished ? (scored ? mine.matchNumber : null) : mine.matchNumber ?? upcoming(entrant),
       turnDeadline: match.status === 'playing' ? match.turnDeadline : null,
-      opponentConnected: this.clientsByPlayer.has(rival.playerId),
+      opponentConnected: rival.isBot || this.clientsByPlayer.has(rival.playerId),
       result,
       finishedAt: match.finishedAt,
     };
@@ -1807,9 +1966,10 @@ export class TournamentService {
         playerId,
         name,
         key: createHash('sha256').update((this.settings?.id ?? '') + ':' + playerId).digest('hex').slice(0, 16),
+        isBot: this.botProfiles.has(playerId),
         registration: null,
         platform: 'unknown',
-        points: this.settings?.startingScore ?? 0,
+        points: this.botProfiles.has(playerId) ? 0 : this.settings?.startingScore ?? 0,
         wins: 0,
         losses: 0,
         games: 0,

@@ -1,11 +1,12 @@
 import { join } from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
-import { createTournamentService, tournamentSettingsFromEnv, type TournamentSettings, type TournamentService, type TournamentClient, type TournamentIdentity } from './tournament';
+import { createTournamentService, parseTournamentRankedBotIds, tournamentSettingsFromEnv, type TournamentSettings, type TournamentService, type TournamentClient, type TournamentIdentity } from './tournament';
 import { createTournamentStore, TOURNAMENT_SCORING_VERSION, type TournamentMatchRecord, type TournamentStore } from './tournamentStore';
 import type { TournamentPublicStatus, TournamentNextEvent } from '../src/net/tournamentProtocol';
 import { TOURNAMENT_PROTOCOL_VERSION } from '../src/net/tournamentProtocol';
 import type { CommunityService } from './community';
 import type { BackgroundChangeSink, CanBackgroundWait, TournamentBackgroundStatus } from './tournamentBackground';
+import type { StoredProfile } from './profileRepository';
 
 const ID = /^[A-Za-z0-9_-]{1,64}$/;
 const fields: Record<string, string> = {
@@ -14,6 +15,7 @@ const fields: Record<string, string> = {
   startingScore: 'STARTING_SCORE', eloK: 'ELO_K', eloScale: 'ELO_SCALE', readyTimeoutMs: 'READY_TIMEOUT_MS',
   matchCountdownMs: 'MATCH_COUNTDOWN_MS', moveTimeMs: 'MOVE_MS', reconnectGraceMs: 'RECONNECT_GRACE_MS',
   reminderLeadMs: 'REMINDER_LEAD_MS', isInaugural: 'INAUGURAL', championTitle: 'CHAMPION_TITLE', rewardDescription: 'REWARD_DESCRIPTION',
+  rankedBotIds: 'RANKED_BOT_IDS',
   resultCountdownMs: 'RESULT_COUNTDOWN_MS', waitMs: 'WAIT_MS', eventRetryMs: 'EVENT_RETRY_MS',
   backgroundLeaseMs: 'BACKGROUND_LEASE_MS', backgroundReadyTimeoutMs: 'BACKGROUND_READY_TIMEOUT_MS',
 };
@@ -40,6 +42,12 @@ export function validateTournamentSettings(input: Record<string, unknown>): Tour
     if (key === 'standingsLimit') { if (value !== 100) return invalid(); continue; }
     if (!Object.hasOwn(fields, key)) return invalid();
     if (times.has(key)) env[`MONGJIN_TOURNAMENT_${fields[key]}`] = String(time(value));
+    else if (key === 'rankedBotIds') {
+      if (typeof value !== 'string') return invalid();
+      const ids = parseTournamentRankedBotIds(value);
+      if (!ids) return invalid();
+      if (ids.length) env.MONGJIN_TOURNAMENT_RANKED_BOT_IDS = ids.join(',');
+    }
     else if (textFields.has(key)) {
       if (typeof value !== 'string' || (key !== 'rewardDescription' && !value.trim())) return invalid();
       env[`MONGJIN_TOURNAMENT_${fields[key]}`] = value;
@@ -66,6 +74,11 @@ export function validateTournamentSettings(input: Record<string, unknown>): Tour
     settings.startingScore !== 0 || settings.matchCountdownMs !== 5000) return invalid();
   if (next && (!settings.nextTournament || settings.nextTournament.id === settings.id || settings.nextTournament.startsAt < settings.endsAt)) return invalid();
   for (const key of Object.keys(input)) {
+    if (key === 'rankedBotIds') {
+      const ids = typeof input[key] === 'string' ? parseTournamentRankedBotIds(input[key] as string) : null;
+      if (!ids || ids.join(',') !== (settings.rankedBotIds ?? '')) return invalid();
+      continue;
+    }
     if (!textFields.has(key) && !times.has(key) && key !== 'nextTournament' && key !== 'isInaugural' && input[key] !== settings[key as keyof TournamentSettings]) return invalid();
   }
   return settings;
@@ -73,6 +86,8 @@ export function validateTournamentSettings(input: Record<string, unknown>): Tour
 const overlaps = (a: TournamentSettings, b: TournamentSettings) => a.startsAt < b.endsAt && a.endsAt > b.startsAt;
 
 export interface TournamentRegistryBackgroundOptions {
+  /** Existing stored fixed-bot profiles; never creates profiles or credentials. */
+  getBotProfiles?: () => Iterable<StoredProfile>;
   canBackgroundWait?: CanBackgroundWait;
   onBackgroundChange?: BackgroundChangeSink;
 }

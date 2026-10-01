@@ -165,6 +165,7 @@ const community = new CommunityService(await createCommunityStore(
 const waitingNotifications = new WaitingNotifications(community.store);
 await waitingNotifications.recover();
 const tournament = new TournamentRegistry(community, join(dirname(PROFILE_DATA_FILE), 'tournaments'), isPlayerInNormalPlay, process.env, {
+  getBotProfiles: () => profiles.values(),
   canBackgroundWait: (playerId, tournamentId, destination) => {
     const parsed = parseWaitingDestination(destination);
     return parsed ? waitingNotifications.canBackgroundWait(playerId, tournamentId, parsed) : false;
