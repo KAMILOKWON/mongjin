@@ -38,3 +38,19 @@ test('페이지 범위를 적용해도 전체 기준 순위를 유지한다', ()
   );
   assert.deepEqual(entries.map(({ rank, rating }) => ({ rank, rating })), [{ rank: 2, rating: 1200 }]);
 });
+
+test('초대 대상 식별자는 제공하고 인증 정보와 표시 설정은 공개하지 않는다', () => {
+  const privateProfile = { ...profile('a', 1200), showOnline: false, tossAccessToken: 'test-private' };
+  const [entry] = buildLeaderboard([privateProfile], 10, 0);
+  assert.equal(entry!.playerId, 'a');
+  assert.equal('token' in entry!, false);
+  assert.equal('tossAccessToken' in entry!, false);
+  assert.equal('showOnline' in entry!, false);
+});
+
+test('접속자 필터는 전체 순위를 유지하고 필터 뒤에 페이지 범위를 적용한다', () => {
+  const profiles = [profile('offline', 1500), profile('idle', 1400), profile('hidden', 1300), profile('playing', 1200)];
+  const include = (item: StoredProfile) => item.playerId === 'idle' || item.playerId === 'playing';
+  assert.deepEqual(buildLeaderboard(profiles, 1, 0, include).map(item => ({ id: item.playerId, rank: item.rank })), [{ id: 'idle', rank: 2 }]);
+  assert.deepEqual(buildLeaderboard(profiles, 1, 1, include).map(item => ({ id: item.playerId, rank: item.rank })), [{ id: 'playing', rank: 4 }]);
+});

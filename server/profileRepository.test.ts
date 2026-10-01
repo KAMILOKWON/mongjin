@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdtempSync, readFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'vitest';
@@ -23,6 +23,31 @@ function profile(playerId: string, rating = 1200): StoredProfile {
     updatedAt: '2026-09-01T00:00:00.000Z',
   };
 }
+
+test('접속 숨김 설정은 재시작과 경기 결과 저장 뒤에도 유지된다', async () => {
+  const directory = mkdtempSync(join(tmpdir(), 'mongjin-online-visibility-'));
+  try {
+    const file = join(directory, 'profiles.json');
+    const repository = new FileProfileRepository(file);
+    await repository.importProfiles([profile('hidden'), profile('other')]);
+    await repository.saveProfileMetadata({ ...profile('hidden'), showOnline: false }, { updateOnlineVisibility: true });
+    await repository.recordMatch({ matchId: 'visibility-game', roomId: 'VROOM1', winnerId: 'hidden',
+      loserId: 'other', reason: 'goal', completedAt: '2026-10-01T00:00:00.000Z' });
+    const reopened = new FileProfileRepository(file);
+    const hidden = (await reopened.loadProfiles()).find(item => item.playerId === 'hidden')!;
+    assert.equal(hidden.showOnline, false);
+    assert.equal(hidden.wins, 1);
+    const staleRename = await reopened.saveProfileMetadata({ ...profile('hidden'), name: '새 이름', showOnline: true });
+    assert.equal(staleRename.showOnline, false);
+    const shown = await reopened.saveProfileMetadata({ ...hidden, wins: 0, rating: 1200, showOnline: true }, { updateOnlineVisibility: true });
+    assert.equal(shown.showOnline, true);
+    assert.equal(shown.name, '새 이름');
+    assert.equal(shown.wins, 1);
+    assert.equal(shown.rating, 1212);
+    assert.equal((await new FileProfileRepository(file).loadProfiles()).find(item => item.playerId === 'hidden')!.showOnline, true);
+    await assert.rejects(reopened.saveProfileMetadata({ ...hidden, token: 'stale-test-token', showOnline: false }, { updateOnlineVisibility: true }));
+  } finally { rmSync(directory, { recursive: true, force: true }); }
+});
 
 test('Elo 결과는 기존 K=24 계산을 유지한다', () => {
   const result = applyEloResult(profile('winner'), profile('loser'), '2026-09-01T01:00:00.000Z');

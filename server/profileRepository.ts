@@ -21,6 +21,7 @@ export interface StoredProfile {
   legacyMigratedAt?: string;
   botLearning?: BotLearning;
   hasPlayedMove?: boolean;
+  showOnline?: boolean;
 }
 
 export interface LegacyProfileClaim {
@@ -100,7 +101,7 @@ export interface ProfileRepository {
   loadProfiles(): Promise<StoredProfile[]>;
   importProfiles(profiles: StoredProfile[]): Promise<number>;
   saveProfile(profile: StoredProfile): Promise<void>;
-  saveProfileMetadata(profile: StoredProfile): Promise<StoredProfile>;
+  saveProfileMetadata(profile: StoredProfile, options?: { updateOnlineVisibility?: boolean }): Promise<StoredProfile>;
   migrateLegacyProfile(playerId: string, claim: LegacyProfileClaim): Promise<LegacyProfileMigrationResult>;
   recordMatch(match: RecordedMatch): Promise<MatchResult>;
   recordBotMatch(match: RecordedBotMatch): Promise<BotMatchResult>;
@@ -296,13 +297,20 @@ export class FileProfileRepository implements ProfileRepository {
   async saveProfile(profile: StoredProfile): Promise<void> {
     const current = this.profiles.get(profile.playerId);
     this.profiles.set(profile.playerId, cloneProfile({ ...profile,
+      ...(profile.showOnline === undefined && current?.showOnline !== undefined ? { showOnline: current.showOnline } : {}),
       ...(current?.hasPlayedMove ? { hasPlayedMove: true } : {}) }));
     this.persistProfiles();
   }
 
-  async saveProfileMetadata(profile: StoredProfile): Promise<StoredProfile> {
+  async saveProfileMetadata(profile: StoredProfile, options?: { updateOnlineVisibility?: boolean }): Promise<StoredProfile> {
     const current = this.profiles.get(profile.playerId);
+    if (options?.updateOnlineVisibility) {
+      if (!current || current.token !== profile.token || current.unlinkedAt) throw new Error('프로필 연결을 다시 확인해 주세요');
+      await this.saveProfile({ ...current, showOnline: profile.showOnline !== false, updatedAt: profile.updatedAt });
+      return cloneProfile(this.profiles.get(profile.playerId)!);
+    }
     const saved = current ? { ...profile, wins: current.wins, losses: current.losses, rating: current.rating,
+      showOnline: current.showOnline,
       botLearning: current.botLearning, legacyMigratedAt: current.legacyMigratedAt } : profile;
     await this.saveProfile(saved);
     return cloneProfile(this.profiles.get(profile.playerId)!);
@@ -476,6 +484,7 @@ interface ProfileRow {
   legacy_migrated_at: Date | string | null;
   bot_learning: BotLearning | null;
   has_played_move: boolean;
+  show_online: boolean;
 }
 
 function iso(value: Date | string): string {
@@ -496,6 +505,7 @@ function rowToProfile(row: ProfileRow): StoredProfile {
     losses: row.losses,
     rating: row.rating,
     hasPlayedMove: Boolean(row.has_played_move),
+    showOnline: row.show_online !== false,
     createdAt: iso(row.created_at),
     updatedAt: iso(row.updated_at),
     ...(row.toss_user_key === null ? {} : { tossUserKey: Number(row.toss_user_key) }),
@@ -510,7 +520,7 @@ function rowToProfile(row: ProfileRow): StoredProfile {
 const PROFILE_COLUMNS = `
   player_id, token, name, wins, losses, rating, created_at, updated_at,
   toss_user_key, toss_access_token, toss_refresh_token, toss_token_expires_at, unlinked_at,
-  legacy_migrated_at, bot_learning, has_played_move
+  legacy_migrated_at, bot_learning, has_played_move, show_online
 `;
 
 export class PostgresProfileRepository implements ProfileRepository {
@@ -548,6 +558,7 @@ export class PostgresProfileRepository implements ProfileRepository {
 
       ALTER TABLE mongjin_profiles ADD COLUMN IF NOT EXISTS bot_learning JSONB;
       ALTER TABLE mongjin_profiles ADD COLUMN IF NOT EXISTS has_played_move BOOLEAN NOT NULL DEFAULT FALSE;
+      ALTER TABLE mongjin_profiles ADD COLUMN IF NOT EXISTS show_online BOOLEAN NOT NULL DEFAULT TRUE;
 
       CREATE INDEX IF NOT EXISTS mongjin_profiles_rating_idx
         ON mongjin_profiles (rating DESC, created_at ASC);
@@ -665,7 +676,16 @@ export class PostgresProfileRepository implements ProfileRepository {
     await this.upsertProfile(this.pool, profile, false);
   }
 
-  async saveProfileMetadata(profile: StoredProfile): Promise<StoredProfile> {
+  async saveProfileMetadata(profile: StoredProfile, options?: { updateOnlineVisibility?: boolean }): Promise<StoredProfile> {
+    if (options?.updateOnlineVisibility) {
+      const result = await this.pool.query<ProfileRow>(
+        `UPDATE mongjin_profiles SET show_online = $2, updated_at = $3
+         WHERE player_id = $1 AND token = $4 AND unlinked_at IS NULL RETURNING ${PROFILE_COLUMNS}`,
+        [profile.playerId, profile.showOnline !== false, profile.updatedAt, profile.token],
+      );
+      if (!result.rows[0]) throw new Error('프로필 연결을 다시 확인해 주세요');
+      return rowToProfile(result.rows[0]);
+    }
     const result = await this.upsertProfile(this.pool, profile, false, true);
     return rowToProfile(result.rows[0]!);
   }
@@ -982,11 +1002,12 @@ export class PostgresProfileRepository implements ProfileRepository {
            toss_token_expires_at = EXCLUDED.toss_token_expires_at,
            unlinked_at = EXCLUDED.unlinked_at,
            has_played_move = mongjin_profiles.has_played_move OR EXCLUDED.has_played_move,
+           show_online = ${!metadataOnly && profile.showOnline !== undefined ? 'EXCLUDED.show_online' : 'mongjin_profiles.show_online'},
            ${metadataOnly ? '' : 'bot_learning = EXCLUDED.bot_learning,'}
            legacy_migrated_at = COALESCE(mongjin_profiles.legacy_migrated_at, EXCLUDED.legacy_migrated_at)`;
     return executor.query<ProfileRow>(
       `INSERT INTO mongjin_profiles (${PROFILE_COLUMNS})
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
        ${conflict} RETURNING ${PROFILE_COLUMNS}`,
       [
         profile.playerId,
@@ -1005,6 +1026,7 @@ export class PostgresProfileRepository implements ProfileRepository {
         profile.legacyMigratedAt ?? null,
         profile.botLearning ? JSON.stringify(profile.botLearning) : null,
         Boolean(profile.hasPlayedMove),
+        profile.showOnline !== false,
       ],
     );
   }

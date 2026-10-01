@@ -492,6 +492,32 @@ it('상대가 들어오기 전 친구방 항복은 방을 취소하고 같은 �
   );
 }, 15_000);
 
+it('같은 소켓은 빈 친구방 코드를 다시 만들거나 다른 친구방에 들어갈 수 있다', async () => {
+  const first = createClient('replace-empty-first');
+  const second = createClient('replace-empty-second');
+  const observer = createClient('replace-empty-observer');
+  await Promise.all([authenticate(first), authenticate(second), authenticate(observer)]);
+  await first.send({ type: 'CREATE' });
+  const oldRoom = await first.next('CREATED');
+  await first.send({ type: 'CREATE' });
+  const replacement = await first.next('CREATED');
+  expect(replacement.roomId).not.toBe(oldRoom.roomId);
+  await observer.send({ type: 'JOIN', roomId: oldRoom.roomId });
+  expect(await observer.next('ERROR')).toMatchObject({ message: '방을 찾을 수 없습니다' });
+
+  await second.send({ type: 'CREATE' });
+  const target = await second.next('CREATED');
+  await first.send({ type: 'JOIN', roomId: target.roomId });
+  expect(await first.next('JOINED')).toMatchObject({ roomId: target.roomId });
+  const [firstFound, secondFound] = await Promise.all([first.next('MATCH_FOUND'), second.next('MATCH_FOUND')]);
+  expect(firstFound).toMatchObject({ roomId: target.roomId, matchKind: 'friend' });
+  expect(secondFound).toMatchObject({ roomId: target.roomId, matchKind: 'friend' });
+  await observer.send({ type: 'JOIN', roomId: replacement.roomId });
+  expect(await observer.next('ERROR')).toMatchObject({ message: '방을 찾을 수 없습니다' });
+  await first.send({ type: 'RESIGN' });
+  await Promise.all([first.next('MATCH_RESULT'), second.next('MATCH_RESULT')]);
+}, 15_000);
+
 it('RESIGN 직후 연결이 닫혀도 빠른 대전 결과와 Elo를 중복 기록하지 않는다', async () => {
   const beforeMatchIds = await matchIds();
   const beforeRecords = await gameRecords();
@@ -629,8 +655,9 @@ it('재접속을 기다리는 중 새 빠른 대전을 시작하면 이전 판�
   const returned = await reconnectAs(departing, 'supersede-returned');
   const startedAt = Date.now();
   await returned.send({ type: 'MATCHMAKE' });
+  await returned.next('PROFILE', GRACE_MS / 2);
   expect(await match.second.next('MATCH_RESULT')).toMatchObject({ winner: match.secondFound.side, reason: 'forfeit' });
-  expect(Date.now() - startedAt).toBeLessThan(GRACE_MS);
+  expect(Date.now() - startedAt).toBeLessThan(GRACE_MS / 2);
   await returned.send({ type: 'CANCEL_MATCHMAKING' });
 }, 15_000);
 

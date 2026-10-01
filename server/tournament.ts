@@ -562,6 +562,17 @@ export class TournamentService {
     return status === 'queued' || status === 'preparing' || status === 'countdown' || status === 'playing';
   }
 
+  /** Invitation-safe activity distinguishes an actionable queue from a reserved or active game. */
+  invitationActivity(playerId: string): 'idle' | 'queued' | 'blocked' {
+    const entrant = this.entrants.get(playerId);
+    if (!entrant) return 'idle';
+    if (entrant.status === 'queued') {
+      return entrant.presence === 'foreground' && this.clientsByPlayer.has(playerId) ? 'queued' : 'blocked';
+    }
+    if (entrant.status === 'preparing' || entrant.status === 'countdown' || entrant.status === 'playing') return 'blocked';
+    return 'idle';
+  }
+
   /** 대기 중 만다꼬 훈련 허용: 진행 중 대회, 연결된 사람 참가자가 대기열에 있을 때만. 점수와 무관하다 */
   canPractice(playerId: string): boolean {
     if (this.phase() !== 'active' || isRankedBotId(playerId)) return false;

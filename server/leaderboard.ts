@@ -1,6 +1,7 @@
 import type { StoredProfile } from './profileRepository';
 
 export interface LeaderboardEntry {
+  playerId: string;
   rank: number;
   name: string;
   rating: number;
@@ -13,6 +14,7 @@ export function buildLeaderboard(
   profiles: Iterable<StoredProfile>,
   limit: number,
   offset: number,
+  include?: (profile: StoredProfile) => boolean,
 ): LeaderboardEntry[] {
   const sorted = [...profiles].sort(
     (left, right) =>
@@ -27,6 +29,7 @@ export function buildLeaderboard(
     previousRating = profile.rating;
     const games = profile.wins + profile.losses;
     return {
+      playerId: profile.playerId,
       rank,
       name: profile.name,
       rating: profile.rating,
@@ -35,5 +38,6 @@ export function buildLeaderboard(
       winRate: games === 0 ? 0 : Math.round((profile.wins / games) * 1000) / 10,
     };
   });
-  return ranked.slice(offset, offset + limit);
+  const visible = include ? ranked.filter((_, index) => include(sorted[index]!)) : ranked;
+  return visible.slice(offset, offset + limit);
 }

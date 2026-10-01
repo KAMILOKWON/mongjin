@@ -247,6 +247,15 @@ export class TournamentRegistry {
     for (const service of this.services.values()) cancelled = service.cancelWaiting(playerId) || cancelled;
     return cancelled;
   }
+  invitationActivity(playerId: string): 'idle' | 'queued' | 'blocked' {
+    let queued = false;
+    for (const service of this.services.values()) {
+      const activity = service.invitationActivity(playerId);
+      if (activity === 'blocked') return 'blocked';
+      if (activity === 'queued') queued = true;
+    }
+    return queued ? 'queued' : 'idle';
+  }
   isPlayerBusy(id: string) { return [...this.services.values()].some(s => s.isPlayerBusy(id)); }
   updateName(id: string, name: string) { for (const service of this.services.values()) service.updateName(id, name); }
   list() { return [...this.settings.values()].sort((a, b) => a.startsAt - b.startsAt).map(s => ({ settings: structuredClone(s), status: this.publicStatus(s.id) })); }

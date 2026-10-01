@@ -45,6 +45,16 @@ import { PRACTICE_BOT_VERSION } from './practiceBot';
 import { createLazyFeedbackHandler } from './feedback';
 import { createFeedbackStore } from './feedbackStore';
 import { isTournamentMessageType, TOURNAMENT_PRACTICE_MOVE_PATH, TOURNAMENT_STATUS_PATH } from '../src/net/tournamentProtocol';
+import {
+  INVITATION_FEATURE,
+  INVITATION_TTL_MS,
+  PRESENCE_REFRESH_MS,
+  isInvitationMessageType,
+  type ClientPresence,
+  type MatchInvitation,
+  type PlayerPresence,
+} from '../src/net/invitationProtocol';
+import { InvitationManager } from './invitations';
 
 const PORT = Number(process.env.PORT ?? 3001);
 const HOST = process.env.HOST ?? '0.0.0.0';
@@ -65,7 +75,7 @@ const MOVE_TIME_MS = envMs(process.env.MONGJIN_MOVE_TIME_MS, 60_000);
 /** 재접속했을 때 이미 끝난 대국의 결과를 알려 주기 위해 보관하는 시간 */
 const RECENT_RESULT_TTL_MS = 10 * 60_000;
 /** 클라이언트가 HELLO로 알리는 기능. 구버전 클라이언트는 아무것도 보내지 않는다. */
-type ClientFeature = 'resume' | 'server-clock';
+type ClientFeature = 'resume' | 'server-clock' | typeof INVITATION_FEATURE;
 
 interface PublicProfile {
   playerId: string;
@@ -78,6 +88,7 @@ interface PublicProfile {
   totalPlayers: number;
   legacyMigrationComplete: boolean;
   hasPlayedMove: boolean;
+  showOnline: boolean;
 }
 
 interface Room {
@@ -109,6 +120,11 @@ interface ClientSession {
   platform: MatchPlatform;
   features: Set<ClientFeature>;
   lang?: string;
+  clientPresence: ClientPresence | null;
+  presenceUpdatedAt: number;
+  presenceOrder: number;
+  authPromise?: Promise<void>;
+  invitationMessageTail: Promise<void>;
 }
 
 /** 끝난 친구 대전의 재대결 신청. 두 사람이 모두 원하면 흑백을 바꿔 새 판을 연다. */
@@ -131,6 +147,8 @@ const rooms = new Map<string, Room>();
 const sessions = new Map<WebSocket, ClientSession>();
 const matchmakingQueue: WebSocket[] = [];
 const pendingBotMatches = new Map<WebSocket, symbol>();
+let presenceSequence = 0;
+let invitations: InvitationManager<WebSocket> | null = null;
 const recentResults = new Map<string, RecentResult>();
 const rematchOffers = new Map<string, RematchOffer>();
 const REMATCH_OFFER_TTL_MS = 2 * 60_000;
@@ -215,10 +233,110 @@ function tournamentClientFor(ws: WebSocket): TournamentClient {
   return client;
 }
 
+function isCurrentProfileSession(playerId: string, session: ClientSession | undefined): boolean {
+  const profile = profiles.get(playerId);
+  return Boolean(session?.playerId === playerId && profile && !profile.unlinkedAt && !isRankedBotId(playerId) &&
+    session.credentialToken === profile.token);
+}
+
+function isInvitationSocketAuthorized(playerId: string, ws: WebSocket): boolean {
+  const session = sessions.get(ws);
+  return Boolean(
+    ws.readyState === ws.OPEN &&
+    isCurrentProfileSession(playerId, session) &&
+    session!.features.has(INVITATION_FEATURE) &&
+    session!.clientPresence !== null &&
+    session!.clientPresence !== 'background' &&
+    Date.now() - session!.presenceUpdatedAt <= PRESENCE_REFRESH_MS * 3,
+  );
+}
+
+function authenticatedFeatureSockets(playerId: string): WebSocket[] {
+  const result: WebSocket[] = [];
+  for (const [ws, session] of sessions) {
+    if (ws.readyState === ws.OPEN && isCurrentProfileSession(playerId, session) && session.features.has(INVITATION_FEATURE)) {
+      result.push(ws);
+    }
+  }
+  return result;
+}
+
+function selectedInvitationSocket(playerId: string): WebSocket | undefined {
+  return authenticatedFeatureSockets(playerId)
+    .filter((ws) => isInvitationSocketAuthorized(playerId, ws))
+    .sort((left, right) => (sessions.get(right)?.presenceOrder ?? 0) - (sessions.get(left)?.presenceOrder ?? 0))[0];
+}
+
+function getNormalActivity(playerId: string): 'idle' | 'matching' | 'playing' {
+  let matching = false;
+  for (const room of rooms.values()) {
+    if (room.finished || (room.blackPlayerId !== playerId && room.whitePlayerId !== playerId)) continue;
+    if (room.kind === 'friend' && Number(Boolean(room.blackPlayerId)) + Number(Boolean(room.whitePlayerId)) < 2) {
+      matching = true;
+      continue;
+    }
+    return 'playing';
+  }
+  for (const [ws, session] of sessions) {
+    if (!isCurrentProfileSession(playerId, session)) continue;
+    if (session.roomId) {
+      const room = rooms.get(session.roomId);
+      if (!room) return 'playing'; // A missing room ID may be an active resume reservation.
+      if (room.finished) clearFinishedRoomReference(session);
+      else if (room.kind === 'friend' && Number(Boolean(room.blackPlayerId)) + Number(Boolean(room.whitePlayerId)) < 2) matching = true;
+      else return 'playing';
+    }
+    // Local play has no server room. Keep it authoritative until that same socket
+    // explicitly reports idle/background or disconnects, even after its lease expires.
+    if (session.clientPresence === 'playing') return 'playing';
+    if (matchmakingQueue.includes(ws) || pendingBotMatches.has(ws)) matching = true;
+  }
+  return matching ? 'matching' : 'idle';
+}
+
+function clearFinishedRoomReference(session: ClientSession): void {
+  if (!session.roomId) return;
+  const room = rooms.get(session.roomId);
+  if (!room?.finished) return;
+  session.roomId = null;
+  // The client owns local-play state and will explicitly report its next transition.
+}
+
+function internalPlayerPresence(playerId: string): PlayerPresence {
+  const profile = profiles.get(playerId);
+  if (!profile || profile.unlinkedAt || isRankedBotId(playerId) || !selectedInvitationSocket(playerId)) return 'offline';
+  const tournamentActivity = tournament.invitationActivity(playerId);
+  const normalActivity = getNormalActivity(playerId);
+  if (normalActivity === 'playing' || tournamentActivity === 'blocked') return 'playing';
+  if (normalActivity === 'matching' || tournamentActivity === 'queued') return 'matching';
+  return 'idle';
+}
+
+function publicPlayerPresence(playerId: string): PlayerPresence {
+  const profile = profiles.get(playerId);
+  return !profile || profile.showOnline === false ? 'offline' : internalPlayerPresence(playerId);
+}
+
+function hasProfileLevelStartConflict(playerId: string, currentSocket: WebSocket): boolean {
+  if (tournament.isPlayerBusy(playerId) || getNormalActivity(playerId) === 'playing') return true;
+  for (const [ws, session] of sessions) {
+    if (!isCurrentProfileSession(playerId, session)) continue;
+    if (session.roomId) {
+      const room = rooms.get(session.roomId);
+      if (room?.finished) clearFinishedRoomReference(session);
+      else return true;
+    }
+    if (ws !== currentSocket && (matchmakingQueue.includes(ws) || pendingBotMatches.has(ws))) return true;
+    if (isInvitationSocketAuthorized(playerId, ws) && session.clientPresence === 'playing') return true;
+  }
+  return false;
+}
+
 function isPlayerInNormalPlay(playerId: string): boolean {
   for (const [socket, session] of sessions) {
     if (session.playerId !== playerId) continue;
-    if (session.roomId || matchmakingQueue.includes(socket) || pendingBotMatches.has(socket)) return true;
+    if (session.roomId || matchmakingQueue.includes(socket) || pendingBotMatches.has(socket) ||
+      (isInvitationSocketAuthorized(playerId, socket) && session.clientPresence === 'playing')) return true;
   }
   // A seat held for reconnect must remain exclusive until its grace period ends.
   for (const room of rooms.values()) {
@@ -228,8 +346,12 @@ function isPlayerInNormalPlay(playerId: string): boolean {
 }
 
 function rememberProfile(profile: StoredProfile) {
+  const previous = profiles.get(profile.playerId);
   profiles.set(profile.playerId, { ...profile,
     hasPlayedMove: Boolean(profile.hasPlayedMove || profiles.get(profile.playerId)?.hasPlayedMove) });
+  if (previous && (previous.token !== profile.token || (!previous.unlinkedAt && profile.unlinkedAt))) {
+    invitations?.invalidatePlayer(profile.playerId, 'unavailable');
+  }
 }
 
 async function markFirstMove(playerId: string) {
@@ -283,6 +405,7 @@ function publicProfile(playerId: string): PublicProfile {
     totalPlayers: profiles.size,
     legacyMigrationComplete: Boolean(profile.legacyMigratedAt),
     hasPlayedMove: Boolean(profile.hasPlayedMove),
+    showOnline: profile.showOnline !== false,
   };
 }
 
@@ -341,6 +464,17 @@ function sendProfileToPlayer(playerId: string) {
   }
 }
 
+invitations = new InvitationManager<WebSocket>({
+  getProfile: (playerId) => profiles.get(playerId),
+  getPresence: internalPlayerPresence,
+  getSelectedSocket: selectedInvitationSocket,
+  isAuthorizedSocket: isInvitationSocketAuthorized,
+  getPlayerSockets: authenticatedFeatureSockets,
+  send,
+  accept: (invitation, fromSocket, toSocket) => acceptInvitationMatch(invitation, fromSocket, toSocket),
+  ttlMs: INVITATION_TTL_MS,
+});
+
 async function authenticate(ws: WebSocket, playerId?: string, token?: string) {
   const prior = sessions.get(ws);
   if (!prior) return;
@@ -369,7 +503,8 @@ async function authenticate(ws: WebSocket, playerId?: string, token?: string) {
     const saved = await profileRepository.saveProfileMetadata(profile);
     rememberProfile(saved);
   }
-  const session = sessions.get(ws)!;
+  const session = sessions.get(ws);
+  if (!session || ws.readyState !== ws.OPEN) return;
   session.playerId = profile.playerId;
   session.credentialToken = profile.token;
   if (profile.tossUserKey !== undefined) session.platform = 'toss';
@@ -942,6 +1077,7 @@ async function startBotMatch(ws: WebSocket) {
       finished: false,
     };
     rooms.set(id, room);
+    invitations?.invalidatePlayer(initialPlayerId, 'unavailable');
     session.roomId = id;
     recordMatchStarted(room);
     startMoveClock(room);
@@ -980,6 +1116,8 @@ function startRandomMatch(first: WebSocket, second: WebSocket) {
     finished: false,
   };
   rooms.set(id, room);
+  invitations?.invalidatePlayer(firstId, 'unavailable');
+  invitations?.invalidatePlayer(secondId, 'unavailable');
   sessions.get(first)!.roomId = id;
   sessions.get(second)!.roomId = id;
   recordMatchStarted(room);
@@ -1004,6 +1142,102 @@ function startRandomMatch(first: WebSocket, second: WebSocket) {
   });
 }
 
+function cancelProfileWait(playerId: string): void {
+  const affected = new Set<WebSocket>();
+  for (const [ws, session] of sessions) {
+    if (!isCurrentProfileSession(playerId, session)) continue;
+    cancelRematchOffers(ws);
+    const queued = matchmakingQueue.includes(ws);
+    const botPending = pendingBotMatches.has(ws);
+    if (queued) removeFromQueue(ws);
+    if (botPending) pendingBotMatches.delete(ws);
+    if (queued || botPending) affected.add(ws);
+  }
+  for (const ws of affected) send(ws, { type: 'QUEUE_LEFT' });
+  tournament.cancelWaiting(playerId);
+}
+
+function clearEmptyFriendRooms(playerIds: Set<string>): void {
+  for (const room of [...rooms.values()]) {
+    const participants = Number(Boolean(room.blackPlayerId)) + Number(Boolean(room.whitePlayerId));
+    if (room.kind !== 'friend' || room.finished || participants >= 2 ||
+      (!room.blackPlayerId || !playerIds.has(room.blackPlayerId)) &&
+      (!room.whitePlayerId || !playerIds.has(room.whitePlayerId))) continue;
+    clearRoomTimers(room);
+    rooms.delete(room.id);
+    for (const [ws, session] of sessions) {
+      if (session.roomId !== room.id) continue;
+      session.roomId = null;
+      send(ws, { type: 'QUEUE_LEFT' });
+    }
+  }
+}
+
+function acceptInvitationMatch(
+  invitation: MatchInvitation,
+  fromSocket: WebSocket,
+  toSocket: WebSocket,
+): { accepted: true } | { accepted: false; code: 'BUSY' | 'UNAVAILABLE' } {
+  const fromId = invitation.from.playerId;
+  const toId = invitation.to.playerId;
+  const fromProfile = profiles.get(fromId);
+  const toProfile = profiles.get(toId);
+  if (
+    fromId === toId || !fromProfile || !toProfile || toProfile.showOnline === false ||
+    !isInvitationSocketAuthorized(fromId, fromSocket) ||
+    !isInvitationSocketAuthorized(toId, toSocket) ||
+    selectedInvitationSocket(toId) !== toSocket
+  ) return { accepted: false, code: 'UNAVAILABLE' };
+  const fromPresence = internalPlayerPresence(fromId);
+  const toPresence = internalPlayerPresence(toId);
+  if (fromPresence === 'playing' || toPresence === 'playing') return { accepted: false, code: 'BUSY' };
+  if (fromPresence === 'offline' || (toPresence !== 'idle' && toPresence !== 'matching')) {
+    return { accepted: false, code: 'UNAVAILABLE' };
+  }
+
+  // No await is allowed between these checks, queue cancellations, and reserving the friend room.
+  cancelProfileWait(fromId);
+  cancelProfileWait(toId);
+  clearEmptyFriendRooms(new Set([fromId, toId]));
+
+  const id = makeRoomId();
+  const fromIsBlack = Math.random() < 0.5;
+  const room: Room = {
+    id,
+    matchId: makeId(16),
+    kind: 'friend',
+    state: initialState(config),
+    black: fromIsBlack ? fromSocket : toSocket,
+    white: fromIsBlack ? toSocket : fromSocket,
+    blackPlayerId: fromIsBlack ? fromId : toId,
+    whitePlayerId: fromIsBlack ? toId : fromId,
+    blackPlatform: sessions.get(fromIsBlack ? fromSocket : toSocket)?.platform ?? 'unknown',
+    whitePlatform: sessions.get(fromIsBlack ? toSocket : fromSocket)?.platform ?? 'unknown',
+    finished: false,
+  };
+  rooms.set(id, room);
+  sessions.get(fromSocket)!.roomId = id;
+  sessions.get(toSocket)!.roomId = id;
+  startGameRecord(room);
+  send(fromSocket, {
+    type: 'MATCH_FOUND',
+    matchKind: 'friend',
+    roomId: id,
+    side: fromIsBlack ? 'BLACK' : 'WHITE',
+    state: room.state,
+    opponent: opponentSummary(toId),
+  });
+  send(toSocket, {
+    type: 'MATCH_FOUND',
+    matchKind: 'friend',
+    roomId: id,
+    side: fromIsBlack ? 'WHITE' : 'BLACK',
+    state: room.state,
+    opponent: opponentSummary(fromId),
+  });
+  return { accepted: true };
+}
+
 function findOpponent(ws: WebSocket): WebSocket | null {
   const ownId = sessions.get(ws)?.playerId;
   while (matchmakingQueue.length) {
@@ -1021,6 +1255,7 @@ function findOpponent(ws: WebSocket): WebSocket | null {
 }
 
 function detachPlayer(ws: WebSocket) {
+  invitations?.invalidateSocket(ws, 'unavailable');
   telemetry.disconnect(ws);
   const tournamentClient = tournamentClients.get(ws);
   if (tournamentClient) tournament.detach(tournamentClient);
@@ -1257,6 +1492,7 @@ const httpServer = createServer(async (req, res) => {
       activeSessions: sessions.size,
       profileStore: profileRepository.kind,
       officialBotMatches: true,
+      profileInvitations: true,
       botEngine: 'local-search-v1',
       jev: { acceptingMatches: false, reason: 'retired', replacement: 'local-search-v1' },
       gameRecords: { schemaVersion: 1, rulesVersion: RECORD_RULES_VERSION },
@@ -1264,11 +1500,21 @@ const httpServer = createServer(async (req, res) => {
     return;
   }
   if (url.pathname === '/leaderboard' && req.method === 'GET') {
+    res.setHeader('Cache-Control', 'no-store');
     const limit = Math.min(100, Math.max(1, Number(url.searchParams.get('limit') ?? 100) || 100));
     const offset = Math.max(0, Number(url.searchParams.get('offset') ?? 0) || 0);
+    const onlineOnly = url.searchParams.get('online') === '1';
+    const rankedEntries = buildLeaderboard(profiles.values(), profiles.size, 0).map((entry) => ({
+      ...entry,
+      presence: entry.playerId ? publicPlayerPresence(entry.playerId) : 'offline' as const,
+    }));
+    const visibleEntries = onlineOnly
+      ? rankedEntries.filter((entry) => entry.presence !== 'offline')
+      : rankedEntries;
     sendJson(res, 200, {
       totalPlayers: profiles.size,
-      entries: buildLeaderboard(profiles.values(), limit, offset),
+      ...(onlineOnly ? { totalEntries: visibleEntries.length } : {}),
+      entries: visibleEntries.slice(offset, offset + limit),
     });
     return;
   }
@@ -1300,6 +1546,7 @@ const notificationTimer = setInterval(() => {
 const waitingNotificationTimer = setInterval(() => {
   void waitingNotifications.flush().catch(() => console.error('[waiting-notifications] 발송 작업 저장 실패'));
 }, 5_000).unref();
+const invitationSweepTimer = setInterval(() => invitations?.revalidateAll(), 1_000).unref();
 tournamentScheduler.start();
 
 wss.on('connection', (ws, request) => {
@@ -1312,6 +1559,10 @@ wss.on('connection', (ws, request) => {
     roomId: null,
     platform: inferMatchPlatform(request.headers.origin, request.headers['user-agent']),
     features: new Set(),
+    clientPresence: null,
+    presenceUpdatedAt: 0,
+    presenceOrder: 0,
+    invitationMessageTail: Promise.resolve(),
   });
   const remoteAddress = request.socket.remoteAddress ?? '';
   if (remoteAddress === '127.0.0.1' || remoteAddress === '::1' || remoteAddress === '::ffff:127.0.0.1') {
@@ -1330,9 +1581,18 @@ wss.on('connection', (ws, request) => {
       legacyProfile?: unknown;
       features?: unknown;
       lang?: unknown;
+      state?: unknown;
+      showOnline?: unknown;
+      invitationId?: unknown;
+      accept?: unknown;
     };
     try {
-      msg = JSON.parse(String(raw));
+      const parsed: unknown = JSON.parse(String(raw));
+      if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed) || typeof (parsed as { type?: unknown }).type !== 'string') {
+        send(ws, { type: 'ERROR', message: '잘못된 메시지 형식입니다' });
+        return;
+      }
+      msg = parsed as typeof msg;
     } catch {
       send(ws, { type: 'ERROR', message: '잘못된 메시지 형식입니다' });
       return;
@@ -1342,11 +1602,81 @@ wss.on('connection', (ws, request) => {
       const session = sessions.get(ws);
       if (session && Array.isArray(msg.features)) {
         for (const feature of msg.features) {
-          if (feature === 'resume' || feature === 'server-clock') session.features.add(feature);
+          if (feature === 'resume' || feature === 'server-clock' || feature === INVITATION_FEATURE) session.features.add(feature);
         }
       }
       if (session && typeof msg.lang === 'string' && msg.lang in DEFAULT_NAME_PREFIX) session.lang = msg.lang;
-      await authenticate(ws, msg.playerId, msg.token);
+      if (!session) return;
+      const authPromise = authenticate(ws, msg.playerId, msg.token);
+      session.authPromise = authPromise;
+      try { await authPromise; }
+      finally { if (session.authPromise === authPromise) delete session.authPromise; }
+      return;
+    }
+
+    if (isInvitationMessageType(msg.type)) {
+      const messageSession = sessions.get(ws);
+      if (!messageSession) return;
+      const operation = messageSession.invitationMessageTail.then(async () => {
+        const currentSession = sessions.get(ws);
+        // HELLO can persist a new profile. Hold feature messages until IDENTITY is sent.
+        if (currentSession?.authPromise) await currentSession.authPromise;
+        const playerId = requirePlayer(ws);
+        if (!playerId) return;
+        const activeSession = sessions.get(ws);
+        if (!activeSession || !activeSession.features.has(INVITATION_FEATURE)) {
+          send(ws, { type: 'INVITATION_ERROR', code: 'INVALID_REQUEST' });
+          return;
+        }
+        if (msg.type === 'UPDATE_PRESENCE') {
+          if (msg.state !== 'idle' && msg.state !== 'playing' && msg.state !== 'background') {
+            send(ws, { type: 'INVITATION_ERROR', code: 'INVALID_REQUEST' });
+            return;
+          }
+          const wasForeground = isInvitationSocketAuthorized(playerId, ws);
+          const wasBackground = activeSession.clientPresence === 'background';
+          clearFinishedRoomReference(activeSession);
+          if (msg.state !== 'background' && (!wasForeground || wasBackground || activeSession.clientPresence === null)) {
+            activeSession.presenceOrder = ++presenceSequence;
+          }
+          activeSession.clientPresence = msg.state;
+          activeSession.presenceUpdatedAt = Date.now();
+          invitations?.revalidateAll();
+          return;
+        }
+        if (msg.type === 'SET_ONLINE_VISIBILITY') {
+          if (typeof msg.showOnline !== 'boolean') {
+            send(ws, { type: 'INVITATION_ERROR', code: 'INVALID_REQUEST' });
+            return;
+          }
+          const profile = profiles.get(playerId);
+          if (!profile) {
+            send(ws, { type: 'INVITATION_ERROR', code: 'UNAVAILABLE' });
+            return;
+          }
+          try {
+            const saved = await profileRepository.saveProfileMetadata({
+              ...profile,
+              showOnline: msg.showOnline,
+              updatedAt: new Date().toISOString(),
+            }, { updateOnlineVisibility: true });
+            rememberProfile(saved);
+            sendProfileToPlayer(playerId);
+            if (!msg.showOnline) invitations?.invalidateIncoming(playerId, 'unavailable');
+            invitations?.revalidateAll();
+            send(ws, { type: 'ONLINE_VISIBILITY', showOnline: saved.showOnline !== false });
+          } catch {
+            send(ws, { type: 'INVITATION_ERROR', code: 'SAVE_FAILED' });
+          }
+          return;
+        }
+        invitations?.handleMessage(ws, playerId, msg);
+      });
+      messageSession.invitationMessageTail = operation.catch((error) => {
+        console.error('[invitations] 요청 처리 실패:', error);
+        send(ws, { type: 'INVITATION_ERROR', code: 'INVALID_REQUEST' });
+      });
+      await messageSession.invitationMessageTail;
       return;
     }
 
@@ -1361,6 +1691,7 @@ wss.on('connection', (ws, request) => {
           : null,
         msg,
       );
+      invitations?.revalidateAll();
       return;
     }
 
@@ -1373,6 +1704,10 @@ wss.on('connection', (ws, request) => {
     }
 
     if (msg.type === 'REMATCH') {
+      if (hasProfileLevelStartConflict(playerId, ws)) {
+        send(ws, { type: 'ERROR', message: '이미 대기 중이거나 대국에 참가 중입니다' });
+        return;
+      }
       requestRematch(ws, typeof msg.roomId === 'string' ? msg.roomId.trim().toUpperCase() : '');
       return;
     }
@@ -1384,6 +1719,21 @@ wss.on('connection', (ws, request) => {
       }
       abandonWaitingSeats(playerId);
       cancelRematchOffers(ws);
+      if (msg.type === 'CREATE' || msg.type === 'JOIN') {
+        const session = sessions.get(ws)!;
+        const room = session.roomId ? rooms.get(session.roomId) : undefined;
+        if (room?.kind === 'friend' && !room.finished &&
+          Number(Boolean(room.blackPlayerId)) + Number(Boolean(room.whitePlayerId)) < 2 &&
+          (room.black === ws || room.white === ws)) {
+          clearRoomTimers(room);
+          rooms.delete(room.id);
+          session.roomId = null;
+        }
+      }
+      if (hasProfileLevelStartConflict(playerId, ws)) {
+        send(ws, { type: 'ERROR', message: '이미 대기 중이거나 대국에 참가 중입니다' });
+        return;
+      }
     }
 
     if (msg.type === 'GET_PROFILE') {
@@ -1517,6 +1867,8 @@ wss.on('connection', (ws, request) => {
           const other = side === 'BLACK' ? room.white : room.black;
           if (other) send(other, { type: 'STATE', state: room.state });
           if (room.black && room.white && room.blackPlayerId && room.whitePlayerId) {
+            invitations?.invalidatePlayer(room.blackPlayerId, 'unavailable');
+            invitations?.invalidatePlayer(room.whitePlayerId, 'unavailable');
             startGameRecord(room);
             send(room.black, {
               type: 'MATCH_FOUND',
@@ -1615,6 +1967,8 @@ async function shutdown() {
   clearInterval(heartbeat);
   clearInterval(notificationTimer);
   clearInterval(waitingNotificationTimer);
+  clearInterval(invitationSweepTimer);
+  invitations?.closeAll('unavailable');
   httpServer.close();
   for (const ws of wss.clients) ws.close(1001, 'Server restarting');
   await tournamentScheduler.close();
