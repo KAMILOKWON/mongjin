@@ -161,7 +161,7 @@ it('handles HELLO/presence races, privacy, same-profile socket reservation, and 
       const page = await getJson<LeaderboardPage>(`${httpUrl}/leaderboard?online=1`);
       return page.entries.some((entry) => entry.playerId === 'alice-id' && entry.presence === 'matching') ? page : undefined;
     });
-    expect(beforeHide.totalEntries).toBe(4);
+    expect(beforeHide.totalEntries).toBe(8); // Four foreground players and four available fixed profiles.
 
     alice1.peer.send({ type: 'SET_ONLINE_VISIBILITY', showOnline: false });
     expect(await alice1.peer.next('ONLINE_VISIBILITY')).toMatchObject({ showOnline: false });
@@ -227,21 +227,22 @@ it('handles HELLO/presence races, privacy, same-profile socket reservation, and 
     const byId = new Map(full.entries.map((entry) => [entry.playerId, entry]));
     const onlineById = new Map(online.entries.map((entry) => [entry.playerId, entry]));
     expect(online.totalPlayers).toBe(full.totalPlayers);
-    expect(online.totalEntries).toBe(3);
+    expect(online.totalEntries).toBe(7);
     expect(onlineById.get('bob-id')?.presence).toBe('matching');
     expect(onlineById.get('cara-id')?.presence).toBe('idle');
     expect(onlineById.get(daveId)?.presence).toBe('idle');
     expect(byId.get('legacy-id')?.presence).toBe('offline');
     expect(byId.get('alice-id')).toMatchObject({ presence: 'offline', name: 'Ally' });
-    expect(online.entries.some((entry) => entry.playerId === 'alice-id' || entry.playerId === 'legacy-id' || entry.playerId?.startsWith('ranked-bot-'))).toBe(false);
+    expect(online.entries.some((entry) => entry.playerId === 'alice-id' || entry.playerId === 'legacy-id')).toBe(false);
+    expect(online.entries.filter(entry => entry.playerId?.startsWith('ranked-bot-'))).toHaveLength(4);
     expect(online.entries.every((entry) => !Object.hasOwn(entry, 'showOnline'))).toBe(true);
     for (const entry of online.entries) expect(entry.rank).toBe(byId.get(entry.playerId)?.rank);
 
-    const pages = await Promise.all([0, 1, 2, 3].map((offset) =>
+    const pages = await Promise.all(Array.from({ length: 8 }, (_, offset) =>
       getJson<LeaderboardPage>(`${httpUrl}/leaderboard?online=1&limit=1&offset=${offset}`)));
-    expect(pages.map((page) => page.totalEntries)).toEqual([3, 3, 3, 3]);
-    expect(pages.slice(0, 3).map((page) => page.entries[0]?.playerId)).toEqual(online.entries.map((entry) => entry.playerId));
-    expect(pages[3]!.entries).toEqual([]);
+    expect(pages.map((page) => page.totalEntries)).toEqual(Array(8).fill(7));
+    expect(pages.slice(0, 7).map((page) => page.entries[0]?.playerId)).toEqual(online.entries.map((entry) => entry.playerId));
+    expect(pages[7]!.entries).toEqual([]);
   } catch (error) {
     throw new Error(`${error instanceof Error ? error.message : String(error)}\nserver output:\n${output}`);
   } finally {

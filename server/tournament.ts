@@ -1071,7 +1071,7 @@ export class TournamentService {
 
   private selectAvailableBot(human: Entrant): StoredProfile | null {
     let available = [...this.botProfiles.values()].filter((profile) =>
-      !this.reservedBotIds.has(profile.playerId),
+      !this.reservedBotIds.has(profile.playerId) && !this.options.isPlayerBusyElsewhere?.(profile.playerId),
     );
     if (!available.length) return null;
     if (human.lastOpponentId) {

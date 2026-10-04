@@ -28,15 +28,23 @@ export interface InvitationManagerOptions<Socket extends object> {
   getPlayerSockets(playerId: string): Socket[];
   send(socket: Socket, message: unknown): void;
   accept(invitation: MatchInvitation, fromSocket: Socket, toSocket: Socket): InvitationAcceptResult;
+  getAutomaticAcceptDelayMs?(playerId: string): number | undefined;
+  acceptAutomatic?(invitation: MatchInvitation, fromSocket: Socket): InvitationAcceptResult;
   now?: () => number;
   createId?: () => string;
   ttlMs?: number;
 }
 
+const MIN_AUTOMATIC_ACCEPT_DELAY_MS = 2_000;
+const MAX_AUTOMATIC_ACCEPT_DELAY_MS = 5_000;
+
 interface PendingInvitation<Socket extends object> {
   invitation: MatchInvitation;
   fromSocket: Socket;
-  toSocket: Socket;
+  toSocket?: Socket;
+  automatic: boolean;
+  automaticAttempted?: boolean;
+  automaticTimer?: ReturnType<typeof setTimeout>;
   timer: ReturnType<typeof setTimeout>;
 }
 
@@ -114,6 +122,13 @@ export class InvitationManager<Socket extends object> {
   /** Recheck live account, privacy, presence, and selected-socket state after server transitions. */
   revalidateAll(): void {
     for (const [id, pending] of this.pending) {
+      if (pending.automatic) {
+        const failure = this.automaticAcceptFailure(pending);
+        if (failure) {
+          this.close(id, failure === 'NOT_FOUND' ? 'expired' : 'unavailable', failure);
+        }
+        continue;
+      }
       const { invitation, fromSocket, toSocket } = pending;
       const fromId = invitation.from.playerId;
       const toId = invitation.to.playerId;
@@ -123,6 +138,7 @@ export class InvitationManager<Socket extends object> {
       const toPresence = this.options.getPresence(toId);
       if (
         !fromProfile || !toProfile ||
+        !toSocket ||
         !this.options.isAuthorizedSocket(fromId, fromSocket) ||
         !this.options.isAuthorizedSocket(toId, toSocket) ||
         toProfile.showOnline === false ||
@@ -141,6 +157,10 @@ export class InvitationManager<Socket extends object> {
     return this.pending.size;
   }
 
+  hasPending(playerId: string): boolean {
+    return this.pendingByPlayer.has(playerId);
+  }
+
   private sendInvitation(socket: Socket, fromId: string, toId: string): void {
     if (fromId === toId) return this.error(socket, 'SELF_INVITE');
     const fromProfile = this.options.getProfile(fromId);
@@ -157,8 +177,12 @@ export class InvitationManager<Socket extends object> {
     }
     const toPresence = this.options.getPresence(toId);
     if (toPresence === 'playing') return this.error(socket, 'BUSY');
-    const toSocket = this.options.getSelectedSocket(toId);
-    if (!canInvitePresence(toPresence) || !toSocket || !this.options.isAuthorizedSocket(toId, toSocket)) {
+    if (!canInvitePresence(toPresence)) return this.error(socket, 'UNAVAILABLE');
+
+    const automaticDelayMs = this.automaticAcceptDelayMs(toId);
+    const automatic = automaticDelayMs !== undefined && this.hasNoRecipientSocket(toId);
+    const toSocket = automatic ? undefined : this.options.getSelectedSocket(toId);
+    if (!automatic && (!toSocket || !this.options.isAuthorizedSocket(toId, toSocket))) {
       return this.error(socket, 'UNAVAILABLE');
     }
 
@@ -170,24 +194,36 @@ export class InvitationManager<Socket extends object> {
     };
     const timer = setTimeout(() => this.close(invitation.id, 'expired'), this.ttlMs);
     timer.unref?.();
-    const pending = { invitation, fromSocket: socket, toSocket, timer };
+    const pending: PendingInvitation<Socket> = { invitation, fromSocket: socket, toSocket, automatic, timer };
     this.pending.set(invitation.id, pending);
     this.pendingByPlayer.set(fromId, invitation.id);
     this.pendingByPlayer.set(toId, invitation.id);
-    this.options.send(toSocket, { type: 'INVITATION', invitation, direction: 'incoming' });
+    if (automatic) {
+      this.sendToPlayer(fromId, { type: 'INVITATION', invitation, direction: 'outgoing' });
+      if (this.pending.get(invitation.id) !== pending) return;
+      const automaticTimer = setTimeout(
+        () => this.acceptAutomatically(invitation.id),
+        automaticDelayMs!,
+      );
+      automaticTimer.unref?.();
+      pending.automaticTimer = automaticTimer;
+      return;
+    }
+    this.options.send(toSocket!, { type: 'INVITATION', invitation, direction: 'incoming' });
     this.sendToPlayer(fromId, { type: 'INVITATION', invitation, direction: 'outgoing' });
   }
 
   private respond(socket: Socket, actorId: string, invitationId: string, accept: boolean): void {
     const pending = this.pending.get(invitationId);
     if (!pending) return this.error(socket, 'NOT_FOUND', invitationId);
-    const { invitation, fromSocket, toSocket } = pending;
+    const { invitation, fromSocket } = pending;
     if (this.now() >= invitation.expiresAt) {
       this.close(invitationId, 'expired');
       this.error(socket, 'NOT_FOUND', invitationId);
       return;
     }
-    if (actorId !== invitation.to.playerId || socket !== toSocket) {
+    const toSocket = pending.toSocket;
+    if (pending.automatic || !toSocket || actorId !== invitation.to.playerId || socket !== toSocket) {
       this.error(socket, 'INVALID_REQUEST', invitationId);
       return;
     }
@@ -225,7 +261,9 @@ export class InvitationManager<Socket extends object> {
   }
 
   private canStillAccept(pending: PendingInvitation<Socket>): boolean {
-    const { invitation, fromSocket, toSocket } = pending;
+    const { invitation, fromSocket } = pending;
+    const toSocket = pending.toSocket;
+    if (!toSocket) return false;
     const fromId = invitation.from.playerId;
     const toId = invitation.to.playerId;
     const fromProfile = this.options.getProfile(fromId);
@@ -241,11 +279,83 @@ export class InvitationManager<Socket extends object> {
     );
   }
 
-  private close(invitationId: string, reason: InvitationCloseReason): void {
+  private automaticAcceptDelayMs(playerId: string): number | undefined {
+    if (!this.options.getAutomaticAcceptDelayMs || !this.options.acceptAutomatic) return undefined;
+    let delayMs: number | undefined;
+    try {
+      delayMs = this.options.getAutomaticAcceptDelayMs(playerId);
+    } catch {
+      return undefined;
+    }
+    return typeof delayMs === 'number' && Number.isFinite(delayMs) &&
+      delayMs >= MIN_AUTOMATIC_ACCEPT_DELAY_MS && delayMs <= MAX_AUTOMATIC_ACCEPT_DELAY_MS
+      ? delayMs
+      : undefined;
+  }
+
+  private hasNoRecipientSocket(playerId: string): boolean {
+    return this.options.getSelectedSocket(playerId) === undefined &&
+      this.options.getPlayerSockets(playerId).length === 0;
+  }
+
+  private automaticAcceptFailure(pending: PendingInvitation<Socket>): InvitationErrorCode | undefined {
+    const { invitation, fromSocket } = pending;
+    const fromId = invitation.from.playerId;
+    const toId = invitation.to.playerId;
+    if (this.now() >= invitation.expiresAt) return 'NOT_FOUND';
+    const fromProfile = this.options.getProfile(fromId);
+    const toProfile = this.options.getProfile(toId);
+    if (
+      !fromProfile || !toProfile || toProfile.showOnline === false ||
+      !this.options.isAuthorizedSocket(fromId, fromSocket) ||
+      this.automaticAcceptDelayMs(toId) === undefined ||
+      !this.hasNoRecipientSocket(toId)
+    ) return 'UNAVAILABLE';
+    const fromPresence = this.options.getPresence(fromId);
+    const toPresence = this.options.getPresence(toId);
+    if (fromPresence === 'playing' || toPresence === 'playing') return 'BUSY';
+    if (fromPresence === 'offline' || !canInvitePresence(toPresence)) return 'UNAVAILABLE';
+    return undefined;
+  }
+
+  private acceptAutomatically(invitationId: string): void {
+    const pending = this.pending.get(invitationId);
+    if (!pending?.automatic || pending.automaticAttempted) return;
+    pending.automaticAttempted = true;
+    if (pending.automaticTimer) {
+      clearTimeout(pending.automaticTimer);
+      pending.automaticTimer = undefined;
+    }
+
+    const failure = this.automaticAcceptFailure(pending);
+    if (failure) {
+      this.close(invitationId, failure === 'NOT_FOUND' ? 'expired' : 'unavailable', failure);
+      return;
+    }
+
+    let result: InvitationAcceptResult;
+    try {
+      result = this.options.acceptAutomatic!(pending.invitation, pending.fromSocket);
+    } catch {
+      result = { accepted: false, code: 'UNAVAILABLE' };
+    }
+    if (!result.accepted) {
+      this.close(invitationId, 'unavailable', result.code);
+      return;
+    }
+    this.close(invitationId, 'accepted');
+  }
+
+  private close(
+    invitationId: string,
+    reason: InvitationCloseReason,
+    errorCode?: InvitationErrorCode,
+  ): void {
     const pending = this.pending.get(invitationId);
     if (!pending) return;
     this.pending.delete(invitationId);
     clearTimeout(pending.timer);
+    if (pending.automaticTimer) clearTimeout(pending.automaticTimer);
     const { invitation } = pending;
     for (const playerId of [invitation.from.playerId, invitation.to.playerId]) {
       if (this.pendingByPlayer.get(playerId) === invitationId) this.pendingByPlayer.delete(playerId);
@@ -255,6 +365,9 @@ export class InvitationManager<Socket extends object> {
           : reason;
         this.options.send(socket, { type: 'INVITATION_CLOSED', invitationId, reason: socketReason });
       }
+    }
+    if (pending.automatic && (errorCode || reason === 'unavailable')) {
+      this.error(pending.fromSocket, errorCode ?? 'UNAVAILABLE', invitationId);
     }
   }
 

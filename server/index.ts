@@ -25,6 +25,7 @@ import {
   type OfficialBot,
 } from './officialBot';
 import { ensureRankedBots, selectRankedBot, isRankedBotId } from './rankedBots';
+import { RankedBotPresence } from './rankedBotPresence';
 import { inferMatchPlatform } from './matchAnalytics';
 import { hasPlayerTakenTurn } from './matchLifecycle';
 import { createGameRecordStore, GameRecorder, RECORD_RULES_VERSION, type GameRecord } from './gameRecords';
@@ -191,6 +192,10 @@ const tournament = new TournamentRegistry(community, join(dirname(PROFILE_DATA_F
   onBackgroundChange: change => waitingNotifications.update(change),
 });
 await tournament.initialize();
+const rankedBotPresence = new RankedBotPresence({
+  isPlaying: id => getNormalActivity(id) === 'playing' || tournament.isPlayerBusy(id),
+  isReserved: id => invitations?.hasPending(id) ?? false,
+});
 const authorizeCommunity = (playerId: string, token: string): boolean => {
   const profile = profiles.get(playerId);
   return Boolean(profile && !profile.unlinkedAt && !isRankedBotId(playerId) && profile.token === token);
@@ -270,6 +275,7 @@ function selectedInvitationSocket(playerId: string): WebSocket | undefined {
 function getNormalActivity(playerId: string): 'idle' | 'matching' | 'playing' {
   let matching = false;
   for (const room of rooms.values()) {
+    if (!room.finished && room.bot?.playerId === playerId) return 'playing';
     if (room.finished || (room.blackPlayerId !== playerId && room.whitePlayerId !== playerId)) continue;
     if (room.kind === 'friend' && Number(Boolean(room.blackPlayerId)) + Number(Boolean(room.whitePlayerId)) < 2) {
       matching = true;
@@ -304,7 +310,9 @@ function clearFinishedRoomReference(session: ClientSession): void {
 
 function internalPlayerPresence(playerId: string): PlayerPresence {
   const profile = profiles.get(playerId);
-  if (!profile || profile.unlinkedAt || isRankedBotId(playerId) || !selectedInvitationSocket(playerId)) return 'offline';
+  if (!profile || profile.unlinkedAt) return 'offline';
+  if (isRankedBotId(playerId)) return rankedBotPresence.presence(playerId);
+  if (!selectedInvitationSocket(playerId)) return 'offline';
   const tournamentActivity = tournament.invitationActivity(playerId);
   const normalActivity = getNormalActivity(playerId);
   if (normalActivity === 'playing' || tournamentActivity === 'blocked') return 'playing';
@@ -333,6 +341,8 @@ function hasProfileLevelStartConflict(playerId: string, currentSocket: WebSocket
 }
 
 function isPlayerInNormalPlay(playerId: string): boolean {
+  if (isRankedBotId(playerId) &&
+    (getNormalActivity(playerId) !== 'idle' || (invitations?.hasPending(playerId) ?? false))) return true;
   for (const [socket, session] of sessions) {
     if (session.playerId !== playerId) continue;
     if (session.roomId || matchmakingQueue.includes(socket) || pendingBotMatches.has(socket) ||
@@ -472,6 +482,8 @@ invitations = new InvitationManager<WebSocket>({
   getPlayerSockets: authenticatedFeatureSockets,
   send,
   accept: (invitation, fromSocket, toSocket) => acceptInvitationMatch(invitation, fromSocket, toSocket),
+  getAutomaticAcceptDelayMs: id => isRankedBotId(id) ? 2_000 + Math.floor(Math.random() * 3_001) : undefined,
+  acceptAutomatic: acceptRankedInvitationMatch,
   ttlMs: INVITATION_TTL_MS,
 });
 
@@ -726,7 +738,21 @@ async function finishBotMatch(
   reason: MatchReason,
   analyticsReason: string = reason,
 ) {
-  if (room.kind !== 'bot' || room.finished || !room.bot) return;
+  if (room.finished || !room.bot) return;
+  if (room.kind === 'friend') {
+    room.finished = true;
+    clearRoomTimers(room);
+    rememberResult(room, winner, reason);
+    const saved = saveGameRecord(room, { winner, reason: analyticsReason });
+    const playerId = room.bot.side === 'BLACK' ? room.whitePlayerId : room.blackPlayerId;
+    const playerSocket = room.bot.side === 'BLACK' ? room.white : room.black;
+    // Friendly games never touch ratings, and no rematch is offered to the automated side.
+    if (playerSocket && playerId) sendMatchResult(playerSocket, winner, reason, playerId);
+    releaseFinishedRoom(room);
+    invitations?.revalidateAll();
+    await saved;
+    return;
+  }
   const playerSide = opponent(room.bot.side);
   const playerId = playerSide === 'BLACK' ? room.blackPlayerId : room.whitePlayerId;
   const currentSocket = () => playerSide === 'BLACK' ? room.black : room.white;
@@ -848,7 +874,7 @@ function requestRematch(ws: WebSocket, roomId: string) {
 
 async function finishRoom(room: Room, winner: Player, reason: MatchReason, analyticsReason: string = reason) {
   if (room.kind === 'random') await finishRandomMatch(room, winner, reason, analyticsReason);
-  else if (room.kind === 'bot') await finishBotMatch(room, winner, reason, analyticsReason);
+  else if (room.bot) await finishBotMatch(room, winner, reason, analyticsReason);
   else await finishFriendMatch(room, winner, reason, analyticsReason);
 }
 
@@ -890,9 +916,9 @@ function abandonSeat(room: Room, side: Player) {
   if (room.kind === 'random') {
     // MATCH_FOUND starts the game; a first move is not required to forfeit.
     void finishRandomMatch(room, opponent(side), 'forfeit', 'disconnect');
-  } else if (room.kind === 'friend' && room.blackPlayerId && room.whitePlayerId) {
+  } else if (room.kind === 'friend' && !room.bot && room.blackPlayerId && room.whitePlayerId) {
     void finishFriendMatch(room, opponent(side), 'forfeit', 'disconnect');
-  } else if (room.bot && hasPlayerTakenTurn(room.state.history.length, side)) {
+  } else if (room.bot && (room.kind === 'friend' || hasPlayerTakenTurn(room.state.history.length, side))) {
     void finishBotMatch(room, room.bot.side, 'forfeit', 'disconnect');
   } else {
     // An untouched solo bot game has no human opponent awaiting a result.
@@ -982,7 +1008,7 @@ function resumeSeat(ws: WebSocket, playerId: string, roomId?: string) {
 }
 
 function scheduleBotMove(room: Room) {
-  if (room.kind !== 'bot' || room.finished || !room.bot || room.bot.thinking || room.state.turn !== room.bot.side) return;
+  if (room.finished || !room.bot || room.bot.thinking || room.state.turn !== room.bot.side) return;
   room.bot.thinking = true;
   setTimeout(() => {
     void (async () => {
@@ -1058,7 +1084,13 @@ async function startBotMatch(ws: WebSocket) {
     ) return;
     const id = makeRoomId();
     const recentBotIds = recentBotIdsByPlayer.get(initialPlayerId) ?? [];
-    const botProfile = selectRankedBot(profiles.values(), profile.rating, { recentBotIds });
+    const available = [...profiles.values()].filter(candidate => isRankedBotId(candidate.playerId) &&
+      !isPlayerInNormalPlay(candidate.playerId) && !tournament.isPlayerBusy(candidate.playerId));
+    if (!available.length) {
+      send(ws, { type: 'ERROR', message: '지금은 대국 가능한 상대가 없습니다. 잠시 후 다시 시도해 주세요' });
+      return;
+    }
+    const botProfile = selectRankedBot(available, profile.rating, { recentBotIds });
     const bot = createRankedBot(botProfile);
     recentBotIdsByPlayer.set(initialPlayerId, [botProfile.playerId, ...recentBotIds].slice(0, RECENT_BOT_LIMIT));
     const playerSide = opponent(bot.side);
@@ -1235,6 +1267,47 @@ function acceptInvitationMatch(
     state: room.state,
     opponent: opponentSummary(fromId),
   });
+  return { accepted: true };
+}
+
+/** Reserve and start a friendly game synchronously; no external client can act as this recipient. */
+function acceptRankedInvitationMatch(
+  invitation: MatchInvitation,
+  fromSocket: WebSocket,
+): { accepted: true } | { accepted: false; code: 'BUSY' | 'UNAVAILABLE' } {
+  const fromId = invitation.from.playerId;
+  const toId = invitation.to.playerId;
+  const profile = profiles.get(toId);
+  if (!isRankedBotId(toId) || !profile || profile.showOnline === false ||
+    !isInvitationSocketAuthorized(fromId, fromSocket)) return { accepted: false, code: 'UNAVAILABLE' };
+  const fromPresence = internalPlayerPresence(fromId);
+  const toPresence = internalPlayerPresence(toId);
+  if (fromPresence === 'playing' || toPresence === 'playing') return { accepted: false, code: 'BUSY' };
+  if (fromPresence === 'offline' || toPresence !== 'idle') return { accepted: false, code: 'UNAVAILABLE' };
+
+  cancelProfileWait(fromId);
+  clearEmptyFriendRooms(new Set([fromId]));
+  const bot = createRankedBot(profile);
+  const playerSide = opponent(bot.side);
+  const session = sessions.get(fromSocket)!;
+  const room: Room = {
+    id: makeRoomId(), matchId: makeId(16), kind: 'friend', state: initialState(config),
+    black: playerSide === 'BLACK' ? fromSocket : null,
+    white: playerSide === 'WHITE' ? fromSocket : null,
+    blackPlayerId: playerSide === 'BLACK' ? fromId : toId,
+    whitePlayerId: playerSide === 'WHITE' ? fromId : toId,
+    blackPlatform: playerSide === 'BLACK' ? session.platform : 'unknown',
+    whitePlatform: playerSide === 'WHITE' ? session.platform : 'unknown',
+    bot, finished: false,
+  };
+  rooms.set(room.id, room);
+  session.roomId = room.id;
+  startGameRecord(room);
+  send(fromSocket, {
+    type: 'MATCH_FOUND', matchKind: 'friend', roomId: room.id,
+    side: playerSide, state: room.state, opponent: opponentSummary(toId),
+  });
+  scheduleBotMove(room);
   return { accepted: true };
 }
 
@@ -1856,7 +1929,7 @@ wss.on('connection', (ws, request) => {
       const room = id ? rooms.get(id) : undefined;
       if (!id) send(ws, { type: 'ERROR', message: '방 코드가 필요합니다' });
       else if (!room) send(ws, { type: 'ERROR', message: '방을 찾을 수 없습니다' });
-      else if (room.kind !== 'friend') send(ws, { type: 'ERROR', message: '참가할 수 없는 방입니다' });
+      else if (room.kind !== 'friend' || room.bot) send(ws, { type: 'ERROR', message: '참가할 수 없는 방입니다' });
       else if (room.black === ws || room.white === ws) send(ws, { type: 'ERROR', message: '이미 이 방에 참가 중입니다' });
       else {
         const side = attachPlayer(room, ws);
@@ -1898,7 +1971,7 @@ wss.on('connection', (ws, request) => {
       const side: Player | null = room && room.black === ws ? 'BLACK' : room && room.white === ws ? 'WHITE' : null;
       if (!room || !side) send(ws, { type: 'ERROR', message: '방에 참가한 뒤 항복할 수 있습니다' });
       else if (room.kind === 'random' && !room.finished) await finishRandomMatch(room, opponent(side), 'forfeit', 'resign');
-      else if (room.kind === 'bot' && !room.finished && room.bot) await finishBotMatch(room, room.bot.side, 'forfeit', 'resign');
+      else if (!room.finished && room.bot) await finishBotMatch(room, room.bot.side, 'forfeit', 'resign');
       else if (room.kind === 'friend' && !room.finished) {
         if (room.blackPlayerId && room.whitePlayerId) await finishFriendMatch(room, opponent(side), 'forfeit', 'resign');
         else {
@@ -1923,7 +1996,7 @@ wss.on('connection', (ws, request) => {
         else if (room.pendingMove) send(ws, { type: 'ERROR', message: '이전 수를 처리 중입니다' });
         else if (room.state.turn !== side) send(ws, { type: 'ERROR', message: '내 차례가 아닙니다' });
         else if (room.finished || getResult(room.state, config)) send(ws, { type: 'ERROR', message: '게임이 이미 끝났습니다' });
-        else if (room.kind === 'friend' && (!room.black || !room.white)) send(ws, { type: 'ERROR', message: '상대가 입장한 뒤 수를 둘 수 있습니다' });
+        else if (room.kind === 'friend' && !room.bot && (!room.black || !room.white)) send(ws, { type: 'ERROR', message: '상대가 입장한 뒤 수를 둘 수 있습니다' });
         else if (!isValidMove(room.state, msg.move)) send(ws, { type: 'ERROR', message: '불법 수입니다' });
         else {
           room.pendingMove = true;
@@ -1936,10 +2009,10 @@ wss.on('connection', (ws, request) => {
             if (!result) startMoveClock(room);
             broadcastState(room);
             if (result) {
-              if (room.kind === 'bot') await finishBotMatch(room, result.winner, result.reason);
+              if (room.bot) await finishBotMatch(room, result.winner, result.reason);
               else if (room.kind === 'random') await finishRandomMatch(room, result.winner, result.reason);
               else await finishFriendMatch(room, result.winner, result.reason);
-            } else if (room.kind === 'bot') {
+            } else if (room.bot) {
               scheduleBotMove(room);
             }
           } finally {
